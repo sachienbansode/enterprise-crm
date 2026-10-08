@@ -6,6 +6,7 @@ import { LeadModal, DealModal } from "./components/LeadDealModals";
 import MeetingReminders from "./components/MeetingReminders";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import { serverLogout } from "./lib/authFetch";
+import { RecordActivity, RecordDocuments } from "./components/RecordActivity";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -3168,6 +3169,8 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const filtered = leads.filter(l => !search || l.name?.toLowerCase().includes(search.toLowerCase()) || l.lead_code?.toLowerCase().includes(search.toLowerCase()) || l.source?.toLowerCase().includes(search.toLowerCase()));
   const stageLeads = (stageId: string) => filtered.filter(l => l.stage === stageId);
   const [openEmpty, setOpenEmpty] = useState<Set<string>>(new Set()); // empty stages the user expanded
+  const [detailTab, setDetailTab] = useState<"activity" | "documents">("activity");
+  const [activityKey, setActivityKey] = useState(0);
   // Leads whose stage isn't in the configured pipeline still get a column, so nothing disappears from the board
   const boardStages = [
     ...stages,
@@ -3195,13 +3198,20 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       <LeadModal
         open={showCreate || !!editingLead}
         onClose={() => { setShowCreate(false); setEditingLead(null); }}
-        onSaved={() => { load(); setShowCreate(false); setEditingLead(null); setSelected(null); }}
+        onSaved={(saved?: any) => { load(); setShowCreate(false); setEditingLead(null); setActivityKey(k => k + 1); if (saved && selected?.id === saved.id) setSelected({ ...selected, ...saved }); }}
         vertical={vName}
         verticalId={vId}
         editLead={editingLead}
         currentUser={loggedUser}
         apiBase={API_BASE}
       />
+      {/* Phones: always-visible "New lead" button */}
+      {!selected && !showCreate && !editingLead && (
+        <button onClick={() => setShowCreate(true)} aria-label="New lead"
+          className="sm:hidden fixed right-4 bottom-5 z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
+          <Plus className="w-5 h-5" /> New Lead
+        </button>
+      )}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
@@ -3353,7 +3363,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-72 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-96 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
             <div className={`text-sm font-bold ${t.text}`}>Lead Detail</div>
             <div className="flex items-center gap-2">
@@ -3377,6 +3387,8 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               { label: "Stage", value: stages.find((st: any) => st.id === selected.stage)?.label || selected.stage },
               { label: "Status", value: selected.status },
               { label: "RM", value: selected.rm_name || "—" },
+              { label: "Created by", value: selected.created_by_name || "—" },
+              { label: "Opened on", value: selected.opened_at ? new Date(selected.opened_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
             ].map(row => (
               <div key={row.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
                 <span className={t.textMuted}>{row.label}</span>
@@ -3402,6 +3414,18 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 Convert to Deal →
               </button>
             )}
+            {/* History & documents */}
+            <div className={`flex gap-1 border-b ${t.border} pt-2`}>
+              {(["activity", "documents"] as const).map(tab => (
+                <button key={tab} onClick={() => setDetailTab(tab)}
+                  className={`text-xs px-3 py-2 -mb-px border-b-2 capitalize ${detailTab === tab ? "border-blue-500 text-blue-500 font-semibold" : `border-transparent ${t.textMuted}`}`}>
+                  {tab === "activity" ? "History & comments" : "Documents"}
+                </button>
+              ))}
+            </div>
+            {detailTab === "activity"
+              ? <RecordActivity type="lead" id={selected.id} t={t} refreshKey={activityKey} />
+              : <RecordDocuments type="lead" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setActivityKey(k => k + 1)} />}
           </div>
         </div>
       )}
@@ -3506,6 +3530,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
   const [viewMode, setViewMode] = useState<"list" | "board">("list");
   const [showCreate, setShowCreate] = useState(false);
   const [editingDeal, setEditingDeal] = useState<any>(null);
+  const [dealTab, setDealTab] = useState<"activity" | "documents">("activity");
+  const [dealActivityKey, setDealActivityKey] = useState(0);
   const [sortBy, setSortBy] = useState("created_at_desc");
 
   const DEAL_SORT_OPTIONS = [
@@ -3542,13 +3568,19 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
       <DealModal
         open={showCreate || !!editingDeal}
         onClose={() => { setShowCreate(false); setEditingDeal(null); }}
-        onSaved={() => { load(); setShowCreate(false); setEditingDeal(null); }}
+        onSaved={() => { load(); setShowCreate(false); setEditingDeal(null); setSelected(null); setDealActivityKey(k => k + 1); }}
         vertical={vName}
         verticalId={vId}
         editDeal={editingDeal}
         currentUser={loggedUser}
         apiBase={API_BASE}
       />
+      {!selected && !showCreate && !editingDeal && (
+        <button onClick={() => setShowCreate(true)} aria-label="New deal"
+          className="sm:hidden fixed right-4 bottom-5 z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
+          <Plus className="w-5 h-5" /> New Deal
+        </button>
+      )}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
@@ -3662,10 +3694,13 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
 
       {/* Side Panel */}
       {selected && (
-        <div className={`w-64 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-96 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
             <span className={`text-sm font-bold ${t.text}`}>Deal Details</span>
-            <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setEditingDeal(selected)} className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Edit2 className="w-3 h-3" /> Edit</button>
+              <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+            </div>
           </div>
           <div className={`${t.bgCard2} rounded-xl p-3 mb-3`}>
             <code className={`text-[10px] ${verticalAccent(v.id)}`}>{selected.deal_code}</code>
@@ -3677,13 +3712,25 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             { label: "Type", value: selected.type },
             { label: "RM", value: selected.rm_name || "—" },
             { label: "Date", value: fmtDateShort(selected.deal_date) },
+            { label: "Created by", value: selected.created_by_name || "—" },
             { label: "Notes", value: selected.notes || "—" },
           ].map(r => (
             <div key={r.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
               <span className={t.textMuted}>{r.label}</span>
-              <span className={`font-medium ${t.text} text-right max-w-32 truncate`}>{r.value}</span>
+              <span className={`font-medium ${t.text} text-right max-w-48 truncate`}>{r.value}</span>
             </div>
           ))}
+          <div className={`flex gap-1 border-b ${t.border} pt-3 mb-3`}>
+            {(["activity", "documents"] as const).map(tab => (
+              <button key={tab} onClick={() => setDealTab(tab)}
+                className={`text-xs px-3 py-2 -mb-px border-b-2 ${dealTab === tab ? "border-blue-500 text-blue-500 font-semibold" : `border-transparent ${t.textMuted}`}`}>
+                {tab === "activity" ? "History & comments" : "Documents"}
+              </button>
+            ))}
+          </div>
+          {dealTab === "activity"
+            ? <RecordActivity type="deal" id={selected.id} t={t} refreshKey={dealActivityKey} />
+            : <RecordDocuments type="deal" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setDealActivityKey(k => k + 1)} />}
         </div>
       )}
     </div>
@@ -7650,6 +7697,13 @@ export function CRMApp() {
   currencyUnit = currUnit;
   const t = useTheme(darkMode);
   const userEmail = loggedUser?.email || "bhushan@niytri.com";
+
+  // Dark mode for native controls too: dropdown option lists, date pickers and scrollbars follow
+  // the theme, and Tailwind `dark:` styles (used by the lead/deal/client forms) switch on.
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+  }, [darkMode]);
 
   // NOTE: hooks must stay above the early "return" screens below (login / OTP / M365),
   // otherwise React sees a different hook count after sign-in and the page goes blank.

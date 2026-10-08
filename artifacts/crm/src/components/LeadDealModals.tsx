@@ -8,7 +8,7 @@ const inputCls = "w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dar
 const selectCls = inputCls;
 
 const F = ({ label, children, span2 }: { label: string; children: React.ReactNode; span2?: boolean }) => (
-  <div className={span2 ? "col-span-2" : ""}>
+  <div className={span2 ? "sm:col-span-2" : ""}>
     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
     {children}
   </div>
@@ -85,7 +85,7 @@ function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { val
 interface LeadModalProps {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved?: any) => void;
   vertical: string;
   verticalId: string;
   editLead?: any;
@@ -99,11 +99,11 @@ const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 export function parseMoneyToRupees(v: any): string {
   if (v === null || v === undefined || v === "") return "";
   if (typeof v === "number") return String(v);
-  const s = String(v).replace(/[,₹\s]/g, "");
-  const m = s.match(/^([\d.]+)(cr|l|lakh|m)?$/i);
+  const m = String(v).replace(/,/g, "").match(/([\d.]+)\s*(cr|crore|lakh|lac|l|k|mn|m)?/i);
   if (!m) return "";
   const n = parseFloat(m[1]);
-  const mult = !m[2] ? 1 : /^cr$/i.test(m[2]) ? 1e7 : /^(l|lakh)$/i.test(m[2]) ? 1e5 : 1e6;
+  const u = (m[2] || "").toLowerCase();
+  const mult = u.startsWith("cr") ? 1e7 : u === "l" || u.startsWith("la") ? 1e5 : u === "k" ? 1e3 : u === "m" || u === "mn" ? 1e6 : 1;
   return String(Math.round(n * mult));
 }
 
@@ -202,7 +202,8 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to save"); }
-      onSaved(); onClose();
+      const saved = await res.json().catch(() => null);
+      onSaved(saved); onClose();
     } catch (err: any) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -223,17 +224,18 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {isEdit && (
-            <div className="col-span-2 grid grid-cols-3 gap-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 text-xs">
+            <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 text-xs">
               <div><div className="text-gray-500">Lead ID</div><div className="font-mono font-semibold text-gray-900 dark:text-gray-100">{editLead.lead_code || "—"}</div></div>
               <div><div className="text-gray-500">Vertical</div><div className="font-semibold text-gray-900 dark:text-gray-100">{editLead.vertical || vertical}</div></div>
               <div><div className="text-gray-500">Opened on</div><div className="font-semibold text-gray-900 dark:text-gray-100">{fmtDate(editLead.opened_at || editLead.created_at)}</div></div>
+              <div><div className="text-gray-500">Created by</div><div className="font-semibold text-gray-900 dark:text-gray-100">{editLead.created_by_name || "—"}</div></div>
             </div>
           )}
           {/* Name */}
           <F label="Lead Name *" span2>
-            <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} placeholder="e.g. Mr. Rahul Sharma - Equity A/c Opening" />
+            <input value={form.name} onChange={e => set("name", e.target.value)} disabled={isEdit} title={isEdit ? "Lead name can't be changed after creation" : undefined} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder="e.g. Mr. Rahul Sharma - Equity A/c Opening" />
           </F>
           {/* Stage */}
           <F label="Stage">
@@ -424,7 +426,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <F label="Deal Name *" span2>
             <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} placeholder="e.g. ABC Corp - IPO Subscription ₹50L" />
           </F>

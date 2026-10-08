@@ -82,7 +82,7 @@ const mkContact = (type: Contact["contact_type"]): Contact => ({
 
 // ─── Label row ───────────────────────────────────────────────────────────────
 const F = ({ label, children, half }: { label: string; children: React.ReactNode; half?: boolean }) => (
-  <div className={half ? "col-span-1" : "col-span-2 md:col-span-1"}>
+  <div className={half ? "col-span-1" : "sm:col-span-2 md:col-span-1"}>
     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
     {children}
   </div>
@@ -249,8 +249,8 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
         <div className="flex-1 overflow-y-auto p-6">
           {/* ── BASIC INFO ── */}
           {activeSection === "basic" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
                 <F label="Full Name *">
                   <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} placeholder="Client full name" />
                 </F>
@@ -285,12 +285,12 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
               <F label="Primary Email" half>
                 <input type="email" value={form.email} onChange={e => set("email", e.target.value)} className={inputCls} placeholder="client@example.com" />
               </F>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <F label="Address">
                   <textarea value={form.address} onChange={e => set("address", e.target.value)} rows={2} className={inputCls} placeholder="Registered address" />
                 </F>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Verticals</label>
                 <div className="flex flex-wrap gap-2">
                   {VERTICALS.map(v => (
@@ -309,7 +309,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
                   ))}
                 </div>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <F label="Notes / Remarks">
                   <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} className={inputCls} placeholder="Internal notes about this client..." />
                 </F>
@@ -319,7 +319,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
 
           {/* ── KYC / COMPLIANCE ── */}
           {activeSection === "kyc" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <F label="Status" half>
                 <select value={form.status} onChange={e => set("status", e.target.value)} className={selectCls}>
                   {STATUSES.map(s => <option key={s}>{s}</option>)}
@@ -340,7 +340,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
                   {RISK_PROFILES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </F>
-              <div className="col-span-2 mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <div className="sm:col-span-2 mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                 <p className="text-xs text-amber-700 dark:text-amber-400">
                   KYC documents and compliance records can be uploaded in the Client 360 → KYC & Compliance tab after creating the client.
                 </p>
@@ -350,7 +350,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
 
           {/* ── BANKING & DEMAT ── */}
           {activeSection === "banking" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <F label="Demat Account No." half>
                 <input value={form.demat_account} onChange={e => set("demat_account", e.target.value)} className={inputCls} placeholder="1234567890123456" />
               </F>
@@ -427,7 +427,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
 
           {/* ── ASSIGNMENT ── */}
           {activeSection === "settings" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <F label="Assigned RM" half>
                 <select value={form.rm_id} onChange={e => set("rm_id", e.target.value)} className={selectCls}>
                   <option value="">— None —</option>
@@ -446,7 +446,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
                   </select>
                 </F>
               )}
-              <div className="col-span-2 mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="sm:col-span-2 mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <p className="text-xs text-blue-700 dark:text-blue-400">
                   <strong>Client Owner</strong> has full PII access and can view all documents. RM has standard access based on their vertical permissions.
                 </p>

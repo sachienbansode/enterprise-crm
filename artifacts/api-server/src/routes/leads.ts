@@ -114,7 +114,8 @@ router.patch("/:id", async (req, res) => {
         updated_at = NOW()
         WHERE id = $14 RETURNING *`,
       // source / sub_source are fixed after creation → never updated here
-      [name, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id],
+      // lead name is fixed after creation too
+      [null, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id],
     );
 
     await logAudit({
@@ -122,7 +123,9 @@ router.patch("/:id", async (req, res) => {
       entityId: req.params.id,
       entityCode: prev.lead_code,
       action: "UPDATE",
-      userName: updated_by || "System",
+      userName: req.user?.name || updated_by || "System",
+      userId: req.user?.id,
+      userRole: req.user?.role,
       recordDisplay: `${prev.name} (${prev.lead_code})`,
       before: prev,
       after: result.rows[0],
@@ -155,9 +158,9 @@ router.post("/", async (req, res) => {
     const lead_code = `${prefix}-${seq}`;
 
     const result = await query(
-      `INSERT INTO leads (lead_code, name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, expected_close, opened_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *`,
-      [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null],
+      `INSERT INTO leads (lead_code, name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, expected_close, opened_at, created_by, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15,$16) RETURNING *`,
+      [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null],
     );
 
     await logAudit({
@@ -165,6 +168,9 @@ router.post("/", async (req, res) => {
       entityId: result.rows[0].id,
       entityCode: lead_code,
       action: "CREATE",
+      userId: req.user?.id,
+      userName: req.user?.name,
+      userRole: req.user?.role,
       recordDisplay: `${name} (${lead_code}) — ${vertical}`,
       after: result.rows[0],
     });

@@ -451,3 +451,8 @@ html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
   .overflow-hidden, .overflow-y-auto, .overflow-auto { overflow: visible !important; }
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Native dropdown lists in dark mode (Windows Chrome otherwise shows light-grey text on white) */
+.dark select, .dark option, .dark optgroup { color-scheme: dark; }
+.dark option, .dark optgroup { background-color: #141a24; color: #eceff3; }
+.dark option:checked { background-color: #2563eb; color: #fff; }

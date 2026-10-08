@@ -19,6 +19,7 @@ import configRouter from "./config";
 import piiMaskingRouter from "./pii-masking";
 import auditRouter from "./audit";
 import systemStatusRouter from "./system-status";
+import activityRouter from "./activity";
 
 const router: IRouter = Router();
 
@@ -75,5 +76,6 @@ router.use("/config", adminForWrites, configRouter);
 router.use("/pii-masking", adminForWrites, piiMaskingRouter);
 router.use("/audit-logs", requireAdmin, auditRouter);
 router.use("/system-status", requireAdmin, systemStatusRouter);
+router.use("/activity", activityRouter);
 
 export default router;

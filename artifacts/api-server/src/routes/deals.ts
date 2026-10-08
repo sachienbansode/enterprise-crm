@@ -111,7 +111,9 @@ router.patch("/:id", async (req, res) => {
       entityId: req.params.id,
       entityCode: prev.deal_code,
       action: "UPDATE",
-      userName: updated_by || "System",
+      userName: req.user?.name || updated_by || "System",
+      userId: req.user?.id,
+      userRole: req.user?.role,
       recordDisplay: `${prev.name} (${prev.deal_code})`,
       before: prev,
       after: result.rows[0],
@@ -142,9 +144,9 @@ router.post("/", async (req, res) => {
     const deal_code = `${prefix}${seq}`;
 
     const result = await query(
-      `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11) RETURNING *`,
-      [deal_code, name, vertical, type || null, deal_type || null, value || null, stage || "Active", client_id || null, rm_id || null, notes || null, expected_close || null],
+      `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11,$12,$13) RETURNING *`,
+      [deal_code, name, vertical, type || null, deal_type || null, value || null, stage || "Active", client_id || null, rm_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null],
     );
 
     await logAudit({
@@ -152,6 +154,9 @@ router.post("/", async (req, res) => {
       entityId: result.rows[0].id,
       entityCode: deal_code,
       action: "CREATE",
+      userId: req.user?.id,
+      userName: req.user?.name,
+      userRole: req.user?.role,
       recordDisplay: `${name} (${deal_code}) — ${vertical}`,
       after: result.rows[0],
     });

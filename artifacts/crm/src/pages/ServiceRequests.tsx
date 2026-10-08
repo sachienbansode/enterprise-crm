@@ -300,7 +300,7 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
             <label className={`text-xs font-semibold ${t.textMuted} block mb-1`}>Description</label>
             <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} className={`w-full text-xs rounded-xl border px-3 py-2.5 ${t.inputBg} resize-none outline-none`} placeholder="Provide full details of the request or issue…" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={`text-xs font-semibold ${t.textMuted} block mb-1`}>Category</label>
               <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, subcategory: "" }))} className={`w-full text-xs rounded-xl border px-3 py-2.5 ${t.inputBg} outline-none`}>

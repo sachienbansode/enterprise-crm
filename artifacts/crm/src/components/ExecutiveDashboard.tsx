@@ -66,12 +66,15 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
   if (error && !data) return <div className="p-6"><div className={`text-sm rounded-xl border p-4 ${t.alertRed}`}>Could not load dashboard: {error}</div></div>;
   if (!data) return null;
   const k = data.kpis;
+  const toScorecards = () => document.getElementById("vertical-scorecards")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const VID_BY_NAME: Record<string, string> = Object.fromEntries(data.verticals.map(v => [v.name, v.id]));
+  const openVertical = (row: any) => { const v = data.verticals.find(x => VID_SHORT[x.id] === row?.name); if (v) onNav(v.id, "leads"); };
   const breachPct = k.openSRs ? Math.round((k.breachedSRs / k.openSRs) * 100) : 0;
 
   const kpis = [
-    { label: "Open pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open leads`, icon: TrendingUp, onClick: undefined },
-    { label: "Won value", value: fmt(k.wonValue), sub: `${k.wonLeads} leads won`, icon: Trophy },
-    { label: "Win rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} closed leads` : "No closed leads yet", icon: Target },
+    { label: "Open pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open leads · by vertical ↓`, icon: TrendingUp, onClick: toScorecards },
+    { label: "Won value", value: fmt(k.wonValue), sub: `${k.wonLeads} leads won · by vertical ↓`, icon: Trophy, onClick: toScorecards },
+    { label: "Win rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} closed leads` : "No closed leads yet", icon: Target, onClick: toScorecards },
     { label: "Active clients", value: String(k.clients.active), sub: `${k.clients.kyc_attention} need KYC attention`, icon: Users, onClick: () => onNav(null, "clients") },
     { label: "Open service requests", value: String(k.openSRs), sub: `${k.totalSRs} total`, icon: MessageSquare, onClick: () => onNav(null, "service") },
     { label: "SLA breached", value: String(k.breachedSRs), sub: `${breachPct}% of open SRs`, icon: AlertTriangle, alert: k.breachedSRs > 0, onClick: () => onNav(null, "service") },
@@ -100,8 +103,8 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
       {/* KPI tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {kpis.map(x => (
-          <button key={x.label} onClick={x.onClick} disabled={!x.onClick}
-            className={`${card} p-4 text-left ${x.onClick ? "hover:border-blue-500/50 transition-colors" : "cursor-default"}`}>
+          <button key={x.label} onClick={x.onClick}
+            className={`${card} p-4 text-left hover:border-blue-500/50 active:scale-[0.99] transition`}>
             <div className="flex items-center justify-between">
               <span className={`text-[11px] font-medium ${t.textMuted}`}>{x.label}</span>
               <x.icon className={`w-4 h-4 ${x.alert ? "text-red-500" : t.textMuted}`} />
@@ -116,19 +119,24 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
         <div className={`${card} p-4 xl:col-span-3`}>
           <div className={`text-sm font-semibold ${t.text}`}>Pipeline value by vertical</div>
-          <div className={`text-[11px] ${t.textMuted} mb-3`}>Open vs won lead value · click a vertical to open its dashboard</div>
+          <div className={`text-[11px] ${t.textMuted} mb-3`}>Open vs won lead value · tap a bar or a vertical below to open its pipeline</div>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {data.verticals.map(v => (
+              <button key={v.id} onClick={() => onNav(v.id, "leads")} className={`text-[11px] px-2.5 py-1 rounded-full border ${t.border} ${t.textSub} hover:border-blue-500/60`}>{v.name} →</button>
+            ))}
+          </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={pipelineRows} layout="vertical" margin={{ left: 4, right: 16 }} barGap={2} barCategoryGap="28%"
-                onClick={(e: any) => { const v = data.verticals.find(x => VID_SHORT[x.id] === e?.activeLabel); if (v) onNav(v.id, "dashboard"); }}>
+                onClick={(e: any) => openVertical({ name: e?.activeLabel })}>
                 <CartesianGrid horizontal={false} stroke={c.grid} />
                 <XAxis type="number" {...axisProps} tickFormatter={moneyTick} />
                 <YAxis type="category" dataKey="name" {...axisProps} width={36} />
                 <Tooltip contentStyle={tooltipStyle} cursor={{ fill: isDark ? "#ffffff08" : "#0000000a" }}
                   formatter={(v: any, n: any) => [fmt(Number(v)), n]} labelFormatter={(l: any) => pipelineRows.find(r => r.name === l)?.full || l} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Open" fill={c.s1} radius={[0, 4, 4, 0]} cursor="pointer" />
-                <Bar dataKey="Won" fill={c.s3} radius={[0, 4, 4, 0]} cursor="pointer" />
+                <Bar dataKey="Open" fill={c.s1} radius={[0, 4, 4, 0]} cursor="pointer" onClick={openVertical} />
+                <Bar dataKey="Won" fill={c.s3} radius={[0, 4, 4, 0]} cursor="pointer" onClick={openVertical} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -177,7 +185,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
           </div>
           <div className="mt-4 space-y-3">
             {priorities.map(({ p, n }) => (
-              <div key={p}>
+              <div key={p} role="button" tabIndex={0} onClick={() => onNav(null, "service")} className="cursor-pointer">
                 <div className="flex justify-between text-xs mb-1"><span className={t.textSub}>{p}</span><span className={`font-semibold ${t.text}`}>{n}</span></div>
                 <div className={`h-2 rounded-full ${t.bgCard2}`}><div className="h-2 rounded-full" style={{ width: `${(n / maxPri) * 100}%`, background: STATUS[p] }} /></div>
               </div>
@@ -229,7 +237,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
           <div className={`text-sm font-semibold ${t.text} mb-3 flex items-center gap-2`}><CalendarClock className="w-4 h-4" /> Closing in next 30 days</div>
           <div className="space-y-2">
             {data.upcoming.map(u => (
-              <div key={u.lead_code} className={`flex items-center justify-between gap-2 py-1.5 border-b ${t.border} last:border-0`}>
+              <button key={u.lead_code} onClick={() => VID_BY_NAME[u.vertical] && onNav(VID_BY_NAME[u.vertical], "leads")} className={`w-full text-left flex items-center justify-between gap-2 py-1.5 border-b ${t.border} last:border-0 hover:opacity-80`}>
                 <div className="min-w-0">
                   <div className={`text-xs font-medium ${t.text} truncate`}>{u.name}</div>
                   <div className={`text-[10px] ${t.textMuted}`}>{u.lead_code} · {u.vertical}{u.rm ? ` · ${u.rm}` : ""}</div>
@@ -238,7 +246,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
                   <div className={`text-xs font-semibold ${t.text}`}>{u.value ? fmt(u.value) : "—"}</div>
                   <div className={`text-[10px] ${t.textMuted}`}>{new Date(u.expected_close).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>
                 </div>
-              </div>
+              </button>
             ))}
             {!data.upcoming.length && <div className={`text-xs ${t.textMuted} py-6 text-center`}>No leads with an expected close date in the next 30 days.<br />Set "Expected Close Date" on leads to see them here.</div>}
           </div>
@@ -246,12 +254,12 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
       </div>
 
       {/* Vertical scorecards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+      <div id="vertical-scorecards" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 scroll-mt-4">
         {data.verticals.map(v => {
           const closed = v.wonCount + v.lostCount;
           return (
-            <button key={v.id} onClick={() => onNav(v.id, "dashboard")} className={`${card} p-4 text-left hover:border-blue-500/50 transition-colors`}>
-              <div className={`text-xs font-bold ${t.text}`}>{v.name}</div>
+            <button key={v.id} onClick={() => onNav(v.id, "leads")} className={`${card} p-4 text-left hover:border-blue-500/50 transition-colors`}>
+              <div className={`text-xs font-bold ${t.text} flex items-center justify-between`}>{v.name}<ArrowRight className={`w-3.5 h-3.5 ${t.textMuted}`} /></div>
               <div className={`text-lg font-bold mt-2 ${t.text}`}>{fmt(v.open)}</div>
               <div className={`text-[11px] ${t.textMuted}`}>open pipeline · {v.openCount} leads</div>
               <div className={`mt-3 pt-3 border-t ${t.border} flex justify-between text-[11px]`}>

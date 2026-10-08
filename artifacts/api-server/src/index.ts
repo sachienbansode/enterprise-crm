@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { seedIfEmpty } from "./lib/seed";
 import { query } from "./lib/db";
 import { ensureSessionSchema } from "./lib/session";
+import { ensureAppSchema } from "./lib/schema";
 
 const rawPort = process.env["PORT"];
 
@@ -31,6 +32,7 @@ await query(`
   )
 `);
 await ensureSessionSchema();
+await ensureAppSchema();
 
 // Clean up any expired OTPs from previous runs
 await query("DELETE FROM otp_store WHERE expires_at < NOW()");

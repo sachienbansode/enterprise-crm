@@ -14,7 +14,7 @@ const fmtSize = (bytes: number) =>
 // GET /api/documents — list documents
 router.get("/", async (req, res) => {
   try {
-    const { client_id, sr_id, vertical, type, status, search, page = "1", limit = "15" } = req.query as Record<string, string>;
+    const { client_id, sr_id, lead_id, deal_id, vertical, type, status, search, page = "1", limit = "15" } = req.query as Record<string, string>;
     const pageNum = parseInt(page, 10);
     const pageSize = Math.min(parseInt(limit, 10), 50);
     const offset = (pageNum - 1) * pageSize;
@@ -23,6 +23,8 @@ router.get("/", async (req, res) => {
     const params: any[] = [];
     if (client_id) { params.push(client_id); where += ` AND d.client_id=$${params.length}`; }
     if (sr_id) { params.push(sr_id); where += ` AND d.sr_id=$${params.length}`; }
+    if (lead_id) { params.push(lead_id); where += ` AND d.lead_id=$${params.length}`; }
+    if (deal_id) { params.push(deal_id); where += ` AND d.deal_id=$${params.length}`; }
     if (vertical) { params.push(vertical); where += ` AND d.vertical=$${params.length}`; }
     if (type && type !== "all") { params.push(type); where += ` AND d.type=$${params.length}`; }
     if (status && status !== "all") { params.push(status); where += ` AND d.status=$${params.length}`; }
@@ -92,7 +94,8 @@ router.get("/:id/download", async (req, res) => {
 // POST /api/documents/upload — accepts base64-encoded file
 router.post("/upload", async (req, res) => {
   try {
-    const { name, type, client_id, sr_id, vertical, fileData, fileName, note, created_by } = req.body;
+    const { name, type, client_id, sr_id, lead_id, deal_id, vertical, fileData, fileName, note } = req.body;
+    const created_by = req.user?.id; // uploader is always the signed-in user
     if (!fileData || !fileName) return res.status(400).json({ error: "fileData and fileName are required" });
 
     const base64Clean = fileData.replace(/^data:[^;]+;base64,/, "");
@@ -122,9 +125,9 @@ router.post("/upload", async (req, res) => {
     const doc_code = `DOC-${prefix}-${seq}`;
 
     const docRes = await query(
-      `INSERT INTO documents (doc_code, name, type, client_id, sr_id, vertical, s3_bucket, s3_key, created_by, current_version, status)
-       VALUES ($1,$2,$3,$4,$5,$6,'local',$7,$8,'v1.0','Active') RETURNING *`,
-      [doc_code, name || fileName, type || "Other", client_id || null, sr_id || null, vertical || null, savedName, uploaderUuid],
+      `INSERT INTO documents (doc_code, name, type, client_id, sr_id, vertical, s3_bucket, s3_key, created_by, current_version, status, lead_id, deal_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'local',$7,$8,'v1.0','Active',$9,$10) RETURNING *`,
+      [doc_code, name || fileName, type || "Other", client_id || null, sr_id || null, vertical || null, savedName, uploaderUuid, lead_id || null, deal_id || null],
     );
     const docId = docRes.rows[0].id;
 
