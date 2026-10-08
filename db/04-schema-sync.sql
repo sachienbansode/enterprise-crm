@@ -1,0 +1,252 @@
+-- Step 4: Schema sync — brings the Replit-era seed schema up to what the current code expects
+-- Safe to run repeatedly (IF NOT EXISTS / ON CONFLICT everywhere).
+-- pgAdmin: Query Tool on "niytri_crm" as root_admin -> run (F5)
+
+SET search_path = public;
+
+-- ── Missing columns ───────────────────────────────────────────────────────
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS pii_masking_enabled boolean DEFAULT true;
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS fallback_enabled      boolean DEFAULT false;
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS fallback_provider     varchar(50);
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS fallback_model        varchar(100);
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS fallback_api_key      text;
+ALTER TABLE ai_config              ADD COLUMN IF NOT EXISTS fallback_endpoint_url text;
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS entity_code    varchar(50);
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS user_role      varchar(100);
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS changed_fields jsonb;
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS record_display text;
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS old_value      jsonb;
+ALTER TABLE audit_logs             ADD COLUMN IF NOT EXISTS new_value      jsonb;
+ALTER TABLE clients                ADD COLUMN IF NOT EXISTS landline       varchar(30);
+ALTER TABLE clients                ADD COLUMN IF NOT EXISTS notes          text;
+ALTER TABLE client_access_requests ADD COLUMN IF NOT EXISTS expires_at       timestamptz;
+ALTER TABLE client_access_requests ADD COLUMN IF NOT EXISTS reviewed_by_name varchar(255);
+ALTER TABLE deals                  ADD COLUMN IF NOT EXISTS deal_type      varchar(100);
+ALTER TABLE deals                  ADD COLUMN IF NOT EXISTS expected_close date;
+ALTER TABLE leads                  ADD COLUMN IF NOT EXISTS deal_type      varchar(100);
+ALTER TABLE leads                  ADD COLUMN IF NOT EXISTS expected_close date;
+ALTER TABLE leads                  ADD COLUMN IF NOT EXISTS product        varchar(150);
+ALTER TABLE leads                  ADD COLUMN IF NOT EXISTS sub_source     varchar(150);
+ALTER TABLE sla_config             ADD COLUMN IF NOT EXISTS subcategory    varchar(200);
+ALTER TABLE users                  ADD COLUMN IF NOT EXISTS mobile         varchar(20);
+ALTER TABLE users                  ADD COLUMN IF NOT EXISTS location       varchar(100);
+ALTER TABLE m365_config            ADD COLUMN IF NOT EXISTS prefer_smtp    boolean DEFAULT false NOT NULL;
+ALTER TABLE documents              ADD COLUMN IF NOT EXISTS sr_id          uuid;
+
+-- SLA: one row per category+subcategory (was unique on category only)
+ALTER TABLE sla_config DROP CONSTRAINT IF EXISTS sla_config_category_key;
+CREATE UNIQUE INDEX IF NOT EXISTS sla_config_cat_subcat_key ON sla_config (category, COALESCE(subcategory, ''));
+
+-- ── Missing tables ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS client_contacts (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    client_id    uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    contact_type varchar(30)  NOT NULL,
+    value        varchar(255) NOT NULL,
+    label        varchar(100) DEFAULT 'Primary',
+    is_primary   boolean DEFAULT false,
+    created_at   timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_client_contacts_client ON client_contacts (client_id);
+
+CREATE TABLE IF NOT EXISTS dropdown_config (
+    id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    entity     varchar(50)  NOT NULL,
+    field      varchar(50)  NOT NULL,
+    value      varchar(200) NOT NULL,
+    label      varchar(200) NOT NULL,
+    sort_order integer DEFAULT 0,
+    is_active  boolean DEFAULT true,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE (entity, field, value)
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    entity     varchar(20)  NOT NULL,
+    vertical   varchar(20)  NOT NULL,
+    stage_id   varchar(100) NOT NULL,
+    label      varchar(200) NOT NULL,
+    sort_order integer DEFAULT 0,
+    color      varchar(50),
+    is_active  boolean DEFAULT true,
+    is_won     boolean DEFAULT false,
+    is_lost    boolean DEFAULT false,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE (entity, vertical, stage_id)
+);
+
+CREATE TABLE IF NOT EXISTS pii_masking_settings (
+    id               serial PRIMARY KEY,
+    enabled          boolean DEFAULT true,
+    scope            varchar(30) DEFAULT 'all',
+    apply_to_ai      boolean DEFAULT true,
+    apply_to_exports boolean DEFAULT false,
+    apply_to_reports boolean DEFAULT false,
+    log_access       boolean DEFAULT false,
+    allow_admin_view boolean DEFAULT true,
+    allow_owner_view boolean DEFAULT true,
+    updated_at       timestamptz DEFAULT now(),
+    updated_by       varchar(255)
+);
+
+CREATE TABLE IF NOT EXISTS pii_masking_fields (
+    id             serial PRIMARY KEY,
+    field_key      varchar(100) NOT NULL UNIQUE,
+    field_label    varchar(200) NOT NULL,
+    description    text,
+    is_enabled     boolean DEFAULT true,
+    regex_pattern  text,
+    mask_display   varchar(100),
+    example_before varchar(200),
+    example_after  varchar(200),
+    sort_order     integer DEFAULT 0,
+    category       varchar(50) DEFAULT 'custom',
+    created_at     timestamptz DEFAULT now(),
+    updated_at     timestamptz DEFAULT now()
+);
+
+-- ── Seed config data (dropdowns, pipeline stages, PII fields) ─────────────
+-- Seed for dropdown_config, pipeline_stages, pii_masking_fields
+-- Safe: all INSERTs use ON CONFLICT handling
+
+-- ── dropdown_config ──────────────────────────────────────────────────────
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('baafaa5b-761f-45ce-af6e-e16bcf8fa3d6', 'client', 'category', 'Individual', 'Individual', 1, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('5ee59503-2974-44ed-ad1a-81dc4300031a', 'client', 'category', 'HUF', 'HUF', 2, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('4056f19d-368f-455c-be34-19554f467ac5', 'client', 'category', 'Corporate', 'Corporate', 3, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('4cd86825-b341-4e0c-b70e-e471640eeb71', 'client', 'category', 'LLP', 'LLP', 4, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('d29088f9-092e-4180-8e9a-3dc0cf32c0bb', 'client', 'category', 'Partnership', 'Partnership', 5, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('bc5d1ba4-3873-4ca8-91e0-45375f65ead6', 'client', 'category', 'Trust', 'Trust', 6, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('c339bdd6-2053-4221-bedd-dfe3daaa6e49', 'client', 'category', 'AOP/BOI', 'AOP/BOI', 7, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('ae4bc330-7adf-45d3-8e96-6363edf7c015', 'client', 'category', 'FPI', 'FPI', 8, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('15782429-ac22-449d-b38a-2e6a999acd8e', 'client', 'category', 'FII', 'FII', 9, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('dc7ca119-1bdd-439c-9274-2a2dbf709c6d', 'client', 'category', 'Mutual Fund', 'Mutual Fund', 10, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('9c0075e1-4505-4d9b-87f7-cb2396a6ac88', 'client', 'category', 'Insurance Company', 'Insurance Company', 11, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('b0a211cd-820f-46af-b16a-ee1483e4bf9e', 'client', 'category', 'Bank', 'Bank', 12, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('acad7180-7107-4bda-8ecb-a525172fe672', 'client', 'category', 'NBFC', 'NBFC', 13, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('f05187ec-5922-4999-afa5-46c83f6585d1', 'deal', 'type', 'Equity Broking', 'Equity Broking', 1, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('6313f719-9248-4b84-9d37-5461147eb3e7', 'deal', 'type', 'Derivatives', 'Derivatives', 2, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('03dbfb8d-760b-499c-b735-94648c9d0780', 'deal', 'type', 'IPO/OFS', 'IPO/OFS', 3, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('13ccec15-23b6-451c-91cb-bea50447e9b0', 'deal', 'type', 'Bond/NCD', 'Bond/NCD', 4, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('9c57090e-9da0-4e90-bff0-d7ee6595e101', 'deal', 'type', 'Mutual Fund', 'Mutual Fund', 5, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('707e9d2f-0703-47a0-9aba-446e72c4acb2', 'deal', 'type', 'PMS', 'PMS', 6, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('52d15ade-4893-45de-b168-fe0f928ed5c8', 'deal', 'type', 'AIF - Cat I', 'AIF - Cat I', 7, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('b28c1a88-d447-43a0-8bc7-c86f1ce97ac6', 'deal', 'type', 'AIF - Cat II', 'AIF - Cat II', 8, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('6188eee2-084e-4389-9644-d00a5b5429f1', 'deal', 'type', 'AIF - Cat III', 'AIF - Cat III', 9, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('770afdb4-7243-4bd6-97b9-06d221588425', 'deal', 'type', 'M&A Advisory', 'M&A Advisory', 10, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('52b34523-bae6-4b86-97e7-76c34b09db9a', 'deal', 'type', 'Debt Arrangement', 'Debt Arrangement', 11, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('bbf32d27-0966-41f4-95d6-c195b3e3c04e', 'deal', 'type', 'ECM - QIP', 'ECM - QIP', 12, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('a26f2606-fc13-4caa-8cac-3aab0f4acd17', 'deal', 'type', 'ECM - Rights Issue', 'ECM - Rights Issue', 13, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('fd060350-1f2b-4369-847b-9de778aa5624', 'deal', 'type', 'Institutional Block', 'Institutional Block', 14, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('702342d1-d51b-4560-9ee7-e6afa979c1dd', 'deal', 'type', 'Corporate Broking', 'Corporate Broking', 15, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('b0a4e9b3-2be0-4198-9849-5802a7c9a535', 'deal', 'type', 'Other', 'Other', 16, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('9fc649cc-2282-4553-ad95-c4215a349fc0', 'lead', 'product', 'Equity - Delivery', 'Equity - Delivery', 1, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('24033e65-4a44-4608-9077-e9aad9204cbe', 'lead', 'product', 'Equity - Intraday', 'Equity - Intraday', 2, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('ccae861e-0bcc-4383-9670-d296bf74ce21', 'lead', 'product', 'Futures & Options', 'Futures & Options', 3, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('6687b91a-4d32-4680-be38-3c9d7d4c0ed7', 'lead', 'product', 'Currency Derivatives', 'Currency Derivatives', 4, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('6a255463-8db7-488f-bd6f-3211ddc8025b', 'lead', 'product', 'Commodity', 'Commodity', 5, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('0d3d1750-6611-4e3d-9d8e-21736e3946d3', 'lead', 'product', 'Mutual Fund', 'Mutual Fund', 6, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('8b686e82-d010-490b-81e4-b687aebb78f3', 'lead', 'product', 'PMS', 'PMS', 7, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('e748dd50-a69f-423e-834b-84084b9d827b', 'lead', 'product', 'AIF', 'AIF', 8, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('50a8e39a-1a44-4e8c-a472-5ade5c6366dd', 'lead', 'product', 'IPO', 'IPO', 9, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('251ca9d8-4f01-4b75-beca-7be742e41306', 'lead', 'product', 'NCD/Bond', 'NCD/Bond', 10, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('9bd968bc-2881-40ca-a485-5695a2b1c205', 'lead', 'product', 'FD', 'FD', 11, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('7ce3e799-ab98-4128-bb21-c3c956154f5f', 'lead', 'product', 'Insurance', 'Insurance', 12, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('2a079fcd-6e19-40fa-a485-2c3d8d7531ab', 'lead', 'product', 'Portfolio Advisory', 'Portfolio Advisory', 13, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('9e24f785-e7b6-4e5b-ab6c-82da8e5b65f6', 'lead', 'product', 'Corporate Finance', 'Corporate Finance', 14, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('6a81bf8e-28a9-48d7-846e-020284f49144', 'lead', 'product', 'M&A Advisory', 'M&A Advisory', 15, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('fe715c52-1180-4f91-94b5-be7e787a6cd7', 'lead', 'product', 'Capital Markets', 'Capital Markets', 16, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('12cc31ea-5b56-4d21-9d58-479d16b9873a', 'lead', 'source', 'Referral', 'Referral', 1, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('7d11b76a-512f-403c-ac20-0a166faa1897', 'lead', 'source', 'Website', 'Website', 2, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('ed5ea209-74c3-4be0-a989-2875ee7988fe', 'lead', 'source', 'Cold Call', 'Cold Call', 3, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('f615c301-5ec0-4a01-91bb-efa01db5d5cc', 'lead', 'source', 'Walk-In', 'Walk-In', 4, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('166b3548-3950-4d4e-b6f4-1cae6ee072e2', 'lead', 'source', 'Event/Conference', 'Event/Conference', 5, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('008c7293-9fe5-480c-b385-4755fc4c5a93', 'lead', 'source', 'Partner/Channel', 'Partner/Channel', 6, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('cb58f268-b80f-4fd1-a9f2-88846f5964b3', 'lead', 'source', 'Social Media', 'Social Media', 7, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('8e7952b8-c6df-486a-8eef-a0c3fcf88dec', 'lead', 'source', 'Email Campaign', 'Email Campaign', 8, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('be1bea43-57d7-405c-8234-e6d1fdd5532a', 'lead', 'source', 'Existing Client', 'Existing Client', 9, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('0f07dc2d-dbe7-418f-9a49-4296fc8eac22', 'lead', 'source', 'Online Ad', 'Online Ad', 10, true) ON CONFLICT (entity, field, value) DO NOTHING;
+INSERT INTO dropdown_config (id, entity, field, value, label, sort_order, is_active) VALUES ('0acabc6b-ddbb-44dd-887b-feed5f97924b', 'lead', 'source', 'Other', 'Other', 11, true) ON CONFLICT (entity, field, value) DO NOTHING;
+
+-- ── pipeline_stages ─────────────────────────────────────────────────────
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('0592fe61-29d6-422e-81bd-8d5d9f92ff08', 'deal', 'aif', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('9757d91c-3bcf-41b7-b776-a353b38e4d3a', 'deal', 'aif', 'Subscription Received', 'Subscription Received', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('62a4a6e8-18be-403a-bd4a-ccdbad4fbd3f', 'deal', 'aif', 'Capital Called', 'Capital Called', 3, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('6671c5bd-2d9c-46f2-8d80-292ae3f3ecdc', 'deal', 'aif', 'Invested', 'Invested', 4, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('1facc8d8-cb9b-4499-9f9e-b99029924d90', 'lead', 'aif', 'prospect', 'Prospect', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('86364462-6865-498b-b9ca-57e770fea4c8', 'lead', 'aif', 'pitch_deck_sent', 'Pitch Deck Sent', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('eddf9890-a8ec-4087-a8ef-3d4bd681319f', 'lead', 'aif', 'meeting_scheduled', 'Meeting Scheduled', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('40aa0486-d2a7-4c13-9bbc-a8d86912445a', 'lead', 'aif', 'term_sheet', 'Term Sheet', 4, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('5a062bae-ab68-4a80-8bbe-2d8e07df974c', 'lead', 'aif', 'subscription_signed', 'Subscription Signed', 5, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('2716c20e-49ea-42d3-8ae1-0e1468c0e0f0', 'lead', 'aif', 'won', 'Capital Committed', 6, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c4f938f7-9d36-4999-b0de-1b94907c94a8', 'lead', 'aif', 'lost', 'Lost', 7, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('a6654baa-d35d-4a84-bb0b-043ef27d9737', 'deal', 'corporate', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('5619d37a-d415-46e1-8929-0a66955469ad', 'deal', 'corporate', 'In Progress', 'In Progress', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('1ec64018-9711-432d-a5d4-dba2334865b3', 'deal', 'corporate', 'Executed', 'Executed', 3, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c26c078a-b417-4446-876e-77075be4e49e', 'deal', 'corporate', 'Settled', 'Settled', 4, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('b507c512-301a-4c8a-8062-c7ccb16ba92e', 'lead', 'corporate', 'new', 'New Lead', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('579ed048-e431-4c3b-b491-becf86f423de', 'lead', 'corporate', 'qualification', 'Qualification', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ac0f03f8-a30f-4441-a5fa-560f5f9a6c66', 'lead', 'corporate', 'proposal', 'Proposal Sent', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ae71cd71-d345-4353-a11c-9f0a36556e98', 'lead', 'corporate', 'negotiation', 'Negotiation', 4, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('d85c7d29-46e7-483d-a455-229e8da0e5c5', 'lead', 'corporate', 'won', 'Won', 5, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ec907131-1aeb-4d89-b48d-24e8932beeae', 'lead', 'corporate', 'lost', 'Lost', 6, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c40e5179-1fb2-45bc-940d-98a17608843d', 'deal', 'ib', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('3a5ed90f-941f-4316-be0c-56ee3813f8e8', 'deal', 'ib', 'Due Diligence', 'Due Diligence', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('d13362cc-88e4-4324-bccf-d1d4c4d4b6c3', 'deal', 'ib', 'Documentation', 'Documentation', 3, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ec27b469-f5bc-4b1d-b9dd-325eda4d44c8', 'deal', 'ib', 'Regulatory Filing', 'Regulatory Filing', 4, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('9f7ed6a1-038f-475e-9fd0-19e9713c4522', 'deal', 'ib', 'Closed', 'Closed', 5, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c5d90e03-7414-48b1-a63b-425ad80174ab', 'lead', 'ib', 'prospect', 'Prospect', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('8e740acc-2d27-424e-918e-18feaf013052', 'lead', 'ib', 'initial_meeting', 'Initial Meeting', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('bbb2f682-8e9d-434e-ab92-587001042b4f', 'lead', 'ib', 'mandate_discussion', 'Mandate Discussion', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('e337e7d3-179b-46da-8678-6227d6064111', 'lead', 'ib', 'loi_signed', 'LOI Signed', 4, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('4e8492b5-e5bd-4832-b21a-33a66ec50a73', 'lead', 'ib', 'mandate_signed', 'Mandate Signed', 5, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('3db3dfe8-fe70-483c-805c-fc1c3d9cf82d', 'lead', 'ib', 'won', 'Won', 6, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('256e9d20-0473-45ec-a0e0-451f1ffbb21a', 'lead', 'ib', 'lost', 'Lost', 7, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('96e784a4-6d55-46a5-a080-2251a42b09f2', 'deal', 'ie', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('b6b11263-5c17-4ba8-9e61-76214cc6ec5e', 'deal', 'ie', 'In Progress', 'In Progress', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('031a964e-0112-4e0c-a5f5-8ab7005c2062', 'deal', 'ie', 'Executed', 'Executed', 3, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('8cdc0ff0-ff5e-45a4-b59f-f96121f76e16', 'deal', 'ie', 'Settled', 'Settled', 4, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c57baf73-4394-470e-9470-c935070ef8b8', 'lead', 'ie', 'prospect', 'Prospect', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('a1fc24d1-5203-45ee-85a7-09bea7303892', 'lead', 'ie', 'research_shared', 'Research Shared', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('20fbe8c9-7b71-4748-b6bf-64b0e49f198f', 'lead', 'ie', 'empanelment', 'Empanelment Process', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('2d05a74b-924a-4bcf-883b-7acd7e5a7c85', 'lead', 'ie', 'active_client', 'Active Client', 4, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('f2552877-07ce-4f6c-9250-8985c20c8ea4', 'lead', 'ie', 'lost', 'Lost', 5, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('49cb2be6-42a2-4b20-9fd5-0b1c65b35c3e', 'deal', 'retail', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('4db180ad-62fa-4e91-a481-340743776c70', 'deal', 'retail', 'Applied', 'Applied', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('954038e3-70c5-4b30-b4f7-5eaeae150d4f', 'deal', 'retail', 'Allotted', 'Allotted', 3, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('8c127b5c-7288-41d0-92bf-3c686e4f5321', 'deal', 'retail', 'Completed', 'Completed', 4, 'bg-emerald-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('fdd0e250-a0fa-45ad-a769-577f3b1f23c5', 'deal', 'retail', 'Executed', 'Executed', 5, 'bg-violet-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('1f6c13fc-e901-442e-9158-3480064fab42', 'lead', 'retail', 'new', 'New Lead', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('65505b0f-c87e-4f9e-b6ea-c77b2da2a7da', 'lead', 'retail', 'contacted', 'Contacted', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ca28692b-2133-417e-a78a-502612c9ce39', 'lead', 'retail', 'document_collection', 'Document Collection', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('5c35688e-a0ca-4cbd-9d8a-e137f80688cf', 'lead', 'retail', 'account_opening', 'Account Opening', 4, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ca768b57-25c3-40af-af50-3fee41308926', 'lead', 'retail', 'activated', 'Account Activated', 5, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('70e10f73-fde0-4b8e-8e55-ebaa41fc789a', 'lead', 'retail', 'lost', 'Lost/Dropped', 6, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
+
+-- ── pii_masking_fields ──────────────────────────────────────────────────
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('pan', 'PAN Number', 'Permanent Account Number — 10-character alphanumeric ID issued by Income Tax dept', true, E'\\b([A-Z]{5}[0-9]{4}[A-Z])\\b', 'XXXXX####X', 'ABCDE1234F', 'XXXXX####X', 1, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('mobile', 'Mobile / Phone Number', 'Indian mobile numbers (10 digits, optionally prefixed +91 or 0)', true, E'(\\+91[-\\s]?|0)?[6-9]\\d{9}\\b', 'XXXXXXXXXX', '+91 9876543210', 'XXXXXXXXXX', 2, 'contact') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('email', 'Email Address', 'Standard email addresses in any format', true, E'[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}', 'xxx@xxx.com', 'client@example.com', 'xxx@xxx.com', 3, 'contact') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('demat', 'Demat / Account Number', '12–16 consecutive digits (demat, DP, folio numbers)', true, E'\\b\\d{12,16}\\b', 'XXXX-XXXX-XXXX', '1234567890123456', 'XXXX-XXXX-XXXX', 4, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('dob', 'Date of Birth', 'Dates in DD/MM/YYYY, YYYY-MM-DD, or DD-MM-YYYY format', true, E'\\b(0?[1-9]|[12]\\d|3[01])[\\/-](0?[1-9]|1[0-2])[\\/-](19|20)\\d{2}\\b|(19|20)\\d{2}[\\/-](0?[1-9]|1[0-2])[\\/-](0?[1-9]|[12]\\d|3[01])\\b', 'XX/XX/XXXX', '15/03/1985', 'XX/XX/XXXX', 5, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('aadhaar', 'Aadhaar Number', '12-digit Aadhaar UID (also matches masked formats with spaces)', false, E'\\b[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}\\b', 'XXXX XXXX XXXX', '9876 5432 1098', 'XXXX XXXX XXXX', 6, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('bank_account', 'Bank Account Number', 'Bank account numbers (9–18 digits)', false, E'\\b[0-9]{9,18}\\b', 'XXXX...XXXX', '123456789012', 'XXXX...XXXX', 7, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('ifsc', 'IFSC Code', 'Bank branch IFSC code (4 letters + 0 + 6 alphanumeric)', false, E'\\b[A-Z]{4}0[A-Z0-9]{6}\\b', 'XXXX0XXXXXX', 'HDFC0001234', 'XXXX0XXXXXX', 8, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('gstin', 'GSTIN', 'Goods and Services Tax Identification Number', true, E'\\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\\b', 'XX-XXXXX-XXXX-X', '27AABCU9603R1ZX', 'XX-XXXXX-XXXX-X', 10, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('passport', 'Passport Number', 'Indian passport number (A-Z + 7 digits)', true, E'\\b[A-Z]{1}[0-9]{7}\\b', 'XXXXXXXX', 'A1234567', 'XXXXXXXX', 11, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('voter_id', 'Voter ID', 'Election Commission Voter ID card number', false, E'\\b[A-Z]{3}[0-9]{7}\\b', 'XXXXXXXXXX', 'ABC1234567', 'XXXXXXXXXX', 12, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('driving_license', 'Driving License', 'Motor vehicle driving licence number', false, E'\\b[A-Z]{2}[0-9]{2}[0-9]{11}\\b', 'XXXXXXXXXXXXXX', 'MH0220200000123', 'XXXXXXXXXXXXXX', 13, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('employee_id', 'Employee ID', 'Internal staff/RM employee identifier', false, E'\\bEMP[0-9]{4,6}\\b', 'EMP-XXXX', 'EMP0042', 'EMP-XXXX', 14, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('credit_card', 'Credit Card Number', '16-digit credit or debit card PAN', true, E'\\b[0-9]{16}\\b', '****-****-****-XXXX', '4111111111111111', '****-****-****-1111', 15, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('upi_id', 'UPI ID', 'Unified Payments Interface virtual address', true, E'\\b[a-zA-Z0-9._-]+@[a-zA-Z]{3,}\\b', 'user@xxxxx', 'john@upi', 'user@xxxxx', 16, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('form16_no', 'Form 16 Reference', 'TDS certificate reference number from employer', false, E'\\bFORM16[0-9A-Z]{4,10}\\b', 'FORM16-XXXX', 'FORM16AY2324', 'FORM16-XXXX', 17, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('nominee_name', 'Nominee Name', 'Name of the account/policy nominee', true, E'(?:Nominee|nominee):\\s*([A-Za-z\\s]+)', '*** Masked ***', '', '[NOMINEE MASKED]', 18, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('salary', 'Salary / CTC', 'Annual or monthly compensation details', true, E'\\b[0-9]{1,3}(?:,[0-9]{3})*\\b', 'X,XX,XXX', '12,50,000', 'X,XX,XXX', 19, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('net_worth', 'Net Worth', 'Declared net worth of the client', true, E'(?:₹|Rs\\.?|INR)\\s?[\\d,]+(?:\\.\\d{2})?(?:\\s*(?:L|Cr|Lakh|Crore)s?)?', '₹ *** Masked ***', '', '[NET WORTH MASKED]', 20, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('insurance_policy', 'Insurance Policy No', 'Life or general insurance policy identifier', false, E'\\b[A-Z]{2,4}[0-9]{8,12}\\b', 'XXXXXX-XXXXX', 'HDFC012345678', 'XXXXXX-XXXXX', 21, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('folio_number', 'Folio Number', 'Mutual fund or demat folio number', false, E'\\b[0-9]{10,14}\\b', 'XXXXXXXXXXXXX', '12345678901234', 'XXXXXXXXXXXXX', 22, 'financial') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('client_code', 'Broker Client Code', 'Stock broker assigned client identifier', false, E'\\b[A-Z]{2,4}[0-9]{5,8}\\b', 'XXXXXX-XXXX', 'HF123456', 'XXXXXX-XXXX', 23, 'identity') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('address', 'Residential Address', 'Full residential or mailing address', true, E'\\d{6}(?:\\s*[-,]\\s*\\d{6})?', '*** Masked ***', '', '[ADDRESS MASKED]', 24, 'contact') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
+
+INSERT INTO pii_masking_settings (enabled) SELECT true WHERE NOT EXISTS (SELECT 1 FROM pii_masking_settings);
+SELECT 'schema sync done' AS status;

@@ -37,7 +37,9 @@ router.get("/config", async (_req, res) => {
       `SELECT id, provider, model, endpoint_url, temperature, max_tokens,
               system_prompt, enabled, updated_at, updated_by,
               table_access, bot_prompts, vertical_access_strict, pii_masking_enabled,
-              (api_key IS NOT NULL AND api_key <> '') AS has_api_key
+              fallback_enabled, fallback_provider, fallback_model, fallback_endpoint_url,
+              (api_key IS NOT NULL AND api_key <> '') AS has_api_key,
+              (fallback_api_key IS NOT NULL AND fallback_api_key <> '') AS has_fallback_api_key
        FROM ai_config LIMIT 1`,
     );
     if (!result.rows.length) return res.status(404).json({ error: "No AI config found" });
@@ -68,6 +70,7 @@ router.put("/config", async (req, res) => {
       provider, model, api_key, endpoint_url, temperature, max_tokens,
       system_prompt, enabled, updated_by,
       table_access, bot_prompts, vertical_access_strict, pii_masking_enabled,
+      fallback_enabled, fallback_provider, fallback_model, fallback_api_key, fallback_endpoint_url,
     } = req.body;
     const existing = await query("SELECT id FROM ai_config LIMIT 1");
     const encryptedKey = api_key && api_key.trim() !== "" ? encrypt(api_key.trim()) : null;
@@ -113,10 +116,25 @@ router.put("/config", async (req, res) => {
          botPromptsJson  || '{}', vertical_access_strict ?? true, piiMasking ?? true],
       );
     }
+    // Fallback LLM settings (key stored encrypted; empty key = keep existing)
+    const encFallbackKey = fallback_api_key && String(fallback_api_key).trim() !== "" ? encrypt(String(fallback_api_key).trim()) : null;
+    const fb = await query(
+      `UPDATE ai_config SET
+         fallback_enabled=COALESCE($1,fallback_enabled), fallback_provider=COALESCE($2,fallback_provider),
+         fallback_model=COALESCE($3,fallback_model), fallback_api_key=COALESCE($4,fallback_api_key),
+         fallback_endpoint_url=COALESCE($5,fallback_endpoint_url)
+       WHERE id=$6
+       RETURNING fallback_enabled, fallback_provider, fallback_model, fallback_endpoint_url,
+                 (fallback_api_key IS NOT NULL AND fallback_api_key <> '') AS has_fallback_api_key`,
+      [typeof fallback_enabled === "boolean" ? fallback_enabled : null, fallback_provider || null,
+       fallback_model || null, encFallbackKey, fallback_endpoint_url ?? null, result.rows[0].id],
+    );
+    Object.assign(result.rows[0], fb.rows[0] || {});
+
     await query(
       "INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('ai_config',$1,$2,'AI Config Updated',$3)",
       [result.rows[0].id, updated_by || "Admin",
-       `Provider: ${provider}, Model: ${model}, Enabled: ${enabled}, PiiMasking: ${pii_masking_enabled}`],
+       `Provider: ${provider}, Model: ${model}, Enabled: ${enabled}, PiiMasking: ${pii_masking_enabled}, Fallback: ${fallback_enabled ? `${fallback_provider}/${fallback_model}` : "off"}`],
     );
     res.json(result.rows[0]);
   } catch (err: any) {
@@ -217,16 +235,17 @@ TABLE: audit_logs
   old_value (jsonb), new_value (jsonb), ip_address (inet), created_at (timestamptz)
 `.trim();
 
-// Helper: call LLM with given system + messages
-async function callLLM(config: any, apiKey: string, system: string, messages: any[]): Promise<string> {
+// Helper: call one LLM provider. Throws on HTTP/API errors so the caller can fail over.
+async function callProvider(config: any, apiKey: string, system: string, messages: any[]): Promise<string> {
   if (config.provider === "anthropic") {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model: config.model || "claude-3-5-sonnet-20241022", max_tokens: config.max_tokens || 2048, system, messages }),
     });
-    const d: any = await r.json();
-    return d.content?.[0]?.text || d.error?.message || "Anthropic API error";
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok || !d.content?.[0]?.text) throw new Error(`anthropic ${r.status}: ${d.error?.message || "no content"}`);
+    return d.content[0].text;
   }
   if (config.provider === "gemini") {
     const contents = [
@@ -238,8 +257,10 @@ async function callLLM(config: any, apiKey: string, system: string, messages: an
       `https://generativelanguage.googleapis.com/v1beta/models/${config.model || "gemini-1.5-pro"}:generateContent?key=${apiKey}`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contents, generationConfig: { temperature: config.temperature, maxOutputTokens: config.max_tokens || 2048 } }) },
     );
-    const d: any = await r.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text || d.error?.message || "Gemini API error";
+    const d: any = await r.json().catch(() => ({}));
+    const text = d.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!r.ok || !text) throw new Error(`gemini ${r.status}: ${d.error?.message || "no content"}`);
+    return text;
   }
   // OpenAI / Azure / custom endpoint
   const endpoint = config.endpoint_url || "https://api.openai.com/v1/chat/completions";
@@ -253,8 +274,33 @@ async function callLLM(config: any, apiKey: string, system: string, messages: an
       messages: [{ role: "system", content: system }, ...messages],
     }),
   });
-  const d: any = await r.json();
-  return d.choices?.[0]?.message?.content || d.error?.message || "OpenAI API error";
+  const d: any = await r.json().catch(() => ({}));
+  const text = d.choices?.[0]?.message?.content;
+  if (!r.ok || !text) throw new Error(`${config.provider || "openai"} ${r.status}: ${d.error?.message || "no content"}`);
+  return text;
+}
+
+// Helper: call the primary LLM; on failure, retry once on the fallback LLM (if enabled).
+// Records the provider/model actually used on config.__used for logging.
+async function callLLM(config: any, apiKey: string, system: string, messages: any[]): Promise<string> {
+  try {
+    const out = await callProvider(config, apiKey, system, messages);
+    config.__used = { provider: config.provider, model: config.model, fallback: false };
+    return out;
+  } catch (primaryErr: any) {
+    if (!config.fallback_enabled || !config.fallback_provider || !config.fallback_api_key) throw primaryErr;
+    console.warn("[AI] Primary LLM failed, switching to fallback:", primaryErr.message);
+    const fbKey = decrypt(config.fallback_api_key);
+    const fbConfig = {
+      ...config,
+      provider: config.fallback_provider,
+      model: config.fallback_model,
+      endpoint_url: config.fallback_endpoint_url || null,
+    };
+    const out = await callProvider(fbConfig, fbKey, system, messages);
+    config.__used = { provider: fbConfig.provider, model: fbConfig.model, fallback: true };
+    return out;
+  }
 }
 
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
@@ -511,7 +557,7 @@ STRICT RULES:
       [
         userId || null, userName || "Unknown", userRole || null,
         userVerticals, message, response.slice(0, 10000), sqlQuery,
-        config.provider, config.model, latencyMs,
+        config.__used?.provider || config.provider, config.__used?.model || config.model, latencyMs,
         JSON.stringify(rawRequest1), JSON.stringify(rawResponse),
       ],
     );
@@ -522,7 +568,7 @@ STRICT RULES:
       [userName || "Unknown", message.slice(0, 100)],
     );
 
-    res.json({ response, configured: true, sqlUsed: !!sqlQuery, accuracy, sourceLabel });
+    res.json({ response, configured: true, sqlUsed: !!sqlQuery, accuracy, sourceLabel, usedFallback: !!config.__used?.fallback });
   } catch (err: any) {
     console.error("[AI chat error] Full detail:", err.message, err.stack?.slice(0, 500));
     // Return a friendly response — never expose raw error to UI

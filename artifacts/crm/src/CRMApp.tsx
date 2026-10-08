@@ -22,6 +22,7 @@ import {
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type AuthStep = "login" | "m365" | "otp" | "app";
+const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
 type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clients" | "service" | "ai" | "calendar"
   | "admin-users" | "admin-roles" | "admin-role-map"
@@ -2112,7 +2113,7 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
     <div className={`min-h-screen ${t.bg} flex items-center justify-center`}>
       <div className="w-full max-w-sm px-4">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mx-auto mb-4"><Globe className="w-7 h-7 text-white" /></div>
+          <img src={APP_LOGO} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
           <h1 className={`text-2xl font-bold ${t.text}`}>NIYTRI CRM</h1>
           <p className={`text-sm ${t.textMuted} mt-1`}>Enterprise Financial Services Platform</p>
         </div>
@@ -2250,15 +2251,31 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Invalid OTP"); setLoading(false); return; }
       onVerify(data.user);
-    } catch { onVerify(); }
+    } catch { setError("Network error — please try again"); }
     setLoading(false);
   };
 
-  const handleChange = (i: number, val: string) => {
-    if (!/^\d?$/.test(val)) return;
-    const next = [...otp]; next[i] = val; setOtp(next);
-    if (val && i < 5) refs.current[i + 1]?.focus();
+  // Fill boxes from position i with a run of digits (typed, pasted or autofilled)
+  const fillFrom = (i: number, digits: string) => {
+    const next = [...otp];
+    digits.slice(0, 6 - i).split("").forEach((d, k) => { next[i + k] = d; });
+    setOtp(next);
+    const empty = next.findIndex(d => !d);
+    refs.current[empty === -1 ? 5 : empty]?.focus();
     if (next.join("").length === 6) { setTimeout(() => verify(next.join("")), 300); }
+  };
+  const handleChange = (i: number, val: string) => {
+    const digits = val.replace(/\D/g, "");
+    if (!digits) { const next = [...otp]; next[i] = ""; setOtp(next); return; }
+    if (digits.length >= 6) return fillFrom(0, digits);          // full code autofilled
+    if (otp[i] && digits.length === 2) return fillFrom(i, digits.slice(-1)); // typed over a filled box
+    fillFrom(i, digits);
+  };
+  const handlePaste = (i: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+    const digits = e.clipboardData.getData("text").replace(/\D/g, "");
+    if (!digits) return;
+    e.preventDefault();
+    fillFrom(digits.length >= 6 ? 0 : i, digits);
   };
   const handleKey = (i: number, e: React.KeyboardEvent) => { if (e.key === "Backspace" && !otp[i] && i > 0) refs.current[i - 1]?.focus(); };
 
@@ -2266,7 +2283,7 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
     <div className={`min-h-screen ${t.bg} flex items-center justify-center`}>
       <div className="w-full max-w-sm px-4">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mx-auto mb-4"><Shield className="w-7 h-7 text-white" /></div>
+          <img src={APP_LOGO} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
           <h1 className={`text-xl font-bold ${t.text}`}>Email OTP Verification</h1>
           <p className={`text-sm ${t.textMuted} mt-1`}>6-digit code sent to <span className={`${t.linkText} font-medium`}>{email}</span></p>
         </div>
@@ -2279,7 +2296,8 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
         <div className={`${t.bgCard} border ${t.border} rounded-2xl p-6 shadow-xl`}>
           <div className="flex gap-2 justify-center mb-4">
             {otp.map((d, i) => (
-              <input key={i} ref={el => { refs.current[i] = el; }} value={d} onChange={e => handleChange(i, e.target.value)} onKeyDown={e => handleKey(i, e)} maxLength={1}
+              <input key={i} ref={el => { refs.current[i] = el; }} value={d} onChange={e => handleChange(i, e.target.value)} onKeyDown={e => handleKey(i, e)} onPaste={e => handlePaste(i, e)}
+                inputMode="numeric" autoComplete={i === 0 ? "one-time-code" : "off"} autoFocus={i === 0}
                 className={`w-11 h-12 text-center text-lg font-bold border-2 rounded-xl outline-none focus:border-blue-500 transition-colors ${t.inputBg} ${d ? "border-blue-500" : ""}`} />
             ))}
           </div>
@@ -2357,7 +2375,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   return (
     <aside className={`${open ? "w-60" : "w-14"} ${sb.bg} border-r ${sb.border} flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden h-full`}>
       <div className={`h-14 flex items-center px-3 border-b ${sb.border} gap-2.5 flex-shrink-0`}>
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center flex-shrink-0"><Globe className="w-4 h-4 text-white" /></div>
+        <img src={APP_LOGO} alt="NIYTRI" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
         {open && <div className="flex-1 min-w-0"><div className={`text-sm font-bold ${sb.text} leading-none`}>NIYTRI CRM</div><div className={`text-[10px] ${sb.muted} mt-0.5`}>Financial Services</div></div>}
         {open && onClose && <button onClick={onClose} className={`${sb.muted} hover:opacity-70 ml-auto`}><X className="w-4 h-4" /></button>}
       </div>
