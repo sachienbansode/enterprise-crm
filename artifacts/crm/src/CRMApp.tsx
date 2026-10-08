@@ -4407,6 +4407,15 @@ function AdminLLMSettings({ t, isDark }: { t: ReturnType<typeof useTheme>; isDar
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Fallback LLM — used automatically when the primary provider errors or times out
+  const [fbEnabled, setFbEnabled] = useState(false);
+  const [fbProvider, setFbProvider] = useState("openai");
+  const [fbModel, setFbModel] = useState("gpt-4o");
+  const [fbCustomModel, setFbCustomModel] = useState("");
+  const [fbApiKey, setFbApiKey] = useState("");
+  const [fbHasKey, setFbHasKey] = useState(false);
+  const [fbEndpoint, setFbEndpoint] = useState("");
+  const [fbShowKey, setFbShowKey] = useState(false);
 
   // Load existing config from DB on mount
   useEffect(() => {
@@ -4420,6 +4429,15 @@ function AdminLLMSettings({ t, isDark }: { t: ReturnType<typeof useTheme>; isDar
         setTemperature(parseFloat(data.temperature) || 0.7);
         setMaxTokens(data.max_tokens || 1024);
         setHasApiKey(!!data.has_api_key);
+        setFbEnabled(!!data.fallback_enabled);
+        setFbHasKey(!!data.has_fallback_api_key);
+        setFbEndpoint(data.fallback_endpoint_url || "");
+        if (data.fallback_provider) {
+          setFbProvider(data.fallback_provider);
+          const fbKnown = AI_PROVIDERS_LIST.find(p => p.id === data.fallback_provider);
+          if (fbKnown && fbKnown.models.includes(data.fallback_model)) setFbModel(data.fallback_model);
+          else { setFbModel(fbKnown?.models[0] || ""); if (data.fallback_provider === "custom") setFbCustomModel(data.fallback_model || ""); }
+        }
         // Set model — if provider has this model, select it; otherwise treat as custom
         const knownProvider = AI_PROVIDERS_LIST.find(p => p.id === data.provider);
         if (knownProvider && knownProvider.models.includes(data.model)) {
@@ -4447,12 +4465,19 @@ function AdminLLMSettings({ t, isDark }: { t: ReturnType<typeof useTheme>; isDar
           api_key: apiKey.trim() || undefined,   // only send if user entered something
           endpoint_url: endpointUrl, temperature, max_tokens: maxTokens,
           enabled, updated_by: "admin@niytri.com",
+          fallback_enabled: fbEnabled,
+          fallback_provider: fbProvider,
+          fallback_model: fbProvider === "custom" ? fbCustomModel : fbModel,
+          fallback_api_key: fbApiKey.trim() || undefined,
+          fallback_endpoint_url: fbEndpoint,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setHasApiKey(!!data.has_api_key);
       setApiKey("");   // clear the field — key is now saved
+      setFbHasKey(!!data.has_fallback_api_key);
+      setFbApiKey("");
       setSaved(true); setTimeout(() => setSaved(false), 3000);
     } catch (e: any) {
       setTestResult({ ok: false, msg: `Failed to save: ${e.message}` });
@@ -4554,6 +4579,55 @@ function AdminLLMSettings({ t, isDark }: { t: ReturnType<typeof useTheme>; isDar
         {hasApiKey && !apiKey && (
           <p className={`text-xs ${t.textMuted}`}>Leave blank to keep the existing key. Enter a new value only to replace it.</p>
         )}
+      </div>
+
+      <div className={`${t.bgCard} border ${t.border} rounded-xl p-4 space-y-4`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><RefreshCw className="w-4 h-4 text-amber-400" /> Fallback LLM</div>
+            <div className={`text-xs ${t.textMuted} mt-0.5`}>If the primary provider fails (outage, quota, invalid key), the request is retried once on this provider.</div>
+          </div>
+          <button onClick={() => setFbEnabled(!fbEnabled)} className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${fbEnabled ? "bg-amber-500" : isDark ? "bg-gray-700" : "bg-gray-300"}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${fbEnabled ? "translate-x-6" : ""}`} />
+          </button>
+        </div>
+        {fbEnabled && (<>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Fallback Provider</label>
+              <select value={fbProvider} onChange={e => { setFbProvider(e.target.value); setFbModel(AI_PROVIDERS_LIST.find(p => p.id === e.target.value)?.models[0] || ""); }} className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`}>
+                {AI_PROVIDERS_LIST.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Fallback Model</label>
+              {fbProvider === "custom"
+                ? <input value={fbCustomModel} onChange={e => setFbCustomModel(e.target.value)} placeholder="e.g. llama-3.1-70b" className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`} />
+                : <select value={fbModel} onChange={e => setFbModel(e.target.value)} className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`}>{(AI_PROVIDERS_LIST.find(p => p.id === fbProvider)?.models || []).map(m => <option key={m} value={m}>{m}</option>)}</select>}
+            </div>
+          </div>
+          {(fbProvider === "azure" || fbProvider === "custom") && (
+            <div>
+              <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Fallback Endpoint URL</label>
+              <input value={fbEndpoint} onChange={e => setFbEndpoint(e.target.value)} placeholder="https://..." className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`} />
+            </div>
+          )}
+          <div>
+            <label className={`block text-xs font-medium ${t.textMuted} mb-1.5 flex items-center gap-2`}>
+              Fallback API Key
+              {fbHasKey && !fbApiKey && <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-900/40 text-emerald-400 border border-emerald-700/40 rounded-full px-2 py-0.5"><CheckCircle2 className="w-3 h-3" /> Key saved (encrypted)</span>}
+            </label>
+            <div className="relative">
+              <input type={fbShowKey ? "text" : "password"} value={fbApiKey} onChange={e => setFbApiKey(e.target.value)}
+                placeholder={fbHasKey ? "Enter new key to replace the saved one" : "Enter fallback provider API key"}
+                className={`w-full border rounded-xl px-3 pr-10 py-2 text-sm outline-none font-mono ${t.inputBg}`} />
+              <button onClick={() => setFbShowKey(!fbShowKey)} className={`absolute right-3 top-2.5 ${t.textMuted}`}>
+                {fbShowKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          {fbProvider === provider && <p className="text-xs text-amber-400">Tip: use a different provider than the primary so an outage at one doesn't take out both.</p>}
+        </>)}
       </div>
 
       <div className={`${t.bgCard} border ${t.border} rounded-xl p-4 space-y-4`}>
