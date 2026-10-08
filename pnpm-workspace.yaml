@@ -67,6 +67,14 @@ catalog:
 
 autoInstallPeers: false
 
+# pnpm 11+ reads allowBuilds (pnpm 10 reads onlyBuiltDependencies below) — keep both so the
+# build works whichever pnpm version the server has.
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  msw: true
+  unrs-resolver: true
+
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
