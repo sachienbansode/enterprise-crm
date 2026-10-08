@@ -3,6 +3,7 @@ import CalendarPage from "./pages/CalendarPage";
 import { ServiceRequestModule, SR_CATEGORIES } from "./pages/ServiceRequests";
 import ClientForm from "./components/ClientForm";
 import { LeadModal, DealModal } from "./components/LeadDealModals";
+import MeetingReminders from "./components/MeetingReminders";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -23,6 +24,8 @@ import {
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type AuthStep = "login" | "m365" | "otp" | "app";
 const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
+// If logo.png is missing, fall back to the bundled favicon instead of a broken image
+const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
 type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clients" | "service" | "ai" | "calendar"
   | "admin-users" | "admin-roles" | "admin-role-map"
@@ -2113,7 +2116,7 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
     <div className={`min-h-screen ${t.bg} flex items-center justify-center`}>
       <div className="w-full max-w-sm px-4">
         <div className="text-center mb-8">
-          <img src={APP_LOGO} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
+          <img src={APP_LOGO} onError={logoFallback} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
           <h1 className={`text-2xl font-bold ${t.text}`}>NIYTRI CRM</h1>
           <p className={`text-sm ${t.textMuted} mt-1`}>Enterprise Financial Services Platform</p>
         </div>
@@ -2283,7 +2286,7 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
     <div className={`min-h-screen ${t.bg} flex items-center justify-center`}>
       <div className="w-full max-w-sm px-4">
         <div className="text-center mb-8">
-          <img src={APP_LOGO} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
+          <img src={APP_LOGO} onError={logoFallback} alt="NIYTRI" className="w-14 h-14 rounded-2xl object-contain mx-auto mb-4" />
           <h1 className={`text-xl font-bold ${t.text}`}>Email OTP Verification</h1>
           <p className={`text-sm ${t.textMuted} mt-1`}>6-digit code sent to <span className={`${t.linkText} font-medium`}>{email}</span></p>
         </div>
@@ -2375,7 +2378,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   return (
     <aside className={`${open ? "w-60" : "w-14"} ${sb.bg} border-r ${sb.border} flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden h-full`}>
       <div className={`h-14 flex items-center px-3 border-b ${sb.border} gap-2.5 flex-shrink-0`}>
-        <img src={APP_LOGO} alt="NIYTRI" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
+        <img src={APP_LOGO} onError={logoFallback} alt="NIYTRI" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
         {open && <div className="flex-1 min-w-0"><div className={`text-sm font-bold ${sb.text} leading-none`}>NIYTRI CRM</div><div className={`text-[10px] ${sb.muted} mt-0.5`}>Financial Services</div></div>}
         {open && onClose && <button onClick={onClose} className={`${sb.muted} hover:opacity-70 ml-auto`}><X className="w-4 h-4" /></button>}
       </div>
@@ -2588,6 +2591,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
           </button>
         </Tip>
         <NotificationBell loggedUser={loggedUser} t={t} />
+        <MeetingReminders email={loggedUser?.email} apiBase={API_BASE} />
         <Tip label={loggedUser?.name || "User"}>
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-[10px] font-bold text-white cursor-pointer select-none">
             {(loggedUser?.name || "BN").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -3140,6 +3144,12 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
   const filtered = leads.filter(l => !search || l.name?.toLowerCase().includes(search.toLowerCase()) || l.lead_code?.toLowerCase().includes(search.toLowerCase()) || l.source?.toLowerCase().includes(search.toLowerCase()));
   const stageLeads = (stageId: string) => filtered.filter(l => l.stage === stageId);
+  // Leads whose stage isn't in the configured pipeline still get a column, so nothing disappears from the board
+  const boardStages = [
+    ...stages,
+    ...Array.from(new Set(filtered.map(l => l.stage).filter((sid: string) => sid && !stages.some((st: any) => st.id === sid))))
+      .map((sid: any) => ({ id: sid, label: `${sid} (unmapped)`, unmapped: true })),
+  ];
 
   const wonStages = stages.filter((s: any) => s.is_won || s.id.toLowerCase().includes("won") || s.label.toLowerCase().includes("won"));
   const isWonStage = (stageId: string) => wonStages.some((s: any) => s.id === stageId);
@@ -3214,7 +3224,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
           /* ── Board View ── */
           <div className="flex-1 overflow-x-auto p-4">
             <div className="flex gap-3 h-full min-w-max">
-              {stages.map((stage: any) => {
+              {boardStages.map((stage: any) => {
                 const sl = stageLeads(stage.id);
                 return (
                   <div key={stage.id} className="w-52 flex flex-col flex-shrink-0">
@@ -3579,7 +3589,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
           /* ── Board View ── */
           <div className="flex-1 overflow-x-auto p-4">
             <div className="flex gap-3 h-full min-w-max">
-              {dealBoardStages.map(stageName => {
+              {[...dealBoardStages, ...Array.from(new Set(deals.map(d => d.stage).filter((st: string) => st && !dealBoardStages.includes(st))))].map(stageName => {
                 const stageDeals = deals.filter(d => d.stage === stageName);
                 return (
                   <div key={stageName} className="w-52 flex flex-col flex-shrink-0">
