@@ -6323,7 +6323,7 @@ function AdminSystem({ t }: { t: ReturnType<typeof useTheme> }) {
 }
 
 // ─── AI MODULE ────────────────────────────────────────────────────────────────
-type ChatMsg = { id: string; from: "user" | "ai"; text: string; ts: string; thinking?: boolean; accuracy?: number; sourceLabel?: string; };
+type ChatMsg = { id: string; from: "user" | "ai"; text: string; ts: string; thinking?: boolean; recordCount?: number | null; sourceLabel?: string; };
 
 const AI_SUGGESTED_PROMPTS: Record<string, string[]> = {
   "Super Admin": ["Show all SLA breached SRs", "AIF AUM and investor count", "Retail Broking MTD summary", "KYC expiry alerts", "Top deals by value"],
@@ -6367,7 +6367,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
     // Call the real AI API
     let responseText = "";
     let apiOk = false;
-    let aiAccuracy: number | undefined;
+    let aiRecords: number | null = null;
     let aiSource: string | undefined;
     try {
       const res = await fetch(`${API_BASE}/api/ai/chat`, {
@@ -6380,7 +6380,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
         responseText = data.response;
         setConfigured(data.configured !== false);
         apiOk = true;
-        aiAccuracy = data.accuracy ?? undefined;
+        aiRecords = data.recordCount ?? null;
         aiSource = data.sourceLabel ?? undefined;
       } else if (!res.ok || data.error) {
         responseText = "I'm having trouble connecting right now. Please try again in a moment.";
@@ -6392,7 +6392,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
     if (!apiOk) responseText = "I couldn't reach the CRM server. Please check your connection and try again.";
 
     setIsTyping(false);
-    setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), from: "ai", text: responseText, ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), accuracy: aiAccuracy, sourceLabel: aiSource }]);
+    setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), from: "ai", text: responseText, ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), recordCount: aiRecords, sourceLabel: aiSource }]);
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -6519,13 +6519,9 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
                       Source: {msg.sourceLabel}
                     </span>
                   )}
-                  {msg.from === "ai" && msg.accuracy !== undefined && msg.accuracy > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                      msg.accuracy >= 90 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
-                      msg.accuracy >= 75 ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
-                      "bg-red-500/20 text-red-400 border border-red-500/30"
-                    }`}>
-                      {msg.accuracy}% accuracy
+                  {msg.from === "ai" && typeof msg.recordCount === "number" && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${t.border} ${t.textMuted}`} title="Number of CRM records this answer was built from">
+                      Based on {msg.recordCount} record{msg.recordCount === 1 ? "" : "s"}
                     </span>
                   )}
                 </div>

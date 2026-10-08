@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { query } from "../lib/db";
+import { query, pool } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 
 const router = Router();
@@ -210,12 +210,14 @@ TABLE: service_requests
   category (varchar), subcategory (varchar), channel (varchar: 'Email'|'Phone'|'Chat'|'Portal'|'WhatsApp'|'Branch'),
   priority (varchar: 'Low'|'Medium'|'High'|'Critical'),
   status (varchar: 'Open'|'In Progress'|'Escalated'|'Resolved'|'Closed'),
-  sla_deadline (timestamptz), sla_status (varchar: 'ok'|'warning'|'breached'),
+  sla_deadline (timestamptz), sla_status (varchar — NOT MAINTAINED, never use it),
   client_id (uuid FK→clients.id), vertical (varchar),
   created_by (uuid FK→users.id), assigned_to (uuid FK→users.id),
   resolved_at (timestamptz), closed_at (timestamptz), resolution_notes (text),
   created_at (timestamptz)
-  NOTE: sla_status uses 'warning' NOT 'at_risk'.
+  SLA RULE: an SR is "SLA breached" ONLY when status NOT IN ('Resolved','Closed') AND sla_deadline < NOW().
+  Resolved/Closed SRs are never "breached". For any SLA question ALWAYS select sla_deadline and
+  ROUND(EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600) AS hours_overdue, and ORDER BY sla_deadline.
 
 TABLE: documents
   id (uuid PK), doc_code (varchar), name (varchar), type (varchar),
@@ -402,7 +404,9 @@ STRICT RULES:
 6. Return ONLY raw JSON — no code fences, no markdown wrapper, no explanation outside the JSON.
 7. CRITICAL: NEVER invent, assume, or hallucinate data. Only use what the query returns.
 8. NEVER reference tables, column names, SQL syntax, or technical details in your final responses to the user.
-9. Use ONLY the exact column names defined in the schema above. Do NOT guess column names.`;
+9. Use ONLY the exact column names defined in the schema above. Do NOT guess column names.
+10. Follow-up questions refer to the conversation above: if the user asks for more detail about a previous
+    answer (e.g. "you say it's breached but no SLA shown?"), write a query that returns those extra columns.`;
 
     const historyMessages = history.slice(-6).map((h: any) => ({ role: h.from === "ai" ? "assistant" : "user", content: h.text }));
     const userMessage = { role: "user" as const, content: message };
@@ -472,20 +476,30 @@ STRICT RULES:
 
     let response = "";
     let rawResponse: any = { step1 };
-    let accuracy = 0;
+    let recordCount: number | null = null; // how many CRM records the answer is based on (no made-up "accuracy %")
     let sourceLabel = "AI Knowledge Base";
 
     if (directAnswer) {
       response = directAnswer;
-      accuracy = 78;
-      sourceLabel = "AI Knowledge Base";
+      sourceLabel = "General answer (no CRM data used)";
     } else if (sqlQuery) {
       let dbResults = "";
       let rowCount = 0;
       let dbError = false;
       try {
         console.log("[AI SQL Agent] Executing:", sqlQuery.slice(0, 200));
-        const result = await query(sqlQuery);
+        // Run AI-generated SQL in a READ-ONLY transaction with a timeout — the prompt says
+        // "SELECT only", but the database must enforce it (prompt injection could ask otherwise).
+        const client = await pool.connect();
+        let result: any;
+        try {
+          await client.query("BEGIN TRANSACTION READ ONLY");
+          await client.query("SET LOCAL statement_timeout = '8s'");
+          result = await client.query(sqlQuery);
+        } finally {
+          await client.query("ROLLBACK").catch(() => {});
+          client.release();
+        }
         rowCount = result.rows.length;
         if (rowCount > 0) {
           // Mask PII in the raw DB data BEFORE sending to the LLM for synthesis
@@ -506,7 +520,6 @@ STRICT RULES:
 
       if (dbError) {
         response = "I wasn't able to retrieve that data right now. The query could not be completed — please try rephrasing your question or ask something different.";
-        accuracy = 0;
       } else {
         const synthSystem = `You are the NIYTRI CRM AI Assistant. A database query returned the results below. Present the information clearly and professionally.
 
@@ -522,7 +535,12 @@ STRICT RULES:
 - If results are empty, say clearly no matching records were found.
 - Never mention SQL, table names, column names, or any technical implementation details.
 - Sensitive fields (PAN, Aadhaar, mobile, email, account numbers) shown in the data are already masked — present them as-is.
-- Be concise. No filler phrases like "Based on the data" or "It seems that".`;
+- Be concise. No filler phrases like "Based on the data" or "It seems that".
+- Answer the user's LATEST message specifically. If it questions or follows up on your previous answer,
+  address that point directly (e.g. if asked "where is the SLA?", show the SLA deadline and how overdue each item is) —
+  do not just repeat the previous answer.
+- Always include the columns that support your claim (e.g. for SLA breaches: SLA deadline and time overdue).
+- Do NOT state any accuracy or confidence percentage — the app shows how many records the answer is based on.`;
 
         const synthMessages = [
           ...historyMessages, userMessage,
@@ -539,11 +557,10 @@ STRICT RULES:
         ];
         response = await callLLM(config, apiKey, synthSystem, synthMessages);
         rawResponse = { step1, sql: sqlQuery, dbRows: rowCount, dbResults: dbResults.slice(0, 2000) };
-        accuracy = rowCount > 0 ? 93 : 82;
+        recordCount = rowCount;
       }
     } else {
       response = "I wasn't able to process your request. Please try rephrasing your question.";
-      accuracy = 0;
     }
 
     // Apply PII masking to the final response (piiFields already loaded above)
@@ -574,7 +591,7 @@ STRICT RULES:
       [userName || "Unknown", message.slice(0, 100)],
     );
 
-    res.json({ response, configured: true, sqlUsed: !!sqlQuery, accuracy, sourceLabel, usedFallback: !!config.__used?.fallback });
+    res.json({ response, configured: true, sqlUsed: !!sqlQuery, recordCount, sourceLabel, usedFallback: !!config.__used?.fallback });
   } catch (err: any) {
     console.error("[AI chat error] Full detail:", err.message, err.stack?.slice(0, 500));
     // Return a friendly response — never expose raw error to UI
