@@ -4,6 +4,7 @@ import { ServiceRequestModule, SR_CATEGORIES } from "./pages/ServiceRequests";
 import ClientForm from "./components/ClientForm";
 import { LeadModal, DealModal } from "./components/LeadDealModals";
 import MeetingReminders from "./components/MeetingReminders";
+import { serverLogout } from "./lib/authFetch";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -2267,6 +2268,8 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Invalid OTP"); setLoading(false); return; }
+      localStorage.setItem("niytri_token", data.token);
+      localStorage.setItem("niytri_user", JSON.stringify(data.user));
       onVerify(data.user);
     } catch { setError("Network error — please try again"); }
     setLoading(false);
@@ -3355,7 +3358,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
             {[
               { label: "Source", value: selected.source },
               { label: "Days Open", value: `${selected.days_open || 0}d` },
-              { label: "Stage", value: selected.stage },
+              { label: "Stage", value: stages.find((st: any) => st.id === selected.stage)?.label || selected.stage },
               { label: "Status", value: selected.status },
               { label: "RM", value: selected.rm_name || "—" },
             ].map(row => (
@@ -6259,37 +6262,6 @@ function AdminSystem({ t }: { t: ReturnType<typeof useTheme> }) {
 // ─── AI MODULE ────────────────────────────────────────────────────────────────
 type ChatMsg = { id: string; from: "user" | "ai"; text: string; ts: string; thinking?: boolean; accuracy?: number; sourceLabel?: string; };
 
-function generateSmartResponse(message: string, userRole: string, userVerticals: string[]): string {
-  const m = message.toLowerCase();
-  const hasAIF = userRole === "Super Admin" || userRole === "AIF Admin" || userVerticals.includes("AIF");
-  const hasRetail = userRole === "Super Admin" || userRole === "Retail Admin" || userVerticals.includes("Retail Broking");
-  const hasAll = userRole === "Super Admin";
-
-  if ((m.includes("aif") || m.includes("fund") || m.includes("nav") || m.includes("investor")) && !hasAIF)
-    return "You don't have access to AIF data. Contact your administrator if you need this information.";
-  if (m.includes("aif") || m.includes("nav") || (m.includes("fund") && hasAIF))
-    return "**AIF Portfolio Summary** (as of 21 Mar 2026)\n\n• **Total AUM**: ₹2,840 Cr across Cat I, II & III funds\n• **Active Investors**: 389 (+24 this quarter)\n• **Capital Called Q4**: ₹185 Cr (68% of committed)\n• **Avg. NAV Return**: 18.7% since inception\n• **Pending Subscriptions**: 3 totalling ₹150 Cr\n• **Recent activity**: Maharashtra Pension Fund signed ₹100Cr Cat II subscription on 20 Mar\n\nWould you like drill-down on a specific fund or investor?";
-  if ((m.includes("sr") || m.includes("service request") || m.includes("ticket") || m.includes("escalat")))
-    return "**Service Request Overview**\n\n• Open: 142 · In Progress: 87 · **Escalated: 12** · Resolved: 56\n\n**Requires Immediate Attention:**\n• **SR-5895** (HDFC Life — Settlement Discrepancy) — SLA Breached 18h, L2 Owner: Dealer/Ops\n• **SR-5881** (Bajaj Holdings — Margin Pledge) — SLA Breached 24h, Escalated to L2\n• **SR-5888** (Girish Nair — Bank Change) — SLA Breached, awaiting KYC validation\n\nWould you like me to pull full details on any specific SR?";
-  if (m.includes("ramesh") || (m.includes("client") && m.includes("001001")))
-    return "**Client: Ramesh Kumar Agarwal** (NIYT-I-001001)\n\n• Category: UHNI · Risk Profile: High\n• KYC: Verified · FATCA: Compliant\n• Verticals: Retail Broking, AIF\n• RM: Priya Sharma\n• Client since: January 2018\n• Demat: 1201800012345678 (IN301485)\n• Last SR: SR-5901 (In Progress — TDS Certificate)\n• AIF Commitment: ₹10 Cr in discussion\n\nWould you like KYC details, account statement, or SR history?";
-  if ((m.includes("retail") || m.includes("demat") || m.includes("brokerage")) && !hasRetail && !hasAll)
-    return "You don't have access to Retail Broking data based on your current role. Please contact the Retail Admin.";
-  if (m.includes("retail") || m.includes("demat"))
-    return "**Retail Broking Summary** (MTD)\n\n• Total AUM: ₹48.2 Cr (+12.4% QoQ)\n• Active Clients: 12,483 (+342 this month)\n• New Accounts MTD: 184 / Target: 200\n• Brokerage MTD: ₹1.82 Cr (+8.1% vs target)\n\n**Pipeline**: 16 leads active, ₹6.5 Cr potential AUM\n**Alerts**: 2 KYC expired (Kavita Singh, Pradeep Kumar Jain)";
-  if (m.includes("lead") || m.includes("pipeline"))
-    return "**Lead Pipeline Summary** (accessible verticals)\n\n| Vertical | Active Leads | Value |\n|---|---|---|\n| Retail Broking | 16 | ₹5.5 Cr AUM |\n| Corporate Broking | 7 | ₹985 Cr |\n| Investment Banking | 6 | ₹25,700 Cr |\n| AIF | 6 | ₹205 Cr |\n| Institutional Equities | 5 | ₹2,650 Cr |\n\n**Hottest lead**: Vedanta M&A (IB-3046) — ₹12,000Cr, near closure stage.";
-  if (m.includes("kyc") || m.includes("compliance"))
-    return "**KYC & Compliance Status**\n\n• Total clients: 20\n• KYC Verified: 17 (85%)\n• KYC Pending: 2 (Pradeep Kumar Jain, Maharashtra Pension Fund)\n• KYC Expired: 1 (Kavita Singh)\n• FATCA Compliant: 16 · FATCA Pending: 2\n\n**Action Required**: Kavita Singh (NIYT-I-001008) — KYC expired. Renewal overdue.";
-  if (m.includes("sla") || m.includes("tat") || m.includes("breach"))
-    return "**SLA / TAT Status**\n\n• SLA breached SRs: **5** (all in escalation)\n• Warning zone SRs (>80% TAT): 8\n• Average resolution time: 6.2 hours\n• Worst category: Trade Issues (avg 8.1h vs 4h TAT)\n• Best category: Compliance (avg 1.4h vs 2h TAT)\n\n**Recommendation**: Trade Issues queue needs additional resource allocation.";
-  if (m.includes("deal") || m.includes("revenue"))
-    return "**Active Deals Snapshot**\n\n• **IB**: Project Titan (₹4,200Cr M&A — Due Diligence)\n• **IB**: Project Aurora (₹1,800Cr — Mandate Signed)\n• **IB**: Vedanta Restructuring (₹8,900Cr — Mandate Letter)\n• **AIF**: NIYTRI Cat II Corpus — ₹850Cr fundraising active\n• **Corporate**: Adani Clearing March — ₹318Cr (Settled)\n\n**Advisory fees (FY26)**: ₹310 Cr (+22.3% YoY)";
-  if (m.includes("document") || m.includes("pdf") || m.includes("report"))
-    return "**Document Vault Summary**\n\n• Total documents: 284 across all clients\n• KYC documents: 156 · Agreements: 45 · Reports: 83\n• Latest upload: Settlement_Record_ORD289712.pdf (SR-5895) — v1.1, 21 Mar\n• Pending e-sign: 3 documents\n• Expiring soon: 2 PPM documents (AIF)\n\nNeed me to find a specific document or client's files?";
-  return `Hello! I'm your NIYTRI CRM AI Assistant with access to **${userRole}** permissions.\n\nI can help you with:\n• **Client data** — search, KYC status, account details\n• **Service Requests** — status, SLA tracking, escalations\n• **Portfolio analytics** — AUM, pipeline, deals\n• **Compliance** — KYC alerts, FATCA, audit trail\n• **Reports** — lead funnel, revenue, SLA breach summary\n\nJust ask me anything! For example:\n_"What are my SLA breached SRs today?"_ or _"Show AIF AUM summary"_`;
-}
-
 const AI_SUGGESTED_PROMPTS: Record<string, string[]> = {
   "Super Admin": ["Show all SLA breached SRs", "AIF AUM and investor count", "Retail Broking MTD summary", "KYC expiry alerts", "Top deals by value"],
   "AIF Admin": ["AIF AUM and NAV summary", "Active AIF investors and commitments", "Pending capital calls", "AIF service requests", "AIF compliance status"],
@@ -6309,7 +6281,6 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const userRole = loggedUser?.role || "Super Admin";
-  const userVerticals = loggedUser?.vertical === "All" ? ["Retail Broking", "Corporate Broking", "AIF", "Investment Banking", "Institutional Equities"] : [loggedUser?.vertical || "AIF"];
   const prompts = AI_SUGGESTED_PROMPTS[userRole] || AI_SUGGESTED_PROMPTS.default;
 
   useEffect(() => {
@@ -6339,7 +6310,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
       const res = await fetch(`${API_BASE}/api/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: messages, userRole, userVerticals, userName: loggedUser?.name, userId: loggedUser?.id }),
+        body: JSON.stringify({ message: text, history: messages }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.response) {
@@ -6352,12 +6323,10 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
         responseText = "I'm having trouble connecting right now. Please try again in a moment.";
         apiOk = true;
       }
-    } catch { /* network unreachable — fall through to offline fallback */ }
+    } catch { /* network unreachable */ }
 
-    if (!apiOk) {
-      await new Promise(r => setTimeout(r, 800));
-      responseText = generateSmartResponse(text, userRole, userVerticals);
-    }
+    // No offline "demo" answers — never show figures that didn't come from the CRM
+    if (!apiOk) responseText = "I couldn't reach the CRM server. Please check your connection and try again.";
 
     setIsTyping(false);
     setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), from: "ai", text: responseText, ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), accuracy: aiAccuracy, sourceLabel: aiSource }]);
@@ -6425,7 +6394,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
             <div className={`text-[10px] ${t.textMuted}`}>{loggedUser?.role}</div>
             <div className={`text-[10px] mt-1.5 ${t.textMuted}`}>Verticals: <span className={t.text}>{loggedUser?.vertical}</span></div>
             <div className={`text-[10px] mt-1 ${configured ? "text-emerald-400" : "text-yellow-500"}`}>
-              {configured ? "• LLM: Connected" : "• LLM: Demo Mode (configure in Admin)"}
+              {configured ? "• LLM: Connected" : "• LLM: Not configured (Admin → LLM Settings)"}
             </div>
           </div>
 
@@ -6451,7 +6420,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
           </div>
           <div className={`ml-auto flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-full ${configured ? "bg-emerald-900/40 text-emerald-400" : "bg-yellow-900/40 text-yellow-400"}`}>
             <div className={`w-1.5 h-1.5 rounded-full ${configured ? "bg-emerald-400" : "bg-yellow-400"}`} />
-            {configured ? "LLM Connected" : "Demo Mode"}
+            {configured ? "LLM Connected" : "Not configured"}
           </div>
         </div>
 
@@ -7664,6 +7633,29 @@ export function CRMApp() {
   const t = useTheme(darkMode);
   const userEmail = loggedUser?.email || "bhushan@niytri.com";
 
+  // NOTE: hooks must stay above the early "return" screens below (login / OTP / M365),
+  // otherwise React sees a different hook count after sign-in and the page goes blank.
+  // ── URL hash routing: #/<section>/<page> — deep links, browser/phone back button ──
+  // section = "main" | "admin" | vertical id (retail, corporate, ib, aif, ie)
+  useEffect(() => {
+    const apply = () => {
+      const m = window.location.hash.match(/^#\/([\w-]+)\/([\w-]+)/);
+      if (!m) return;
+      const [, section, page] = m;
+      if (section === "admin") { setIsAdmin(true); setActiveV(null); }
+      else { setIsAdmin(false); setActiveV(section === "main" ? null : (section as Vertical)); }
+      setActivePage(page as Page);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
+  useEffect(() => {
+    const h = `#/${isAdmin ? "admin" : activeV || "main"}/${activePage}`;
+    if (window.location.hash !== h) window.history.pushState(null, "", h);
+    setMobileSidebarOpen(false); // close the mobile drawer after navigating
+  }, [isAdmin, activeV, activePage]);
+
   // M365 callback: token + user in URL → use API user directly, then go to app
   if (m365Token && m365UserJson) {
     return (
@@ -7709,6 +7701,7 @@ export function CRMApp() {
 
   const handleLogout = () => {
     const wasM365 = loggedUser?.authType === "m365";
+    serverLogout(); // end the server-side session (fire-and-forget; reads the token before it's cleared)
     localStorage.removeItem("niytri_token");
     localStorage.removeItem("niytri_user");
     sessionStorage.clear();
@@ -7728,26 +7721,6 @@ export function CRMApp() {
 
   const navTo = (v: Vertical, p: Page) => { setIsAdmin(false); setActiveV(v); setActivePage(p); };
 
-  // ── URL hash routing: #/<section>/<page> — deep links, browser/phone back button ──
-  // section = "main" | "admin" | vertical id (retail, corporate, ib, aif, ie)
-  useEffect(() => {
-    const apply = () => {
-      const m = window.location.hash.match(/^#\/([\w-]+)\/([\w-]+)/);
-      if (!m) return;
-      const [, section, page] = m;
-      if (section === "admin") { setIsAdmin(true); setActiveV(null); }
-      else { setIsAdmin(false); setActiveV(section === "main" ? null : (section as Vertical)); }
-      setActivePage(page as Page);
-    };
-    apply();
-    window.addEventListener("hashchange", apply);
-    return () => window.removeEventListener("hashchange", apply);
-  }, []);
-  useEffect(() => {
-    const h = `#/${isAdmin ? "admin" : activeV || "main"}/${activePage}`;
-    if (window.location.hash !== h) window.history.pushState(null, "", h);
-    setMobileSidebarOpen(false); // close the mobile drawer after navigating
-  }, [isAdmin, activeV, activePage]);
 
   const renderContent = () => {
     if (isAdmin) {

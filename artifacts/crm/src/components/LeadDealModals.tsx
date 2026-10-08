@@ -15,10 +15,11 @@ const F = ({ label, children, span2 }: { label: string; children: React.ReactNod
 );
 
 // ─── Client picker (searchable) ───────────────────────────────────────────────
-function ClientPicker({ value, onChange, apiBase = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string }) {
+function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string }) {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
-  const [selectedName, setSelectedName] = useState("");
+  const [selectedName, setSelectedName] = useState(initialName);
+  useEffect(() => { setSelectedName(value ? initialName : ""); }, [value, initialName]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -94,6 +95,31 @@ interface LeadModalProps {
 
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 
+// "₹2000Cr" / "₹48.5L" / "₹12M" / "1,25,000" → rupees (number) for the edit form
+export function parseMoneyToRupees(v: any): string {
+  if (v === null || v === undefined || v === "") return "";
+  if (typeof v === "number") return String(v);
+  const s = String(v).replace(/[,₹\s]/g, "");
+  const m = s.match(/^([\d.]+)(cr|l|lakh|m)?$/i);
+  if (!m) return "";
+  const n = parseFloat(m[1]);
+  const mult = !m[2] ? 1 : /^cr$/i.test(m[2]) ? 1e7 : /^(l|lakh)$/i.test(m[2]) ? 1e5 : 1e6;
+  return String(Math.round(n * mult));
+}
+
+// Keep a saved value selectable even if it is no longer in the configured dropdown list
+const withCurrent = (list: string[], current: string) => (current && !list.includes(current) ? [current, ...list] : list);
+
+// 20000000000 → "₹2,000 Cr" so large rupee amounts are readable while typing
+const inWords = (v: any) => {
+  const n = Number(v); if (!n) return "";
+  if (n >= 1e7) return `₹${(n / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 2 })} Cr`;
+  if (n >= 1e5) return `₹${(n / 1e5).toLocaleString("en-IN", { maximumFractionDigits: 2 })} L`;
+  return `₹${n.toLocaleString("en-IN")}`;
+};
+
+const fmtDate = (d: any) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—");
+
 const BLANK_LEAD = {
   name: "", stage: "", priority: "Medium", value_estimate: "", source: "",
   sub_source: "", product: "", deal_type: "", assigned_rm_id: "", client_id: "",
@@ -136,7 +162,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         name: editLead.name || "",
         stage: editLead.stage || "",
         priority: editLead.priority || "Medium",
-        value_estimate: editLead.value_estimate || "",
+        value_estimate: parseMoneyToRupees(editLead.value_estimate),
         source: editLead.source || "",
         sub_source: editLead.sub_source || "",
         product: editLead.product || "",
@@ -162,7 +188,8 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
       const body = {
         name: form.name, vertical, stage: form.stage || stages[0]?.stage_id || "new",
         priority: form.priority, value_estimate: form.value_estimate ? Number(form.value_estimate) : null,
-        source: form.source || null, sub_source: form.sub_source || null,
+        // source / sub-source are fixed once the lead exists
+        ...(isEdit ? {} : { source: form.source || null, sub_source: form.sub_source || null }),
         product: form.product || null, deal_type: form.deal_type || null,
         assigned_rm_id: form.assigned_rm_id || null, client_id: form.client_id || null,
         expected_close: form.expected_close || null, notes: form.notes || null,
@@ -197,6 +224,13 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-4">
+          {isEdit && (
+            <div className="col-span-2 grid grid-cols-3 gap-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 text-xs">
+              <div><div className="text-gray-500">Lead ID</div><div className="font-mono font-semibold text-gray-900 dark:text-gray-100">{editLead.lead_code || "—"}</div></div>
+              <div><div className="text-gray-500">Vertical</div><div className="font-semibold text-gray-900 dark:text-gray-100">{editLead.vertical || vertical}</div></div>
+              <div><div className="text-gray-500">Opened on</div><div className="font-semibold text-gray-900 dark:text-gray-100">{fmtDate(editLead.opened_at || editLead.created_at)}</div></div>
+            </div>
+          )}
           {/* Name */}
           <F label="Lead Name *" span2>
             <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} placeholder="e.g. Mr. Rahul Sharma - Equity A/c Opening" />
@@ -216,32 +250,33 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           </F>
           {/* Source */}
           <F label="Lead Source">
-            <select value={form.source} onChange={e => set("source", e.target.value)} className={selectCls}>
+            <select value={form.source} onChange={e => set("source", e.target.value)} disabled={isEdit} title={isEdit ? "Source can't be changed after the lead is created" : undefined} className={`${selectCls} disabled:opacity-60 disabled:cursor-not-allowed`}>
               <option value="">— Select source —</option>
-              {sources.map(s => <option key={s}>{s}</option>)}
+              {withCurrent(sources, form.source).map(s => <option key={s}>{s}</option>)}
             </select>
           </F>
           {/* Sub-source */}
           <F label="Sub-Source">
-            <input value={form.sub_source} onChange={e => set("sub_source", e.target.value)} className={inputCls} placeholder="e.g. LinkedIn, Friend referral…" />
+            <input value={form.sub_source} onChange={e => set("sub_source", e.target.value)} disabled={isEdit} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isEdit ? "—" : "e.g. LinkedIn, Friend referral…"} />
           </F>
           {/* Product */}
           <F label="Product / Segment">
             <select value={form.product} onChange={e => set("product", e.target.value)} className={selectCls}>
               <option value="">— Select product —</option>
-              {products.map(p => <option key={p}>{p}</option>)}
+              {withCurrent(products, form.product).map(p => <option key={p}>{p}</option>)}
             </select>
           </F>
           {/* Deal Type */}
           <F label="Deal Type">
             <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
               <option value="">— Select type —</option>
-              {dealTypes.map(t => <option key={t}>{t}</option>)}
+              {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
             </select>
           </F>
           {/* Value estimate */}
           <F label="Estimated Value (₹)">
             <input type="number" value={form.value_estimate} onChange={e => set("value_estimate", e.target.value)} className={inputCls} placeholder="0" />
+            {form.value_estimate && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.value_estimate)}</div>}
           </F>
           {/* Expected Close */}
           <F label="Expected Close Date">
@@ -260,6 +295,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
               value={form.client_id}
               onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))}
               apiBase={apiBase}
+              initialName={form.client_name}
             />
           </F>
           {/* Notes */}
@@ -332,7 +368,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
         stage: editDeal.stage || "",
         type: editDeal.type || "",
         deal_type: editDeal.deal_type || "",
-        value: editDeal.value || "",
+        value: parseMoneyToRupees(editDeal.value),
         client_id: editDeal.client_id || "",
         client_name: editDeal.client_name || "",
         rm_id: editDeal.rm_id || "",
@@ -409,6 +445,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
           </F>
           <F label="Deal Value (₹)">
             <input type="number" value={form.value} onChange={e => set("value", e.target.value)} className={inputCls} placeholder="0" />
+            {form.value && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.value)}</div>}
           </F>
           <F label="Expected Close Date">
             <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
@@ -424,6 +461,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
               value={form.client_id}
               onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))}
               apiBase={apiBase}
+              initialName={form.client_name}
             />
           </F>
           <F label="Notes" span2>

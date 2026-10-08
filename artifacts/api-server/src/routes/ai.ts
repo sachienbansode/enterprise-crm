@@ -307,7 +307,13 @@ async function callLLM(config: any, apiKey: string, system: string, messages: an
 router.post("/chat", async (req, res) => {
   const t0 = Date.now();
   try {
-    const { message, history = [], userRole, userVerticals = [], userName, userId } = req.body;
+    const { message, history = [] } = req.body;
+    // Identity and data scope come from the server-side session, never from the request body
+    const userRole = req.user!.role;
+    const userName = req.user!.name;
+    const userId = req.user!.id;
+    const ALL_V = ["Retail Broking", "Corporate Broking", "AIF", "Investment Banking", "Institutional Equities"];
+    const userVerticals: string[] = !req.user!.vertical || req.user!.vertical === "All" ? ALL_V : [req.user!.vertical];
 
     const configResult = await query("SELECT * FROM ai_config LIMIT 1");
     const config = configResult.rows[0];

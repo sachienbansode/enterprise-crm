@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { requireAuth } from "./lib/session";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +30,9 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.set("trust proxy", "loopback"); // nginx on the same host sets X-Forwarded-*
+// Same-origin app: only allow cross-origin calls from origins listed in CORS_ORIGIN
+app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : false }));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -37,7 +40,8 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-app.use("/api", router);
+// Every /api route requires a valid session except the login flow (see lib/session.ts PUBLIC)
+app.use("/api", requireAuth, router);
 
 if (process.env.NODE_ENV === "production") {
   const crmDist = path.resolve(__dirname, "../../crm/dist/public");

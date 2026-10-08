@@ -113,7 +113,8 @@ router.patch("/:id", async (req, res) => {
         expected_close = COALESCE($13, expected_close),
         updated_at = NOW()
         WHERE id = $14 RETURNING *`,
-      [name, stage, priority, status, notes, assigned_rm_id, client_id, source, sub_source, product, deal_type, value_estimate, expected_close || null, req.params.id],
+      // source / sub_source are fixed after creation → never updated here
+      [name, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id],
     );
 
     await logAudit({

@@ -4,6 +4,7 @@ import { createHash, randomInt } from "crypto";
 import * as msal from "@azure/msal-node";
 import { decrypt } from "../lib/crypto";
 import { sendOtpEmail } from "../lib/email";
+import { createSession, endSession } from "../lib/session";
 
 const router = Router();
 
@@ -151,9 +152,7 @@ router.post("/login", async (req, res) => {
     // MFA disabled → issue session token directly, no OTP required
     if (!user.mfa_enabled) {
       await query("UPDATE users SET last_login=NOW() WHERE id=$1", [user.id]);
-      const token = Buffer.from(
-        JSON.stringify({ userId: user.id, email: user.email, exp: Date.now() + 8 * 60 * 60 * 1000 }),
-      ).toString("base64");
+      const token = await createSession(user.id, "app", req);
       await query(
         "INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('user',$1,$2,'Login','Password verified. MFA disabled — session started directly.')",
         [user.id, user.name],
@@ -205,10 +204,13 @@ router.post("/verify-otp", async (req, res) => {
     const valid = await verifyOtp(email, otp);
     if (!valid) return res.status(401).json({ error: "Invalid or expired OTP" });
 
-    const result = await query("UPDATE users SET last_login=NOW() WHERE email=$1 RETURNING id, name, email, role, vertical, auth_type", [email]);
-    const user = result.rows[0];
+    const result = await query("UPDATE users SET last_login=NOW() WHERE LOWER(email)=LOWER($1) AND status='Active' RETURNING id, name, email, role, vertical, auth_type, mfa_enabled", [email]);
+    const row = result.rows[0];
+    if (!row) return res.status(401).json({ error: "User not found or inactive" });
+    // same shape the app uses everywhere else (authType, not auth_type)
+    const user = { id: row.id, name: row.name, email: row.email, role: row.role, vertical: row.vertical, authType: row.auth_type, mfa_enabled: row.mfa_enabled };
 
-    const token = Buffer.from(JSON.stringify({ userId: user.id, email: user.email, exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64");
+    const token = await createSession(user.id, row.auth_type === "m365" ? "m365" : "app", req);
     await query(
       "INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('user',$1,$2,'Login','OTP verified. Session started.')",
       [user.id, user.name],
@@ -407,9 +409,7 @@ router.get("/m365/callback", async (req, res) => {
       [user.id, user.name || msName],
     );
 
-    const crmToken = Buffer.from(
-      JSON.stringify({ userId: user.id, email: user.email, exp: Date.now() + 8 * 60 * 60 * 1000, method: "m365" }),
-    ).toString("base64");
+    const crmToken = await createSession(user.id, "m365", req);
 
     const userPayload = JSON.stringify({
       id: user.id, name: user.name || msName, email: user.email,
@@ -423,27 +423,18 @@ router.get("/m365/callback", async (req, res) => {
   }
 });
 
-// ─── POST /api/auth/m365-callback — legacy endpoint ──────────────────────────
-router.post("/m365-callback", async (req, res) => {
-  try {
-    const { email } = req.body;
-    const result = await query(
-      "SELECT id, name, email, role, vertical, auth_type FROM users WHERE email=$1 AND auth_type='m365'",
-      [email],
-    );
-    if (!result.rows.length) return res.status(403).json({ error: "User not found or not configured for M365 SSO" });
-    const user = result.rows[0];
+// ─── POST /api/auth/logout — end the current session ─────────────────────────
+router.post("/logout", async (req, res) => {
+  const h = req.headers.authorization || "";
+  if (h.startsWith("Bearer ")) await endSession(h.slice(7).trim()).catch(() => {});
+  res.json({ ok: true });
+});
 
-    await query("UPDATE users SET last_login=NOW() WHERE id=$1", [user.id]);
-    const token = Buffer.from(JSON.stringify({ userId: user.id, email: user.email, exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64");
-    await query(
-      "INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('user',$1,$2,'Login','M365 SSO. Session started.')",
-      [user.id, user.name],
-    );
-    res.json({ token, user });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+// ─── GET /api/auth/me — current session user (also keeps the session alive) ──
+router.get("/me", (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Not signed in" });
+  const { sessionId, auth_type, ...u } = req.user;
+  return res.json({ user: { ...u, authType: auth_type } });
 });
 
 // ─── GET /api/auth/m365/status — live config check (reads DB + env) ───────────
