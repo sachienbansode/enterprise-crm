@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --color-red: #EF4444;
+  --color-red-deep: #DC2626;
+  --color-blue: #3B82F6;
+  --color-blue-deep: #1D4ED8;
+  --color-violet: #8B5CF6;
+
+  --color-bg-dark: #0B0F1A;
+  --color-bg-card: #111827;
+  --color-bg-muted: #1F2937;
+
+  --color-text-primary: #F0F4FF;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #64748B;
+
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@theme inline {
+  --color-red: var(--color-red);
+  --color-blue: var(--color-blue);
+  --color-violet: var(--color-violet);
+  --color-bg-dark: var(--color-bg-dark);
+  --color-bg-card: var(--color-bg-card);
+  --color-text-primary: var(--color-text-primary);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  width: 100%; height: 100%;
+  margin: 0; padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.niytri-grid {
+  background-image:
+    linear-gradient(rgba(239,68,68,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,246,0.05) 1px, transparent 1px);
+  background-size: 72px 72px;
+}
+
+/* Red-blue gradient text for NIYTRI brand */
+.niytri-brand-gradient {
+  background: linear-gradient(135deg, #EF4444 0%, #8B5CF6 50%, #3B82F6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.scene-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

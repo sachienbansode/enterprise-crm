@@ -1,0 +1,42 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import authRouter from "./auth";
+import clientsRouter from "./clients";
+import serviceRequestsRouter from "./service-requests";
+import slaConfigRouter from "./sla-config";
+import documentsRouter from "./documents";
+import usersRouter from "./users";
+import aiRouter from "./ai";
+import adminRouter from "./admin";
+import leadsRouter from "./leads";
+import dealsRouter from "./deals";
+import dashboardRouter from "./dashboard";
+import teamsRouter from "./teams";
+import notificationsRouter from "./notifications";
+import workflowsRouter from "./workflows";
+import configRouter from "./config";
+import piiMaskingRouter from "./pii-masking";
+import auditRouter from "./audit";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use("/auth", authRouter);
+router.use("/clients", clientsRouter);
+router.use("/service-requests", serviceRequestsRouter);
+router.use("/sla-config", slaConfigRouter);
+router.use("/documents", documentsRouter);
+router.use("/users", usersRouter);
+router.use("/ai", aiRouter);
+router.use("/admin", adminRouter);
+router.use("/leads", leadsRouter);
+router.use("/deals", dealsRouter);
+router.use("/dashboard", dashboardRouter);
+router.use("/teams", teamsRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/workflows", workflowsRouter);
+router.use("/config", configRouter);
+router.use("/pii-masking", piiMaskingRouter);
+router.use("/audit-logs", auditRouter);
+
+export default router;
