@@ -41,6 +41,21 @@ router.get("/", async (req, res) => {
 });
 
 // PUT /api/notifications/:id/read
+// POST /api/notifications/meeting-reminder — record a calendar reminder in the user's bell
+router.post("/meeting-reminder", async (req, res) => {
+  try {
+    const { subject, startsAt, minutes } = req.body || {};
+    const when = new Date(startsAt);
+    if (!subject || isNaN(when.getTime())) return res.status(400).json({ error: "subject and startsAt required" });
+    const time = when.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+    await query(
+      "INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'meeting', $2, $3)",
+      [req.user!.id, `Meeting in ${Number(minutes) || 0} min: ${String(subject).slice(0, 200)}`, `Starts at ${time} IST`],
+    );
+    return res.json({ ok: true });
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
 router.put("/:id/read", async (req, res) => {
   try {
     await query("UPDATE notifications SET read=true WHERE id=$1", [req.params.id]);

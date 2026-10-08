@@ -35,10 +35,15 @@ export default function MeetingReminders({ email, apiBase = "" }: { email?: stri
   const events = useRef<CalEvent[]>([]);
   const shown = useRef<Set<string>>(loadShown());
 
-  // Ask once for browser-notification permission
-  useEffect(() => {
-    try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch { /* ignore */ }
-  }, []);
+  // Desktop notifications are opt-in from an in-app card (no browser prompt on page load)
+  const [askDesktop, setAskDesktop] = useState(() => {
+    try { return "Notification" in window && Notification.permission === "default" && localStorage.getItem("niytri_desktop_notif") !== "dismissed"; } catch { return false; }
+  });
+  const enableDesktop = async () => {
+    try { await Notification.requestPermission(); } catch { /* ignore */ }
+    setAskDesktop(false);
+  };
+  const dismissDesktop = () => { try { localStorage.setItem("niytri_desktop_notif", "dismissed"); } catch { /* ignore */ } setAskDesktop(false); };
 
   // Fetch upcoming events (next ~40 min)
   useEffect(() => {
@@ -80,6 +85,11 @@ export default function MeetingReminders({ email, apiBase = "" }: { email?: stri
       if (!fresh.length) return;
       saveShown(shown.current);
       setReminders(r => [...r, ...fresh]);
+      // In-app: also record each reminder in the notification bell
+      Promise.all(fresh.map(f => fetch(`${apiBase}/api/notifications/meeting-reminder`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: f.subject, startsAt: f.startsAt.toISOString(), minutes: f.minutes }),
+      }).catch(() => {}))).then(() => window.dispatchEvent(new Event("niytri:notifications-refresh")));
       try {
         if ("Notification" in window && Notification.permission === "granted") {
           fresh.forEach(f => new Notification(`Meeting in ${f.minutes} min`, { body: `${f.subject} · ${fmtIST(f.startsAt)} IST`, tag: f.key }));
@@ -91,11 +101,26 @@ export default function MeetingReminders({ email, apiBase = "" }: { email?: stri
     return () => clearInterval(id);
   }, [email]);
 
-  if (!reminders.length) return null;
+  if (!reminders.length && !askDesktop) return null;
   const dismiss = (key: string) => setReminders(r => r.filter(x => x.key !== key));
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 w-80">
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)] print:hidden">
+      {askDesktop && (
+        <div className="rounded-xl border border-blue-500/40 bg-slate-900 text-white shadow-2xl p-3">
+          <div className="flex gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0"><Bell className="w-4 h-4" /></div>
+            <div className="text-xs">
+              <div className="font-semibold text-sm">Meeting reminders</div>
+              <div className="text-slate-300 mt-0.5">Reminders appear here and in the bell 30 and 15 minutes before each meeting. Also show them as desktop notifications when the CRM is in the background?</div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={dismissDesktop} className="text-xs px-3 py-1.5 rounded-lg text-slate-300 hover:text-white">Not now</button>
+            <button onClick={enableDesktop} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500">Enable</button>
+          </div>
+        </div>
+      )}
       {reminders.map(r => (
         <div key={r.key} role="alert" className="rounded-xl border border-blue-500/40 bg-slate-900 text-white shadow-2xl p-3 flex gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0"><Bell className="w-4 h-4" /></div>

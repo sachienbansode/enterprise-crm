@@ -4,6 +4,7 @@ import { ServiceRequestModule, SR_CATEGORIES } from "./pages/ServiceRequests";
 import ClientForm from "./components/ClientForm";
 import { LeadModal, DealModal } from "./components/LeadDealModals";
 import MeetingReminders from "./components/MeetingReminders";
+import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import { serverLogout } from "./lib/authFetch";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
@@ -841,7 +842,11 @@ function NotificationBell({ loggedUser, t }: { loggedUser: any; t: ReturnType<ty
       .catch(() => {});
   }, [loggedUser?.id]);
 
-  useEffect(() => { load(); const i = setInterval(load, 30000); return () => clearInterval(i); }, [load]);
+  useEffect(() => {
+    load(); const i = setInterval(load, 30000);
+    window.addEventListener("niytri:notifications-refresh", load); // e.g. a meeting reminder just fired
+    return () => { clearInterval(i); window.removeEventListener("niytri:notifications-refresh", load); };
+  }, [load]);
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", handler);
@@ -3162,6 +3167,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
   const filtered = leads.filter(l => !search || l.name?.toLowerCase().includes(search.toLowerCase()) || l.lead_code?.toLowerCase().includes(search.toLowerCase()) || l.source?.toLowerCase().includes(search.toLowerCase()));
   const stageLeads = (stageId: string) => filtered.filter(l => l.stage === stageId);
+  const [openEmpty, setOpenEmpty] = useState<Set<string>>(new Set()); // empty stages the user expanded
   // Leads whose stage isn't in the configured pipeline still get a column, so nothing disappears from the board
   const boardStages = [
     ...stages,
@@ -3241,10 +3247,20 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         ) : viewMode === "board" ? (
           /* ── Board View ── */
           <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-            {/* Stages wrap into rows instead of scrolling sideways; one column per row on phones */}
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] items-start">
+            {/* One row, no horizontal scroll: empty stages collapse to a slim strip (click to open),
+                stages with leads share the remaining width. Phones: stages stack vertically. */}
+            <div className="grid gap-2.5 grid-cols-1 sm:[grid-template-columns:var(--cols)] items-start"
+              style={{ ["--cols" as any]: boardStages.map((st: any) => (stageLeads(st.id).length || openEmpty.has(st.id) ? "minmax(0,1fr)" : "40px")).join(" ") }}>
               {boardStages.map((stage: any) => {
                 const sl = stageLeads(stage.id);
+                if (!sl.length && !openEmpty.has(stage.id)) return (
+                  <button key={stage.id} onClick={() => setOpenEmpty(prev => new Set(prev).add(stage.id))} title={`${stage.label} — no leads. Click to expand`}
+                    className={`group rounded-xl border border-dashed ${t.border} ${t.textMuted} hover:border-blue-500/60 transition-colors flex sm:flex-col items-center gap-2 px-3 py-2 sm:px-0 sm:py-3 sm:min-h-[320px]`}>
+                    <div className={`w-2 h-2 rounded-full ${v.color} flex-shrink-0`} />
+                    <span className="text-xs font-semibold sm:[writing-mode:vertical-rl] sm:rotate-180 whitespace-nowrap">{stage.label}</span>
+                    <span className={`text-[10px] ${t.tagGray} px-1.5 py-0.5 rounded-full ml-auto sm:ml-0 sm:mt-auto`}>0</span>
+                  </button>
+                );
                 return (
                   <div key={stage.id} className="min-w-0 flex flex-col">
                     <div className="flex items-center justify-between mb-2.5">
@@ -7538,6 +7554,7 @@ export function CRMApp() {
 
   // Load PII settings at startup so canViewPII uses live admin config
   useEffect(() => {
+    if (authStep !== "app") return;
     fetch(`${API_BASE}/api/pii-masking/settings`)
       .then(r => r.ok ? r.json() : null)
       .then((s: any) => {
@@ -7549,7 +7566,7 @@ export function CRMApp() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [authStep]); // (re)load once signed in — these endpoints need a session
 
   // Poll for pending PII approval count (for badge on header icon)
   useEffect(() => {
@@ -7589,9 +7606,10 @@ export function CRMApp() {
           dealMap[vKey].push(r.label);
         });
         Object.assign(DEAL_STAGES, dealMap);
+        setVerticalsKey(k => k + 1); // re-render screens that read the stage lists
       })
       .catch(() => {});
-  }, []);
+  }, [authStep]); // (re)load once signed in — these endpoints need a session
 
   // Load verticals config from API (merge with icon/color defaults)
   useEffect(() => {
@@ -7610,7 +7628,7 @@ export function CRMApp() {
         setVerticalsKey(k => k + 1);
       })
       .catch(() => {});
-  }, []);
+  }, [authStep]); // (re)load once signed in — these endpoints need a session
 
   // Parse M365 callback params from URL (after Azure AD redirect)
   const urlParams = new URLSearchParams(window.location.search);
@@ -7744,13 +7762,13 @@ export function CRMApp() {
     if (!activeV && activePage === "clients")  return <ClientsModule t={t} loggedUser={loggedUser} />;
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
-    if (!activeV) return <OverallDashboard t={t} onNav={navTo} />;
+    if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
     if (activePage === "dashboard") return <VerticalDashboard vId={activeV} t={t} />;
     if (activePage === "leads")     return <LeadsPipeline vId={activeV} t={t} loggedUser={loggedUser} />;
     if (activePage === "deals")     return <DealsView vId={activeV} t={t} loggedUser={loggedUser} />;
     if (activePage === "customers") return <CustomersView vId={activeV} t={t} loggedUser={loggedUser} />;
     if (activePage === "documents") return <DocumentsView vId={activeV} t={t} loggedUser={loggedUser} />;
-    return <OverallDashboard t={t} onNav={navTo} />;
+    return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
   };
 
   return (
