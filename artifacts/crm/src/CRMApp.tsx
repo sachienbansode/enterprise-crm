@@ -3170,6 +3170,21 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const stageLeads = (stageId: string) => filtered.filter(l => l.stage === stageId);
   const [openEmpty, setOpenEmpty] = useState<Set<string>>(new Set()); // empty stages the user expanded
   const [detailTab, setDetailTab] = useState<"activity" | "documents">("activity");
+  const [movingStage, setMovingStage] = useState(false);
+  const [stageError, setStageError] = useState("");
+  // Move the selected lead to another pipeline stage (recorded in History with who/when)
+  const moveStage = async (stageId: string) => {
+    if (!selected) return;
+    setMovingStage(true); setStageError("");
+    try {
+      const r = await fetch(`${API_BASE}/api/leads/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not change stage");
+      setSelected({ ...selected, stage: stageId });
+      setActivityKey(k => k + 1);
+      load();
+    } catch (e: any) { setStageError(e.message); }
+    setMovingStage(false);
+  };
   const [activityKey, setActivityKey] = useState(0);
   // Leads whose stage isn't in the configured pipeline still get a column, so nothing disappears from the board
   const boardStages = [
@@ -3395,20 +3410,45 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 <span className={`font-medium ${t.text}`}>{row.value}</span>
               </div>
             ))}
-            {/* Stage progress */}
-            <div className="space-y-1">
-              {stages.map((st: any, i: number) => {
-                const done = stages.findIndex((s: any) => s.id === selected.stage) >= i;
-                return (
-                  <div key={st.id} className="flex items-center gap-2">
-                    <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 ${done ? v.color : t.bgCard2}`}>
-                      {done && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
-                    </div>
-                    <span className={`text-xs ${done ? t.text : t.textMuted}`}>{st.label}</span>
+            {/* Stage progress — click a stage, or use Back / Next, to move the lead */}
+            {(() => {
+              const flow = stages.filter((st: any) => !st.is_lost && !/lost/i.test(st.id));
+              const lostStage = stages.find((st: any) => st.is_lost || /lost/i.test(st.id));
+              const cur = flow.findIndex((s: any) => s.id === selected.stage);
+              const isLost = lostStage && selected.stage === lostStage.id;
+              return (
+                <div className="space-y-2">
+                  <div className="space-y-0.5">
+                    {stages.map((st: any) => {
+                      const idx = flow.findIndex((s: any) => s.id === st.id);
+                      const done = !isLost && idx !== -1 && idx <= cur;
+                      const current = st.id === selected.stage;
+                      return (
+                        <button key={st.id} disabled={current || movingStage} onClick={() => moveStage(st.id)} title={current ? "Current stage" : `Move to ${st.label}`}
+                          className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left transition-colors ${current ? (isDark ? "bg-white/5" : "bg-slate-100") : "hover:bg-blue-500/10"} disabled:cursor-default`}>
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 ${current && isLost ? "bg-red-500" : done ? v.color : t.bgCard2}`}>
+                            {(done || (current && isLost)) && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <span className={`text-xs ${current ? `font-semibold ${t.text}` : done ? t.text : t.textMuted}`}>{st.label}</span>
+                          {current && <span className={`ml-auto text-[10px] ${t.textMuted}`}>current</span>}
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex gap-2">
+                    <button disabled={movingStage || cur <= 0} onClick={() => moveStage(flow[cur - 1].id)}
+                      className={`flex-1 text-xs py-2 rounded-lg border ${t.border} ${t.textSub} disabled:opacity-40`}>← {cur > 0 ? flow[cur - 1].label : "Back"}</button>
+                    <button disabled={movingStage || cur === -1 || cur >= flow.length - 1} onClick={() => moveStage(flow[cur + 1].id)}
+                      className="flex-1 text-xs py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{cur >= 0 && cur < flow.length - 1 ? flow[cur + 1].label : "Next"} →</button>
+                  </div>
+                  {lostStage && !isLost && (
+                    <button disabled={movingStage} onClick={() => { if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id); }}
+                      className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
+                  )}
+                  {stageError && <div className="text-[11px] text-red-500">{stageError}</div>}
+                </div>
+              );
+            })()}
             {isWonStage(selected.stage) && (
               <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Convert to Deal →
