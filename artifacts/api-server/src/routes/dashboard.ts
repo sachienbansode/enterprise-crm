@@ -74,32 +74,46 @@ function rupees(v: any): number {
 }
 
 // GET /api/dashboard/analytics — executive analytics (all figures computed from live data)
-router.get("/analytics", async (_req, res) => {
+router.get("/analytics", async (req, res) => {
   try {
+    // Filters: ?verticals=Retail Broking,AIF  &rm=<user id>  &weeks=12
+    const ALL_V = ["Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities"];
+    const VCODE: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
+    const vSel = String(req.query.verticals || "").split(",").map(v => v.trim()).filter(v => ALL_V.includes(v));
+    const verts = vSel.length ? vSel : ALL_V;
+    const codes = verts.map(v => VCODE[v]);
+    const rm = /^[0-9a-f-]{36}$/i.test(String(req.query.rm || "")) ? String(req.query.rm) : null;
+    const weeks = Math.min(52, Math.max(4, parseInt(String(req.query.weeks || "12"), 10) || 12));
+    const span = `${weeks - 1} weeks`;
+
     const [leads, deals, stageMeta, srWeekly, leadWeekly, srNow, rms, clients, upcoming] = await Promise.all([
       query(`SELECT l.vertical, l.stage, l.status, l.priority, l.value_estimate, l.opened_at, l.closed_at, l.assigned_rm_id
-               FROM leads l`),
-      query(`SELECT vertical, stage, value, created_at FROM deals`),
+               FROM leads l WHERE l.stage <> 'deleted' AND l.vertical = ANY($1) AND ($2::uuid IS NULL OR l.assigned_rm_id = $2)`, [verts, rm]),
+      query(`SELECT vertical, stage, value, created_at FROM deals
+              WHERE stage <> 'deleted' AND vertical = ANY($1) AND ($2::uuid IS NULL OR rm_id = $2)`, [verts, rm]),
       query(`SELECT entity, vertical, stage_id, label, is_won, is_lost, sort_order FROM pipeline_stages WHERE is_active`),
       query(`SELECT to_char(date_trunc('week', d), 'YYYY-MM-DD') AS wk,
-                    (SELECT COUNT(*) FROM service_requests WHERE date_trunc('week', created_at) = date_trunc('week', d))::int AS opened,
-                    (SELECT COUNT(*) FROM service_requests WHERE date_trunc('week', COALESCE(resolved_at, closed_at)) = date_trunc('week', d))::int AS resolved
-               FROM generate_series(NOW() - INTERVAL '11 weeks', NOW(), INTERVAL '1 week') d ORDER BY 1`),
+                    (SELECT COUNT(*) FROM service_requests WHERE vertical = ANY($1) AND date_trunc('week', created_at) = date_trunc('week', d))::int AS opened,
+                    (SELECT COUNT(*) FROM service_requests WHERE vertical = ANY($1) AND date_trunc('week', COALESCE(resolved_at, closed_at)) = date_trunc('week', d))::int AS resolved
+               FROM generate_series(NOW() - $2::interval, NOW(), INTERVAL '1 week') d ORDER BY 1`, [verts, span]),
       query(`SELECT to_char(date_trunc('week', d), 'YYYY-MM-DD') AS wk,
-                    (SELECT COUNT(*) FROM leads WHERE date_trunc('week', opened_at) = date_trunc('week', d))::int AS created
-               FROM generate_series(NOW() - INTERVAL '11 weeks', NOW(), INTERVAL '1 week') d ORDER BY 1`),
+                    (SELECT COUNT(*) FROM leads WHERE stage <> 'deleted' AND vertical = ANY($1) AND ($3::uuid IS NULL OR assigned_rm_id = $3)
+                       AND date_trunc('week', opened_at) = date_trunc('week', d))::int AS created
+               FROM generate_series(NOW() - $2::interval, NOW(), INTERVAL '1 week') d ORDER BY 1`, [verts, span, rm]),
       query(`SELECT status, priority,
                     (status NOT IN ('Closed','Resolved') AND sla_deadline < NOW()) AS breached
-               FROM service_requests`),
+               FROM service_requests WHERE vertical = ANY($1)`, [verts]),
       query(`SELECT id, name FROM users`),
       query(`SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE status='Active')::int active,
                     COUNT(*) FILTER (WHERE kyc_status IN ('Expired','Pending'))::int kyc_attention,
                     COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int new30
-               FROM clients`),
+               FROM clients c
+              WHERE EXISTS (SELECT 1 FROM client_verticals cv WHERE cv.client_id = c.id AND cv.vertical = ANY($1))`, [codes]),
       query(`SELECT l.lead_code, l.name, l.vertical, l.stage, l.value_estimate, l.expected_close, u.name AS rm
                FROM leads l LEFT JOIN users u ON u.id = l.assigned_rm_id
-              WHERE l.expected_close BETWEEN NOW()::date AND NOW()::date + 30
-              ORDER BY l.expected_close LIMIT 8`),
+              WHERE l.stage <> 'deleted' AND l.vertical = ANY($1) AND ($2::uuid IS NULL OR l.assigned_rm_id = $2)
+                AND l.expected_close BETWEEN NOW()::date AND NOW()::date + 30
+              ORDER BY l.expected_close LIMIT 8`, [verts, rm]),
     ]);
 
     const VID: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
@@ -149,7 +163,9 @@ router.get("/analytics", async (_req, res) => {
         clients: clients.rows[0], openSRs: srOpen.length, breachedSRs: srOpen.filter(r => r.breached).length,
         totalSRs: srNow.rows.length,
       },
-      verticals: Object.keys(VID).map(name => ({ name, id: VID[name], ...(byV[name] || { open: 0, won: 0, openCount: 0, wonCount: 0, lostCount: 0 }), dealValue: dealValueByV[name] || 0 })),
+      filters: { verticals: verts, rm, weeks },
+      rmOptions: rms.rows.map(u => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name)),
+      verticals: Object.keys(VID).filter(name => verts.includes(name)).map(name => ({ name, id: VID[name], ...(byV[name] || { open: 0, won: 0, openCount: 0, wonCount: 0, lostCount: 0 }), dealValue: dealValueByV[name] || 0 })),
       weekly: leadWeekly.rows.map((r, i) => ({ week: r.wk, leads: r.created, srOpened: srWeekly.rows[i]?.opened || 0, srResolved: srWeekly.rows[i]?.resolved || 0 })),
       ageing: Object.entries(ageing).map(([bucket, count]) => ({ bucket, count })),
       srByStatus, srOpenByPriority, rmBoard,
