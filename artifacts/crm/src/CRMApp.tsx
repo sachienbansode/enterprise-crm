@@ -43,13 +43,13 @@ function useTheme(isDark: boolean) {
     bgSidebar: isDark ? "bg-gray-900" : "bg-slate-900",
     bgHeader: isDark ? "bg-gray-900" : "bg-white",
     border: isDark ? "border-gray-800" : "border-slate-200",
-    text: isDark ? "text-white" : "text-slate-900",
+    text: isDark ? "text-gray-100" : "text-slate-900",
     textMuted: isDark ? "text-gray-400" : "text-slate-500",
     textSub: isDark ? "text-gray-300" : "text-slate-600",
-    inputBg: isDark ? "bg-gray-800 border-gray-700 text-white placeholder-gray-500" : "bg-white border-slate-300 text-slate-900 placeholder-slate-400",
+    inputBg: isDark ? "bg-gray-950 border-gray-700 text-gray-100 placeholder-gray-500 focus:border-blue-500" : "bg-white border-slate-300 text-slate-900 placeholder-slate-400",
     rowHover: isDark ? "hover:bg-gray-800/60" : "hover:bg-slate-50",
     tagGray: isDark ? "bg-gray-800 text-gray-400" : "bg-slate-100 text-slate-600",
-    tableHead: isDark ? "bg-gray-800/50" : "bg-slate-50",
+    tableHead: isDark ? "bg-gray-800/60" : "bg-slate-50",
     alertRed: isDark ? "bg-red-950/40 border-red-900/50 text-red-300" : "bg-red-50 border-red-200 text-red-700",
     alertYellow: isDark ? "bg-yellow-950/40 border-yellow-900/50 text-yellow-300" : "bg-amber-50 border-amber-200 text-amber-700",
     alertGreen: isDark ? "bg-emerald-950/40 border-emerald-900/50 text-emerald-300" : "bg-emerald-50 border-emerald-200 text-emerald-700",
@@ -1993,8 +1993,9 @@ function StatusBadge({ s }: { s: string }) {
   const c = ["Verified", "Executed", "Active", "Signed", "Final", "Settled", "Called", "Allotted", "Resolved", "Closed", "Connected", "Enforced"].includes(s) ? badgeColors("green")
     : ["Pending", "Draft", "In Negotiation", "Open"].includes(s) ? badgeColors("yellow")
     : ["In Progress", "Partially Executed", "Fundraising", "Executing", "Live", "Reviewed", "Sent"].includes(s) ? badgeColors("blue")
-    : ["Escalated", "Breached", "Expired"].includes(s) ? badgeColors("red")
-    : ["Near Closure", "Subscription Signed", "Mandate Signed", "Warning"].includes(s) ? badgeColors("violet")
+    : ["Escalated", "Breached", "Expired", "Error"].includes(s) ? badgeColors("red")
+    : ["Near Closure", "Subscription Signed", "Mandate Signed"].includes(s) ? badgeColors("violet")
+    : ["Warning"].includes(s) ? badgeColors("yellow")
     : badgeColors("gray");
   return <Badge text={s || "—"} color={c} />;
 }
@@ -2244,6 +2245,19 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
       .then(r => r.json()).then(d => { if (d.otp) setDevOtp(d.otp); }).catch(() => {});
   }, [email]);
 
+  const [resending, setResending] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
+  const resend = async () => {
+    setResending(true); setResendMsg(""); setError("");
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/resend-otp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      const d = await r.json();
+      if (r.ok) { setResendMsg(d.message); setOtp(["", "", "", "", "", ""]); refs.current[0]?.focus(); }
+      else setError(d.error || "Could not resend code");
+    } catch { setError("Network error — please try again"); }
+    setResending(false);
+  };
+
   const verify = async (code: string) => {
     setLoading(true); setError("");
     try {
@@ -2310,7 +2324,8 @@ function OTPScreen({ onVerify, email, isDark }: { onVerify: (user?: any) => void
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCheck className="w-4 h-4" />}
             {loading ? "Verifying OTP…" : "Verify & Sign In"}
           </button>
-          <p className={`text-[10px] ${t.textMuted} text-center mt-3`}>OTP valid for 5 minutes · <button className={`${t.linkText} hover:underline`}>Resend OTP</button></p>
+          <p className={`text-[10px] ${t.textMuted} text-center mt-3`}>OTP valid for 5 minutes · <button onClick={resend} disabled={resending} className={`${t.linkText} hover:underline disabled:opacity-50`}>{resending ? "Sending…" : "Resend OTP"}</button></p>
+          {resendMsg && <p className={`text-[10px] text-center mt-1 ${t.textMuted}`}>{resendMsg}</p>}
         </div>
       </div>
     </div>
@@ -2359,16 +2374,16 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   const toggleV = (vid: string) => { setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage("dashboard"); setIsAdmin(false); };
   const initials = loggedUser ? loggedUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2) : "BN";
   const sb = {
-    bg: isDark ? "bg-slate-900" : "bg-white",
-    border: isDark ? "border-slate-800" : "border-slate-200",
-    text: isDark ? "text-white" : "text-slate-900",
-    muted: isDark ? "text-slate-400" : "text-slate-500",
-    label: isDark ? "text-slate-500" : "text-slate-400",
-    hover: isDark ? "text-slate-400 hover:bg-slate-800/60 hover:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-    sub: isDark ? "text-slate-400 hover:text-white hover:bg-slate-700/40" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100",
-    adminHov: isDark ? "text-slate-400 hover:bg-slate-800/60 hover:text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
-    card2: isDark ? "bg-slate-800/60" : "bg-slate-100",
-    sep: isDark ? "border-slate-700/60" : "border-slate-200",
+    bg: isDark ? "bg-gray-950" : "bg-white",
+    border: isDark ? "border-gray-800" : "border-slate-200",
+    text: isDark ? "text-gray-100" : "text-slate-900",
+    muted: isDark ? "text-gray-400" : "text-slate-500",
+    label: isDark ? "text-gray-500" : "text-slate-400",
+    hover: isDark ? "text-gray-400 hover:bg-gray-800/60 hover:text-gray-100" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+    sub: isDark ? "text-gray-400 hover:text-gray-100 hover:bg-gray-700/40" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100",
+    adminHov: isDark ? "text-gray-400 hover:bg-gray-800/60 hover:text-gray-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
+    card2: isDark ? "bg-gray-800/60" : "bg-slate-100",
+    sep: isDark ? "border-gray-700/60" : "border-slate-200",
     sectionMain: isDark ? "border-l-2 border-blue-500/60 pl-1 ml-1 rounded-r" : "border-l-2 border-blue-400/60 pl-1 ml-1 rounded-r",
     sectionVerticals: isDark ? "border-l-2 border-violet-500/50 pl-1 ml-1 rounded-r" : "border-l-2 border-violet-400/50 pl-1 ml-1 rounded-r",
     sectionAdmin: isDark ? "border-l-2 border-amber-500/50 pl-1 ml-1 rounded-r" : "border-l-2 border-amber-400/50 pl-1 ml-1 rounded-r",
@@ -2794,7 +2809,7 @@ function OverallDashboard({ t, onNav }: { t: ReturnType<typeof useTheme>; onNav:
     <div className="p-5 space-y-5 overflow-y-auto h-full">
       <div className="flex items-center justify-between">
         <div><h1 className={`text-lg font-bold ${t.text}`}>Executive Overview</h1><p className={`text-xs ${t.textMuted} mt-0.5`}>NIYTRI Financial Services · Real-time CRM data</p></div>
-        <button className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export Report</button>
+        <button onClick={() => window.print()} title="Save as PDF / print" className="print:hidden text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export Report</button>
       </div>
       {dash?.srs?.breached > 0 && (
         <div onClick={() => onNav(null, "service")} className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border text-xs ${t.alertRed} ${clickable}`}>
@@ -2887,7 +2902,7 @@ function OverallDashboard({ t, onNav }: { t: ReturnType<typeof useTheme>; onNav:
               <span>Service Request Status</span>
               <button onClick={() => onNav(null, "service")} className={`text-[10px] ${t.linkText} hover:underline`}>{dash?.srs?.total || 0} total · View all →</button>
             </div>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {Object.entries(dash?.srs?.byStatus || {}).map(([status, count]: [string, any]) => (
                 <div key={status} onClick={() => onNav(null, "service")} className={`${t.bgCard2} rounded-xl p-3 text-center ${clickable}`}>
                   <div className={`text-xl font-bold ${status === "Escalated" ? "text-red-500" : status === "Open" ? "text-amber-500" : status === "Resolved" ? "text-emerald-500" : status === "In Progress" ? "text-blue-500" : t.textMuted}`}>{count}</div>
@@ -2949,15 +2964,15 @@ function VerticalDashboard({ vId, t }: { vId: string; t: ReturnType<typeof useTh
   const stages = LEAD_STAGES[vId] || [];
 
   return (
-    <div className="p-5 space-y-5 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
+    <div className="p-3 sm:p-5 space-y-5 overflow-y-auto h-full">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl ${v.color} flex items-center justify-center`}><v.icon className="w-5 h-5 text-white" /></div>
           <div><h1 className={`text-lg font-bold ${t.text} uppercase`}>{v.label} Dashboard</h1><p className={`text-xs ${t.textMuted}`}>Business vertical performance · Q4 FY26</p></div>
         </div>
         <div className="flex items-center gap-2">
           {dash && <span className={`text-xs ${t.textMuted}`}>{dash.leads?.byVertical?.[vName] || 0} leads · {dash.deals?.byVertical?.[vName] || 0} deals</span>}
-          <button className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export</button>
+          <button onClick={() => window.print()} title="Save as PDF / print" className="print:hidden text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export</button>
         </div>
       </div>
       {loading ? (
@@ -2973,8 +2988,8 @@ function VerticalDashboard({ vId, t }: { vId: string; t: ReturnType<typeof useTh
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className={`col-span-2 ${t.bgCard} border ${t.border} rounded-xl p-4`}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className={`lg:col-span-2 ${t.bgCard} border ${t.border} rounded-xl p-4`}>
               <div className={`text-sm font-semibold ${t.text} mb-4`}>Revenue Trend (FY 2025–26)</div>
               <div className="flex items-end gap-3 h-28">
                 {chartData.map(([month, val]) => (
@@ -3222,12 +3237,13 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
           <div className={`flex items-center justify-center flex-1 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading leads…</div>
         ) : viewMode === "board" ? (
           /* ── Board View ── */
-          <div className="flex-1 overflow-x-auto p-4">
-            <div className="flex gap-3 h-full min-w-max">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+            {/* Stages wrap into rows instead of scrolling sideways; one column per row on phones */}
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] items-start">
               {boardStages.map((stage: any) => {
                 const sl = stageLeads(stage.id);
                 return (
-                  <div key={stage.id} className="w-52 flex flex-col flex-shrink-0">
+                  <div key={stage.id} className="min-w-0 flex flex-col">
                     <div className="flex items-center justify-between mb-2.5">
                       <div className="flex items-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${v.color}`} />
@@ -3318,7 +3334,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`w-64 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-72 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
             <div className={`text-sm font-bold ${t.text}`}>Lead Detail</div>
             <div className="flex items-center gap-2">
@@ -3587,12 +3603,13 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
           </>
         ) : (
           /* ── Board View ── */
-          <div className="flex-1 overflow-x-auto p-4">
-            <div className="flex gap-3 h-full min-w-max">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+            {/* Stages wrap into rows instead of scrolling sideways; one column per row on phones */}
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] items-start">
               {[...dealBoardStages, ...Array.from(new Set(deals.map(d => d.stage).filter((st: string) => st && !dealBoardStages.includes(st))))].map(stageName => {
                 const stageDeals = deals.filter(d => d.stage === stageName);
                 return (
-                  <div key={stageName} className="w-52 flex flex-col flex-shrink-0">
+                  <div key={stageName} className="min-w-0 flex flex-col">
                     <div className="flex items-center justify-between mb-2.5">
                       <div className="flex items-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${v.color}`} />
@@ -3848,8 +3865,8 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         </div>
       </div>
     )}
-    <div className="p-5 overflow-y-auto h-full">
-      <div className="flex items-center gap-3 mb-4">
+    <div className="p-3 sm:p-5 overflow-y-auto h-full">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
         <div className={`w-7 h-7 rounded-lg ${v.color} flex items-center justify-center`}><FileText className="w-4 h-4 text-white" /></div>
         <div><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Documents</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} documents`}</div></div>
         <div className={`flex items-center gap-2 ${t.bgCard2} rounded-lg px-3 py-1.5 ml-2`}><Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className={`bg-transparent text-xs ${t.text} outline-none w-32`} placeholder="Search docs…" /></div>
@@ -3871,15 +3888,15 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         <div className="space-y-3">
           {docs.map(doc => (
             <div key={doc.id} className={`${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
                   <FileText className={`w-4 h-4 ${t.textMuted} flex-shrink-0`} />
                   <div className="min-w-0">
                     <div className={`text-sm font-medium ${t.text} truncate`}>{doc.name}</div>
                     <div className={`text-[10px] ${t.textMuted} mt-0.5`}>{doc.type} · {doc.client_name || "—"} · {fmtDateShort(doc.created_at)}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 flex-wrap pl-7 sm:pl-0">
                   <Badge text={doc.current_version} color="bg-blue-900/60 text-blue-400" />
                   <StatusBadge s={doc.status} />
                   <span className={`text-[10px] ${t.textMuted}`}>{doc.file_size}</span>
@@ -5977,7 +5994,7 @@ function AdminSLAConfig({ t }: { t: ReturnType<typeof useTheme> }) {
                   <input value={addForm.subcategory} onChange={e => setAddForm(f => ({ ...f, subcategory: e.target.value }))} placeholder="e.g. Order Execution" className={`w-full text-xs border rounded-xl px-3 py-2 ${t.inputBg} outline-none`} />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {([["tat_hours", "TAT (hours)"], ["warning_percent", "Warning %"], ["auto_close_hours", "Auto-Close (h)"]] as [keyof typeof addForm, string][]).map(([f, label]) => (
                   <div key={f}>
                     <label className={`text-[10px] ${t.textMuted} font-semibold block mb-1`}>{label}</label>
@@ -6192,20 +6209,45 @@ function AdminTheme({ t, isDark, setIsDark }: { t: ReturnType<typeof useTheme>; 
 
 // ─── ADMIN: SYSTEM ────────────────────────────────────────────────────────────
 function AdminSystem({ t }: { t: ReturnType<typeof useTheme> }) {
+  const [data, setData] = useState<{ checkedAt: string; sections: { section: string; items: { label: string; value: string; status: string; detail?: string }[] }[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = (refresh = false) => {
+    setLoading(true); setError("");
+    fetch(`${API_BASE}/api/system-status${refresh ? "?refresh=1" : ""}`)
+      .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(new Error(d.error || `HTTP ${r.status}`))))
+      .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+  const dot = (s: string) => ["Connected", "Active", "Enforced", "Configured"].includes(s) ? "bg-emerald-500"
+    : s === "Error" ? "bg-red-500" : s === "Warning" ? "bg-amber-500" : "bg-gray-500";
   return (
-    <div className="p-5 space-y-4 overflow-y-auto h-full">
-      <h2 className={`text-lg font-bold ${t.text}`}>System Configuration</h2>
-      {[
-        { section: "Authentication & SSO", items: [{ label: "Microsoft 365 SSO", value: "Azure AD — niytri.com tenant", status: "Connected" }, { label: "M365 Outlook Integration", value: "Read/send emails, SR auto-creation from Outlook", status: "Connected" }, { label: "M365 Teams Integration", value: "SR notifications & ticket updates via Teams channel", status: "Connected" }, { label: "M365 Calendar Integration", value: "Meeting scheduling, client appointments sync", status: "Connected" }, { label: "Email OTP (App Auth)", value: "AWS SES — fallback for non-M365 users", status: "Active" }, { label: "Session Timeout", value: "30 minutes idle · 8 hours max", status: "Configured" }] },
-        { section: "Integrations", items: [{ label: "Bloomberg Terminal", value: "Market data feed for IE & CB", status: "Connected" }, { label: "AWS S3 Storage", value: "Document vault — encrypted, versioned", status: "Connected" }, { label: "OMS / EMS", value: "Order management → CRM deal sync", status: "Connected" }, { label: "SEBI Reporting API", value: "Automated regulatory filings", status: "Active" }] },
-        { section: "Data & Compliance", items: [{ label: "Audit Log", value: "All user actions → CloudWatch (immutable)", status: "Active" }, { label: "Document Versioning", value: "S3 versioning enabled per bucket", status: "Active" }, { label: "Data Retention", value: "7 years (SEBI regulation)", status: "Configured" }, { label: "Encryption", value: "AES-256 at rest · TLS 1.3 in transit", status: "Enforced" }, { label: "Wall-Crossing Log", value: "Auto-generated for all IB deals", status: "Active" }] },
-      ].map(section => (
+    <div className="p-4 sm:p-5 space-y-4 overflow-y-auto h-full">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className={`text-lg font-bold ${t.text}`}>System Configuration</h2>
+          <p className={`text-xs ${t.textMuted}`}>Live status{data ? ` · checked ${new Date(data.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST` : ""}</p>
+        </div>
+        <button onClick={() => load(true)} disabled={loading} className={`text-xs px-3 py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center gap-1.5 disabled:opacity-50`}>
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Re-check
+        </button>
+      </div>
+      {error && <div className={`text-xs rounded-lg border p-3 ${t.alertRed}`}>Could not load status: {error}</div>}
+      {loading && !data && <div className={`text-sm ${t.textMuted}`}>Checking services…</div>}
+      {data?.sections.map(section => (
         <div key={section.section} className={`${t.bgCard} border ${t.border} rounded-xl p-4`}>
-          <div className={`text-sm font-semibold ${t.text} mb-3`}>{section.section}</div>
+          <div className={`text-sm font-semibold ${t.text} mb-2`}>{section.section}</div>
           {section.items.map(item => (
-            <div key={item.label} className={`flex items-center justify-between py-2 border-b ${t.border} last:border-0`}>
-              <div><div className={`text-xs font-medium ${t.text}`}>{item.label}</div><div className={`text-[10px] ${t.textMuted}`}>{item.value}</div></div>
-              <StatusBadge s={item.status} />
+            <div key={item.label} className={`flex items-start justify-between gap-3 py-2.5 border-b ${t.border} last:border-0`}>
+              <div className="flex items-start gap-2.5 min-w-0">
+                <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${dot(item.status)}`} />
+                <div className="min-w-0">
+                  <div className={`text-xs font-medium ${t.text}`}>{item.label}</div>
+                  <div className={`text-[11px] ${t.textMuted} break-words`}>{item.value}</div>
+                  {item.detail && <div className={`text-[11px] mt-0.5 ${item.status === "Error" ? t.errorText : item.status === "Warning" ? t.warningText : t.textMuted}`}>{item.detail}</div>}
+                </div>
+              </div>
+              <div className="flex-shrink-0"><StatusBadge s={item.status} /></div>
             </div>
           ))}
         </div>
@@ -7184,7 +7226,7 @@ function AdminDropdownConfig({ t, isDark }: { t: ReturnType<typeof useTheme>; is
       {adding && (
         <div className={`mx-5 mt-3 p-4 rounded-xl border ${t.border} ${t.bgCard} flex-shrink-0`}>
           <div className="text-xs font-semibold mb-3 text-violet-500">New Dropdown Option</div>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
             <select value={newRow.entity_type} onChange={e => setNewRow(p => ({ ...p, entity_type: e.target.value }))} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} ${t.text}`}>
               {["lead", "deal", "client"].map(v => <option key={v}>{v}</option>)}
             </select>
@@ -7372,7 +7414,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
       {adding && (
         <div className={`mx-5 mt-3 p-4 rounded-xl border ${t.border} ${t.bgCard} flex-shrink-0`}>
           <div className="text-xs font-semibold mb-3 text-blue-500">New Pipeline Stage</div>
-          <div className="grid grid-cols-6 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             <select value={newRow.vertical} onChange={e => setNewRow(p => ({ ...p, vertical: e.target.value }))} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} ${t.text}`}>
               {["retail", "corporate", "ib", "aif", "ie"].map(v => <option key={v} value={v}>{VNAME2[v]}</option>)}
             </select>
@@ -7686,6 +7728,27 @@ export function CRMApp() {
 
   const navTo = (v: Vertical, p: Page) => { setIsAdmin(false); setActiveV(v); setActivePage(p); };
 
+  // ── URL hash routing: #/<section>/<page> — deep links, browser/phone back button ──
+  // section = "main" | "admin" | vertical id (retail, corporate, ib, aif, ie)
+  useEffect(() => {
+    const apply = () => {
+      const m = window.location.hash.match(/^#\/([\w-]+)\/([\w-]+)/);
+      if (!m) return;
+      const [, section, page] = m;
+      if (section === "admin") { setIsAdmin(true); setActiveV(null); }
+      else { setIsAdmin(false); setActiveV(section === "main" ? null : (section as Vertical)); }
+      setActivePage(page as Page);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
+  useEffect(() => {
+    const h = `#/${isAdmin ? "admin" : activeV || "main"}/${activePage}`;
+    if (window.location.hash !== h) window.history.pushState(null, "", h);
+    setMobileSidebarOpen(false); // close the mobile drawer after navigating
+  }, [isAdmin, activeV, activePage]);
+
   const renderContent = () => {
     if (isAdmin) {
       if (activePage === "admin-users")    return <AdminUsers t={t} isDark={darkMode} />;
@@ -7724,7 +7787,7 @@ export function CRMApp() {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
       )}
       {/* Desktop sidebar — static */}
-      <div className="hidden md:flex flex-shrink-0">
+      <div className="hidden md:flex flex-shrink-0 print:hidden">
         <Sidebar open={sidebarOpen} activeV={activeV} setActiveV={setActiveV} activePage={activePage} setPage={setActivePage} isDark={darkMode} isAdmin={isAdmin} setIsAdmin={setIsAdmin} loggedUser={loggedUser} onLogout={handleLogout} />
       </div>
       {/* Mobile sidebar — fixed overlay */}
@@ -7734,7 +7797,7 @@ export function CRMApp() {
         </div>
       )}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onMobileMenu={() => setMobileSidebarOpen(true)} activeV={activeV} activePage={activePage} isDark={darkMode} setIsDark={setDarkMode} t={t} loggedUser={loggedUser} onNavAI={() => navTo(null, "ai")} onPIIRequests={() => setShowPIIRequests(true)} piiPendingCount={piiPendingCount} currUnit={currUnit} setCurrUnit={setCurrUnit} />
+        <div className="print:hidden"><Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onMobileMenu={() => setMobileSidebarOpen(true)} activeV={activeV} activePage={activePage} isDark={darkMode} setIsDark={setDarkMode} t={t} loggedUser={loggedUser} onNavAI={() => navTo(null, "ai")} onPIIRequests={() => setShowPIIRequests(true)} piiPendingCount={piiPendingCount} currUnit={currUnit} setCurrUnit={setCurrUnit} /></div>
         <main className="flex-1 overflow-hidden">{renderContent()}</main>
       </div>
       {showPIIRequests && <PIIRequestsPanel loggedUser={loggedUser} t={t} isDark={darkMode} onClose={() => { setShowPIIRequests(false); /* refresh badge */ const isSA = (loggedUser?.role || "").toLowerCase().includes("super"); fetch(`${API_BASE}/api/clients/access-requests/list?user_id=${loggedUser?.id}&role=approver&is_super_admin=${isSA}`).then(r => r.ok ? r.json() : { data: [] }).then(d => setPiiPendingCount((d.data || []).filter((r: any) => r.status === "pending").length)).catch(() => {}); }} />}

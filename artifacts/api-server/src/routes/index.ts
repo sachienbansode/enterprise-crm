@@ -17,6 +17,7 @@ import workflowsRouter from "./workflows";
 import configRouter from "./config";
 import piiMaskingRouter from "./pii-masking";
 import auditRouter from "./audit";
+import systemStatusRouter from "./system-status";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use("/workflows", workflowsRouter);
 router.use("/config", configRouter);
 router.use("/pii-masking", piiMaskingRouter);
 router.use("/audit-logs", auditRouter);
+router.use("/system-status", systemStatusRouter);
 
 export default router;

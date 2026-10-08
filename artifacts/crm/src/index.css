@@ -391,3 +391,63 @@
     inset: -1px;
   }
 }
+/* ── NIYTRI dark palette ─────────────────────────────────────────────────────
+   The app's dark mode is built on Tailwind's gray-* scale. Re-tuning the scale here
+   restyles every dark screen consistently: softer near-black canvas (no pure black),
+   clearly separated card layers, quieter borders and less glaring text. */
+@theme {
+  --color-gray-50:  #f6f7f9;
+  --color-gray-100: #eceff3;
+  --color-gray-200: #d6dbe2;
+  --color-gray-300: #b6bec9;
+  --color-gray-400: #8f99a8;
+  --color-gray-500: #667183;
+  --color-gray-600: #455063;
+  --color-gray-700: #2e3848;
+  --color-gray-800: #1e2633;
+  --color-gray-900: #141a24;
+  --color-gray-950: #0c1018;
+}
+
+/* ── Mobile ergonomics ─────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* iOS Safari zooms into inputs with font-size < 16px — keep forms at 16px on phones */
+  input, select, textarea { font-size: 16px !important; }
+  /* codes / IDs in tables shouldn't break one character per line */
+  td code, td .font-mono { white-space: nowrap; }
+}
+html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+
+/* ── Phones: tables become stacked cards (labels filled in by lib/stackTables.ts) ── */
+@media (max-width: 767px) {
+  table:not([data-no-stack]) { min-width: 0 !important; width: 100% !important; }
+  table:not([data-no-stack]) thead { display: none; }
+  table:not([data-no-stack]),
+  table:not([data-no-stack]) tbody,
+  table:not([data-no-stack]) tr,
+  table:not([data-no-stack]) td { display: block; width: 100%; }
+  table:not([data-no-stack]) tbody tr {
+    padding: 10px 4px;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  }
+  table:not([data-no-stack]) td {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 4px 12px !important; text-align: right; min-width: 0 !important; border: 0 !important;
+    overflow-wrap: anywhere;
+  }
+  table:not([data-no-stack]) td > * { max-width: 70%; }
+  table:not([data-no-stack]) td .truncate { white-space: normal; }
+  table:not([data-no-stack]) td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0; text-align: left; font-size: 11px; font-weight: 600; color: #8f99a8; opacity: 1;
+  }
+  table:not([data-no-stack]) td[data-label=""]::before { content: none; }
+  table:not([data-no-stack]) td[data-label=""] { justify-content: flex-end; }
+}
+
+/* ── Print / Save-as-PDF (dashboard Export buttons) ── */
+@media print {
+  html, body, #root, .h-screen, .h-full { height: auto !important; }
+  .overflow-hidden, .overflow-y-auto, .overflow-auto { overflow: visible !important; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

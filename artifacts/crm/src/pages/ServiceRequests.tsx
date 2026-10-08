@@ -195,11 +195,11 @@ function SrStatsBanner({ stats, loading, t, onFilter }: { stats: any; loading: b
     { label: "Resolved Today", val: stats?.resolved_today || 0, icon: CheckCircle2,   color: "text-emerald-400", bg: "bg-emerald-500/10",  border: "border-emerald-500/20", filterKey: "status", filterVal: "Resolved" },
   ];
   return (
-    <div className="grid grid-cols-5 gap-3 flex-shrink-0">
+    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 flex-shrink-0">
       {cards.map(c => (
         <button key={c.label} onClick={() => onFilter(c.filterKey, c.filterVal)}
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${c.bg} ${c.border} hover:opacity-80 transition-all text-left`}>
-          <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0`}>
+          className={`flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border ${c.bg} ${c.border} hover:opacity-80 transition-all text-left`}>
+          <div className={`hidden sm:flex w-8 h-8 rounded-lg ${c.bg} items-center justify-center flex-shrink-0`}>
             <c.icon className={`w-4 h-4 ${c.color}`} />
           </div>
           <div>

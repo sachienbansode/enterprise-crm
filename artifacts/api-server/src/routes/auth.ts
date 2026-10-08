@@ -175,6 +175,29 @@ router.post("/login", async (req, res) => {
 });
 
 // ─── POST /api/auth/verify-otp ────────────────────────────────────────────────
+// ─── POST /api/auth/resend-otp — new code for a login that is already waiting on OTP ──
+// Only works while a pending OTP exists for the email (i.e. password / SSO step passed),
+// and at most once every 30 seconds.
+router.post("/resend-otp", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").toLowerCase();
+    if (!email) return res.status(400).json({ error: "email required" });
+    const r = await query(
+      "SELECT EXTRACT(EPOCH FROM (NOW() - created_at))::int AS age FROM otp_store WHERE email=$1",
+      [email],
+    );
+    if (!r.rows.length) return res.status(400).json({ error: "No pending sign-in for this email. Please sign in again." });
+    if (r.rows[0].age < 30) return res.status(429).json({ error: `Please wait ${30 - r.rows[0].age}s before requesting another code.` });
+    const otp = String(randomInt(100000, 999999));
+    await storeOtp(email, otp, 5);
+    console.log(`[OTP] ${email}: ${otp} (resent)`);
+    sendOtpEmail(email, otp).catch(e => console.error("[OTP] Email send error:", e));
+    return res.json({ message: "A new code has been sent." });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.post("/verify-otp", async (req, res) => {
   try {
     const { email, otp } = req.body;
