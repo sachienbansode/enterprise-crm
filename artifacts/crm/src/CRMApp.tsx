@@ -3161,7 +3161,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       <LeadModal
         open={showCreate || !!editingLead}
         onClose={() => { setShowCreate(false); setEditingLead(null); }}
-        onSaved={() => { load(); setShowCreate(false); setEditingLead(null); }}
+        onSaved={() => { load(); setShowCreate(false); setEditingLead(null); setSelected(null); }}
         vertical={vName}
         verticalId={vId}
         editLead={editingLead}
@@ -3311,7 +3311,13 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         <div className={`w-64 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
             <div className={`text-sm font-bold ${t.text}`}>Lead Detail</div>
-            <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setEditingLead(selected)} title="Edit lead"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
+                <Edit2 className="w-3 h-3" /> Edit
+              </button>
+              <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+            </div>
           </div>
           <div className="space-y-3">
             <div className={`${t.bgCard2} rounded-xl p-3`}>
