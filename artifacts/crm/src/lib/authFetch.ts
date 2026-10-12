@@ -32,7 +32,9 @@ export function installAuthFetch() {
     if (!isApi || !token) return orig(input, init);
 
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+    // Always use the real session token — some older screens pass their own (sometimes
+    // "Bearer undefined"), which the server rejects and which used to log the user out.
+    headers.set("Authorization", `Bearer ${token}`);
     headers.set("X-Idle-Ms", String(Date.now() - lastActivity));
     const res = await orig(input, { ...init, headers });
     if (res.status === 401) {

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
+import { visibleNames, visibleIds } from "../lib/visibility";
+
 
 const router = Router();
 
@@ -14,6 +16,7 @@ router.get("/", async (req, res) => {
 
     let where = "WHERE 1=1";
     const params: any[] = [];
+    params.push(await visibleNames("leads")); where += ` AND l.vertical = ANY($${params.length})`; // hidden verticals/modules
 
     if (vertical) { params.push(vertical); where += ` AND l.vertical = $${params.length}`; }
     if (stage) { params.push(stage); where += ` AND l.stage = $${params.length}`; }
@@ -58,10 +61,10 @@ router.get("/", async (req, res) => {
 router.get("/stats", async (req, res) => {
   try {
     const byVertical = await query(
-      `SELECT vertical, COUNT(*) as count, stage FROM leads GROUP BY vertical, stage ORDER BY vertical, stage`,
+      `SELECT vertical, COUNT(*) as count, stage FROM leads WHERE vertical = ANY($1) GROUP BY vertical, stage ORDER BY vertical, stage`, [await visibleNames("leads")],
     );
     const byPriority = await query(
-      `SELECT vertical, priority, COUNT(*) as count FROM leads GROUP BY vertical, priority ORDER BY vertical`,
+      `SELECT vertical, priority, COUNT(*) as count FROM leads WHERE vertical = ANY($1) GROUP BY vertical, priority ORDER BY vertical`, [await visibleNames("leads")],
     );
     res.json({ byVertical: byVertical.rows, byPriority: byPriority.rows });
   } catch (err: any) {
@@ -88,13 +91,29 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// IB / ECM rules: every active opportunity needs a next action; a lost one needs a reason.
+async function ibRuleError(vertical: string, stage: string, nextAction: any, lostReason: any): Promise<{ error: string; code: string } | null> {
+  if (vertical !== "Investment Banking" || !stage) return null;
+  const s = (await query("SELECT is_won, is_lost FROM pipeline_stages WHERE entity='lead' AND vertical='ib' AND stage_id=$1", [stage])).rows[0];
+  if (s?.is_lost && !String(lostReason || "").trim()) return { error: "Choose why this opportunity was lost.", code: "NEED_LOST_REASON" };
+  if (s && !s.is_won && !s.is_lost && !String(nextAction || "").trim()) return { error: "Add the next action for this opportunity.", code: "NEED_NEXT_ACTION" };
+  return null;
+}
+const numOrNull = (v: any) => (v === "" || v === null || v === undefined || isNaN(Number(v)) ? null : Number(v));
+
 // PATCH /api/leads/:id — full update
 router.patch("/:id", async (req, res) => {
   try {
-    const { name, stage, priority, status, notes, assigned_rm_id, client_id, source, sub_source, product, deal_type, value_estimate, expected_close, updated_by } = req.body;
+    const { name, stage, priority, status, notes, assigned_rm_id, client_id, source, sub_source, product, deal_type, value_estimate, expected_close, updated_by,
+            opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability } = req.body;
     const current = await query("SELECT * FROM leads WHERE id=$1", [req.params.id]);
     if (!current.rows.length) return res.status(404).json({ error: "Lead not found" });
     const prev = current.rows[0];
+    if (stage && stage !== prev.stage || "next_action" in req.body || "lost_reason" in req.body) {
+      const ruleErr = await ibRuleError(prev.vertical, stage || prev.stage,
+        "next_action" in req.body ? next_action : prev.next_action, "lost_reason" in req.body ? lost_reason : prev.lost_reason);
+      if (ruleErr) return res.status(400).json(ruleErr);
+    }
 
     const result = await query(
       `UPDATE leads SET
@@ -111,11 +130,20 @@ router.patch("/:id", async (req, res) => {
         deal_type = COALESCE($11, deal_type),
         value_estimate = COALESCE($12, value_estimate),
         expected_close = COALESCE($13, expected_close),
+        opportunity_type = COALESCE($15, opportunity_type),
+        next_action = COALESCE($16, next_action),
+        next_action_date = COALESCE($17::date, next_action_date),
+        lost_reason = COALESCE($18, lost_reason),
+        expected_fee = COALESCE($19, expected_fee),
+        probability = COALESCE($20, probability),
+        closed_at = CASE WHEN $2::text IS NOT NULL AND EXISTS (SELECT 1 FROM pipeline_stages ps WHERE ps.entity='lead' AND ps.stage_id=$2 AND (ps.is_won OR ps.is_lost))
+                         THEN COALESCE(closed_at, NOW()) ELSE closed_at END,
         updated_at = NOW()
         WHERE id = $14 RETURNING *`,
       // source / sub_source are fixed after creation → never updated here
       // lead name is fixed after creation too
-      [null, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id],
+      [null, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id,
+       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability)],
     );
 
     await logAudit({
@@ -148,7 +176,10 @@ function isFutureDate(dateStr: string | undefined): boolean {
 // POST /api/leads — create lead
 router.post("/", async (req, res) => {
   try {
-    const { name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, opened_at, closed_at, expected_close } = req.body;
+    const { name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, opened_at, closed_at, expected_close,
+            opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability } = req.body;
+    const ruleErr = await ibRuleError(vertical, stage, next_action, lost_reason);
+    if (ruleErr) return res.status(400).json(ruleErr);
     if (isFutureDate(opened_at)) return res.status(400).json({ error: "Lead open date cannot be in the future." });
     if (isFutureDate(closed_at)) return res.status(400).json({ error: "Lead close date cannot be in the future." });
 
@@ -158,9 +189,11 @@ router.post("/", async (req, res) => {
     const lead_code = `${prefix}-${seq}`;
 
     const result = await query(
-      `INSERT INTO leads (lead_code, name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, expected_close, opened_at, created_by, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15,$16) RETURNING *`,
-      [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null],
+      `INSERT INTO leads (lead_code, name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, expected_close, opened_at, created_by, created_by_name,
+                          opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15,$16,$17,$18,$19,$20,$21,$22) RETURNING *`,
+      [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null,
+       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability)],
     );
 
     await logAudit({

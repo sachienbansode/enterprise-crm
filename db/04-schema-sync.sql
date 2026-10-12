@@ -249,4 +249,6 @@ INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled,
 INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('address', 'Residential Address', 'Full residential or mailing address', true, E'\\d{6}(?:\\s*[-,]\\s*\\d{6})?', '*** Masked ***', '', '[ADDRESS MASKED]', 24, 'contact') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
 
 INSERT INTO pii_masking_settings (enabled) SELECT true WHERE NOT EXISTS (SELECT 1 FROM pii_masking_settings);
+-- Admin → Verticals Config → Visibility (modules hidden per vertical)
+ALTER TABLE verticals_config ADD COLUMN IF NOT EXISTS hidden_modules text[] DEFAULT '{}';
 SELECT 'schema sync done' AS status;

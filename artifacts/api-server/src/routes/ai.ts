@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query, pool } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
+import { visibleNames } from "../lib/visibility";
 
 const router = Router();
 
@@ -231,6 +232,25 @@ TABLE: users
   status (varchar: 'Active'|'Inactive'), auth_type (varchar: 'app'|'m365'),
   last_login (timestamptz), created_at (timestamptz)
 
+TABLE: interactions  (calls, meetings, notes, roadshows with companies)
+  id, type ('Call'|'Meeting'|'Note'|'Email'|'Roadshow'|'Site Visit'), occurred_at (timestamptz), client_id (FK→clients.id),
+  lead_id (FK→leads.id), vertical (full name), title, summary (text), key_points (jsonb array), opportunity_update (text),
+  next_follow_up (date), source ('manual'|'voice'|'fireflies'), created_by_name
+
+TABLE: tasks  (action items / follow-ups)
+  id, title, due_date (date), priority, status ('Open'|'Done'), owner_name, client_id, lead_id, vertical, created_at
+  Overdue = status='Open' AND due_date < CURRENT_DATE
+
+TABLE: company_people  (promoters / management of a company)
+  id, client_id (FK→clients.id), name, designation, role_type ('Promoter'|'Management'|'Board'|'CFO'|'CS'|'Other'), email, mobile
+
+IB / ECM NOTES: companies are rows in clients (client_verticals.vertical='ib') with cin, sector, listed_status, group_name,
+  revenue_cr, ebitda_cr, pat_cr, net_worth_cr, valuation_cr (₹ crore), fin_year, fin_source, relationship_strength ('Cold'|'Warm'|'Strong').
+  IB opportunities are leads with vertical='Investment Banking', opportunity_type ('IPO'|'Pre-IPO'|'QIP'|'Private Placement'|'M&A'|'Fundraising'|…),
+  stage ('identified'|'contacted'|'qualified'|'meeting'|'pitch'|'negotiation'|'mandate'|'execution'|'closed'|'lost'),
+  expected_fee (₹), probability (0-100), next_action, next_action_date, lost_reason.
+  "Summarise our relationship with X" → join clients, interactions, leads, tasks for that company.
+
 TABLE: audit_logs
   id (uuid PK), entity_type (varchar), entity_id (uuid), user_id (uuid FK→users.id),
   user_name (varchar), action (varchar), details (text),
@@ -314,8 +334,9 @@ router.post("/chat", async (req, res) => {
     const userRole = req.user!.role;
     const userName = req.user!.name;
     const userId = req.user!.id;
-    const ALL_V = ["Retail Broking", "Corporate Broking", "AIF", "Investment Banking", "Institutional Equities"];
-    const userVerticals: string[] = !req.user!.vertical || req.user!.vertical === "All" ? ALL_V : [req.user!.vertical];
+    const ALL_V = await visibleNames(); // verticals hidden by the admin are out of AI scope too
+    const userVerticals: string[] = (!req.user!.vertical || req.user!.vertical === "All" ? ALL_V : [req.user!.vertical]).filter(v => ALL_V.includes(v));
+    const someHidden = ALL_V.length < 5;
 
     const configResult = await query("SELECT * FROM ai_config LIMIT 1");
     const config = configResult.rows[0];
@@ -335,7 +356,7 @@ router.post("/chat", async (req, res) => {
     // Allowed tables — default to ALL tables if not restricted
     const allowedTables: string[] = Array.isArray(config.table_access) && config.table_access.length > 0
       ? config.table_access
-      : ["clients", "service_requests", "leads", "deals", "documents", "users", "audit_logs"];
+      : ["clients", "service_requests", "leads", "deals", "documents", "users", "audit_logs", "interactions", "tasks", "company_people"];
 
     // Build filtered schema: only include sections for allowed tables
     const TABLE_SECTION_KEYS: Record<string, string[]> = {
@@ -346,6 +367,7 @@ router.post("/chat", async (req, res) => {
       users: ["users"],
       audit_logs: ["audit_logs"],
       documents: ["documents"],
+      interactions: ["interactions"], tasks: ["tasks"], company_people: ["company_people"],
     };
     const allowedSectionIds = new Set(allowedTables.flatMap(t => TABLE_SECTION_KEYS[t] || [t]));
     const filteredSchema = DB_SCHEMA.split(/(?=^TABLE: )/m)
@@ -360,15 +382,16 @@ router.post("/chat", async (req, res) => {
       "Retail Broking": "retail", "Corporate Broking": "corporate",
       "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie",
     };
-    const verticalCodes = isSuperAdmin ? [] : (userVerticals as string[]).map(v => VCODE[v] || v).filter(Boolean);
-    const verticalFullNames = isSuperAdmin ? [] : (userVerticals as string[]);
+    const scoped = !isSuperAdmin || someHidden;
+    const verticalCodes = scoped ? (userVerticals as string[]).map(v => VCODE[v] || v).filter(Boolean) : [];
+    const verticalFullNames = scoped ? (userVerticals as string[]) : [];
 
-    const clientVFilter = verticalCodes.length
+    const clientVFilter = !scoped ? "TRUE" : verticalCodes.length
       ? `c.id IN (SELECT client_id FROM client_verticals WHERE vertical = ANY(ARRAY['${verticalCodes.join("','")}']::varchar[]))`
-      : "TRUE";
-    const fullVFilter = verticalFullNames.length
+      : "FALSE";
+    const fullVFilter = !scoped ? "TRUE" : verticalFullNames.length
       ? `vertical = ANY(ARRAY['${verticalFullNames.join("','")}']::varchar[])`
-      : "TRUE";
+      : "FALSE";
 
     // Role-specific prompt from config (bot_prompts)
     const botPrompts: Record<string, string> = config.bot_prompts || {};
@@ -382,7 +405,7 @@ router.post("/chat", async (req, res) => {
     const accessContext = `
 USER ACCESS:
 - Name: ${userName || "Unknown"}, Role: ${userRole}
-- Verticals: ${isSuperAdmin ? "ALL" : (verticalFullNames.join(", ") || "None")}
+- Verticals: ${!scoped ? "ALL" : (verticalFullNames.join(", ") || "None")}
 - SQL filter for clients: WHERE ${clientVFilter}
 - SQL filter for leads/deals/SRs: WHERE ${fullVFilter}
 ${config.system_prompt ? `\nCUSTOM INSTRUCTIONS: ${config.system_prompt}` : ""}
@@ -600,3 +623,14 @@ STRICT RULES:
 });
 
 export default router;
+
+/** One-shot completion for other modules (meeting notes → structured CRM update, etc.).
+ *  Returns null when the AI Assistant is disabled or has no key, so callers can fall back. */
+export async function aiComplete(system: string, user: string): Promise<string | null> {
+  const r = await query("SELECT * FROM ai_config LIMIT 1");
+  const config = r.rows[0];
+  if (!config?.enabled || !config?.api_key) return null;
+  let key: string;
+  try { key = decrypt(config.api_key); } catch { return null; }
+  return callLLM({ ...config, temperature: 0.1 }, key, system, [{ role: "user", content: user }]);
+}

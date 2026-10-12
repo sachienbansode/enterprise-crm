@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { visibleNames, visibleIds } from "../lib/visibility";
+
 import { existsSync, mkdirSync, writeFileSync, createReadStream, statSync } from "fs";
 import { join, extname } from "path";
 
@@ -21,6 +23,7 @@ router.get("/", async (req, res) => {
 
     let where = "WHERE 1=1";
     const params: any[] = [];
+    params.push(await visibleNames("documents")); where += ` AND (d.vertical IS NULL OR d.vertical = ANY($${params.length}))`; // hidden verticals/modules
     if (client_id) { params.push(client_id); where += ` AND d.client_id=$${params.length}`; }
     if (sr_id) { params.push(sr_id); where += ` AND d.sr_id=$${params.length}`; }
     if (lead_id) { params.push(lead_id); where += ` AND d.lead_id=$${params.length}`; }

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
+import { visibleNames, visibleIds } from "../lib/visibility";
+
 
 const router = Router();
 
@@ -14,6 +16,7 @@ router.get("/", async (req, res) => {
 
     let where = "WHERE 1=1";
     const params: any[] = [];
+    params.push(await visibleNames("deals")); where += ` AND d.vertical = ANY($${params.length})`; // hidden verticals/modules
 
     if (vertical) { params.push(vertical); where += ` AND d.vertical = $${params.length}`; }
     if (stage) { params.push(stage); where += ` AND d.stage = $${params.length}`; }
@@ -55,7 +58,7 @@ router.get("/", async (req, res) => {
 router.get("/stats", async (req, res) => {
   try {
     const byVertical = await query(
-      `SELECT vertical, COUNT(*) as count, stage FROM deals GROUP BY vertical, stage ORDER BY vertical, stage`,
+      `SELECT vertical, COUNT(*) as count, stage FROM deals WHERE vertical = ANY($1) GROUP BY vertical, stage ORDER BY vertical, stage`, [await visibleNames("deals")],
     );
     res.json({ byVertical: byVertical.rows });
   } catch (err: any) {

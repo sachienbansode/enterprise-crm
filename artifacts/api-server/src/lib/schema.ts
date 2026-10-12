@@ -3,7 +3,66 @@ import { query } from "./db";
 // Idempotent schema upgrades applied at every startup, so a deploy never needs a manual SQL step.
 export async function ensureAppSchema() {
   const stmts = [
+    // ── IB / ECM: company & promoter master ──
+    ...["cin varchar(30)", "sector varchar(80)", "industry varchar(120)", "group_name varchar(160)", "website varchar(200)",
+        "listed_status varchar(20)", "exchange_symbol varchar(40)", "hq_city varchar(80)",
+        "revenue_cr numeric", "ebitda_cr numeric", "pat_cr numeric", "net_worth_cr numeric", "valuation_cr numeric",
+        "fin_year varchar(10)", "fin_source varchar(160)", "fin_as_of date", "fin_updated_by varchar(255)", "fin_updated_at timestamptz",
+        "info_source varchar(160)", "info_as_of date", "info_updated_by varchar(255)", "info_updated_at timestamptz",
+        "relationship_owner_id uuid", "relationship_strength varchar(20)"]
+      .map(c => `ALTER TABLE clients ADD COLUMN IF NOT EXISTS ${c}`),
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_clients_cin ON clients (upper(cin)) WHERE cin IS NOT NULL AND cin <> ''",
+    `CREATE TABLE IF NOT EXISTS company_people (
+       id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+       client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+       name varchar(200) NOT NULL, designation varchar(120), role_type varchar(40),
+       email varchar(200), mobile varchar(40), linkedin varchar(250), notes text,
+       is_key boolean DEFAULT false,
+       created_by_name varchar(255), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS idx_company_people_client ON company_people (client_id)",
+    "CREATE INDEX IF NOT EXISTS idx_company_people_email ON company_people (lower(email))",
+    // ── IB / ECM: opportunity fields ──
+    ...["opportunity_type varchar(40)", "next_action varchar(300)", "next_action_date date", "lost_reason varchar(120)",
+        "expected_fee numeric", "probability integer"]
+      .map(c => `ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${c}`),
+    // ── Interactions (calls, meetings, notes, roadshows — typed, dictated or from Fireflies) ──
+    `CREATE TABLE IF NOT EXISTS interactions (
+       id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+       type varchar(30) NOT NULL DEFAULT 'Meeting',
+       occurred_at timestamptz NOT NULL DEFAULT now(),
+       client_id uuid REFERENCES clients(id) ON DELETE SET NULL,
+       lead_id uuid, deal_id uuid,
+       vertical varchar(60),
+       title varchar(300), summary text, key_points jsonb DEFAULT '[]', opportunity_update text,
+       raw_text text, next_follow_up date,
+       source varchar(30) DEFAULT 'manual', external_id varchar(120), external_url varchar(500), attendees jsonb DEFAULT '[]',
+       created_by uuid, created_by_name varchar(255), created_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS idx_interactions_client ON interactions (client_id, occurred_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_interactions_lead ON interactions (lead_id, occurred_at DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_interactions_external ON interactions (source, external_id) WHERE external_id IS NOT NULL",
+    // ── Tasks / action items ──
+    `CREATE TABLE IF NOT EXISTS tasks (
+       id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+       title varchar(400) NOT NULL, due_date date, priority varchar(10) DEFAULT 'Medium', status varchar(20) DEFAULT 'Open',
+       owner_id uuid, owner_name varchar(255),
+       client_id uuid REFERENCES clients(id) ON DELETE SET NULL, lead_id uuid, deal_id uuid, interaction_id uuid,
+       vertical varchar(60),
+       created_by uuid, created_by_name varchar(255), created_at timestamptz DEFAULT now(), completed_at timestamptz
+     )`,
+    "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks (owner_id, status, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_client ON tasks (client_id)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks (lead_id)",
+    // ── Fireflies add-on (optional) ──
+    `CREATE TABLE IF NOT EXISTS fireflies_config (
+       id integer PRIMARY KEY DEFAULT 1, enabled boolean DEFAULT false, api_key text, webhook_secret text,
+       auto_create_tasks boolean DEFAULT true, only_matched boolean DEFAULT false,
+       last_event_at timestamptz, last_status text, updated_by varchar(255), updated_at timestamptz DEFAULT now()
+     )`,
+    "INSERT INTO fireflies_config (id) VALUES (1) ON CONFLICT DO NOTHING",
     // who created leads / deals
+    "ALTER TABLE verticals_config ADD COLUMN IF NOT EXISTS hidden_modules text[] DEFAULT '{}'",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_by uuid",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_by_name varchar(255)",
     "ALTER TABLE deals ADD COLUMN IF NOT EXISTS created_by uuid",
@@ -32,4 +91,54 @@ export async function ensureAppSchema() {
         AND a.details='CREATE' AND a.user_name IS NOT NULL AND a.user_name <> 'System'`,
   ];
   for (const s of stmts) await query(s);
+  await seedIB();
+}
+
+// ECM pipeline + dropdowns for Investment Banking (from the ECM CRM requirements note). Runs once:
+// existing IB stages are mapped onto the new ones the first time, and admins can edit them afterwards.
+const IB_STAGES: [string, string, boolean, boolean][] = [
+  ["identified", "Identified", false, false], ["contacted", "Contacted", false, false], ["qualified", "Qualified", false, false],
+  ["meeting", "Meeting", false, false], ["pitch", "Pitch", false, false], ["negotiation", "Negotiation", false, false],
+  ["mandate", "Mandate", false, false], ["execution", "Execution", false, false], ["closed", "Closed", true, false],
+  ["lost", "Lost", false, true],
+];
+const IB_DROPDOWNS: Record<string, string[]> = {
+  "lead:opportunity_type": ["IPO", "Pre-IPO", "QIP", "Private Placement", "Rights Issue", "OFS / Block", "M&A", "Fundraising", "Debt Raising", "Other"],
+  "lead:source_ib": ["Referral", "Promoter", "Investor", "CA / CS", "PE / VC", "Event / Conference", "Research", "Existing Relationship", "Inbound", "Other"],
+  "lead:lost_reason": ["Fee / Commercials", "Lost to Competitor", "Deal Postponed", "Promoter Not Ready", "Valuation Mismatch", "Regulatory Issue", "Market Conditions", "No Response", "Other"],
+  "client:sector": ["BFSI", "Healthcare & Pharma", "IT & Tech", "Consumer & Retail", "Industrials & Capital Goods", "Infrastructure", "Real Estate", "Energy & Power", "Chemicals", "Auto & Ancillaries", "Media & Telecom", "Agri & Food", "Logistics", "Textiles", "Other"],
+};
+// Old IB stage → ECM stage (covers both the original seed codes and the codes from db/06-map-stages.sql)
+const STAGE_MAP: Record<string, string> = {
+  prospect: "identified", initial_meeting: "meeting", mandate_discussion: "negotiation", loi_signed: "mandate",
+  mandate_signed: "execution", won: "closed", lost: "lost",
+  nda: "negotiation", dd: "execution", docs: "execution", closure: "closed",
+};
+
+async function seedIB() {
+  const has = await query("SELECT 1 FROM pipeline_stages WHERE entity='lead' AND vertical='ib' AND stage_id='identified' LIMIT 1");
+  if (!has.rows.length) {
+    await query("DELETE FROM pipeline_stages WHERE entity='lead' AND vertical='ib'");
+    for (const [i, [id, label, won, lost]] of IB_STAGES.entries()) {
+      await query(
+        "INSERT INTO pipeline_stages (entity, vertical, stage_id, label, sort_order, is_active, is_won, is_lost) VALUES ('lead','ib',$1,$2,$3,true,$4,$5)",
+        [id, label, i + 1, won, lost],
+      );
+    }
+    // one pass, so a mapped value is never re-mapped
+    await query(
+      `UPDATE leads l SET stage = m.to_stage FROM (SELECT * FROM jsonb_each_text($1::jsonb)) AS m(from_stage, to_stage)
+        WHERE l.vertical='Investment Banking' AND l.stage = m.from_stage`, [JSON.stringify(STAGE_MAP)]);
+    await query("UPDATE leads SET stage='identified' WHERE vertical='Investment Banking' AND stage NOT IN (SELECT stage_id FROM pipeline_stages WHERE entity='lead' AND vertical='ib') AND stage <> 'deleted'");
+  }
+  for (const [key, values] of Object.entries(IB_DROPDOWNS)) {
+    const [entity, field] = key.split(":");
+    for (const [i, v] of values.entries()) {
+      await query(
+        `INSERT INTO dropdown_config (entity, field, value, label, sort_order, is_active)
+         SELECT $1::varchar,$2::varchar,$3::varchar,$3::varchar,$4::int,true WHERE NOT EXISTS (SELECT 1 FROM dropdown_config WHERE entity=$1::varchar AND field=$2::varchar AND value=$3::varchar)`,
+        [entity, field, v, i + 1],
+      );
+    }
+  }
 }

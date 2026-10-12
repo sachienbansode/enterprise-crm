@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { visibleNames, visibleIds } from "../lib/visibility";
+
 import { logAudit } from "../lib/audit";
 
 const router = Router();
@@ -10,6 +12,7 @@ router.get("/stats", async (req, res) => {
     const { vertical, assigned_to } = req.query as Record<string, string>;
     const params: any[] = [];
     let where = "WHERE 1=1";
+    params.push(await visibleNames()); where += ` AND (vertical IS NULL OR vertical = ANY($${params.length}))`; // hidden verticals
     if (vertical) { params.push(vertical); where += ` AND vertical = $${params.length}`; }
     if (assigned_to) { params.push(assigned_to); where += ` AND assigned_to = $${params.length}`; }
 
@@ -38,6 +41,7 @@ router.get("/export.csv", async (req, res) => {
     const { status, category, priority, vertical, search, assigned_to } = req.query as Record<string, string>;
     const params: any[] = [];
     let where = "WHERE 1=1";
+    params.push(await visibleNames()); where += ` AND (sr.vertical IS NULL OR sr.vertical = ANY($${params.length}))`; // hidden verticals
     if (status)    { params.push(status);     where += ` AND sr.status = $${params.length}`; }
     if (category)  { params.push(category);   where += ` AND sr.category = $${params.length}`; }
     if (priority)  { params.push(priority);   where += ` AND sr.priority = $${params.length}`; }
@@ -98,6 +102,7 @@ router.get("/", async (req, res) => {
 
     let where = "WHERE 1=1";
     const params: any[] = [];
+    params.push(await visibleNames()); where += ` AND (sr.vertical IS NULL OR sr.vertical = ANY($${params.length}))`; // hidden verticals
 
     if (status) {
       const vals = status.split(",").filter(Boolean);

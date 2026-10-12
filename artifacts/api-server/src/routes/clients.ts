@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { visibleNames, visibleIds } from "../lib/visibility";
+
 import { logAudit } from "../lib/audit";
 
 const router = Router();
@@ -23,6 +25,14 @@ router.get("/", async (req, res) => {
 
     let where = "WHERE 1=1";
     const params: any[] = [];
+    // Hidden verticals: a hidden vertical's (or hidden Clients module's) page is empty;
+    // overall list drops clients that belong only to hidden verticals.
+    const vis = await visibleIds(verticalName ? "customers" : undefined);
+    if (verticalName && !vis.includes(String(verticalName).toLowerCase())) {
+      return res.json({ data: [], total: 0, page: pageNum, pageSize });
+    }
+    params.push(vis);
+    where += ` AND (NOT EXISTS (SELECT 1 FROM client_verticals cvh WHERE cvh.client_id = c.id) OR EXISTS (SELECT 1 FROM client_verticals cvh WHERE cvh.client_id = c.id AND cvh.vertical = ANY($${params.length})))`;
 
     if (search) {
       if (searchField === "client_code" || searchField === "code") { params.push(`%${search}%`); where += ` AND c.client_code ILIKE $${params.length}`; }

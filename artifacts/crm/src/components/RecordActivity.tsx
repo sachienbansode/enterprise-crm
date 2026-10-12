@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquare, Pencil, PlusCircle, Trash2, FileText, Upload, Download, Send, RefreshCw } from "lucide-react";
+import { MessageSquare, Pencil, PlusCircle, Trash2, FileText, Upload, Download, Send, RefreshCw, Phone, CheckSquare } from "lucide-react";
 
 // Activity (edits + comments + uploads, with who/when) and Documents for a lead or deal.
 // Used by the Lead and Deal detail panels in every vertical.
@@ -8,7 +8,9 @@ type Item =
   | { kind: "created" | "deleted"; at: string; by: string }
   | { kind: "edited"; at: string; by: string; changes: { field: string; from: string; to: string }[] }
   | { kind: "comment"; at: string; by: string; body: string; id: string }
-  | { kind: "document"; at: string; by: string; name: string; id: string };
+  | { kind: "document"; at: string; by: string; name: string; id: string }
+  | { kind: "interaction"; at: string; by: string; type: string; title?: string; body?: string; source?: string; id: string }
+  | { kind: "task"; at: string; by: string; title: string; status: string; due?: string; owner?: string; id: string };
 
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -42,7 +44,8 @@ export function RecordActivity({ type, id, t, refreshKey = 0 }: { type: "lead" |
   };
 
   const icon = (k: Item["kind"]) => k === "comment" ? <MessageSquare className="w-3 h-3" /> : k === "edited" ? <Pencil className="w-3 h-3" />
-    : k === "created" ? <PlusCircle className="w-3 h-3" /> : k === "deleted" ? <Trash2 className="w-3 h-3" /> : <FileText className="w-3 h-3" />;
+    : k === "created" ? <PlusCircle className="w-3 h-3" /> : k === "deleted" ? <Trash2 className="w-3 h-3" />
+    : k === "interaction" ? <Phone className="w-3 h-3" /> : k === "task" ? <CheckSquare className="w-3 h-3" /> : <FileText className="w-3 h-3" />;
 
   return (
     <div className="space-y-3">
@@ -61,15 +64,28 @@ export function RecordActivity({ type, id, t, refreshKey = 0 }: { type: "lead" |
         <ol className="space-y-3">
           {items.map((it, i) => (
             <li key={i} className="flex gap-2.5">
-              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${it.kind === "comment" ? "bg-blue-500/15 text-blue-500" : it.kind === "document" ? "bg-emerald-500/15 text-emerald-500" : `${t.bgCard2} ${t.textMuted}`}`}>{icon(it.kind)}</div>
+              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${it.kind === "comment" ? "bg-blue-500/15 text-blue-500" : it.kind === "document" ? "bg-emerald-500/15 text-emerald-500" : it.kind === "interaction" ? "bg-violet-500/15 text-violet-500" : it.kind === "task" ? "bg-amber-500/15 text-amber-500" : `${t.bgCard2} ${t.textMuted}`}`}>{icon(it.kind)}</div>
               <div className="min-w-0 flex-1">
                 <div className="text-[11px]">
                   <span className={`font-semibold ${t.text}`}>{it.by || "System"}</span>{" "}
-                  <span className={t.textMuted}>{it.kind === "comment" ? "commented" : it.kind === "edited" ? "made changes" : it.kind === "created" ? "created this record" : it.kind === "deleted" ? "deleted this record" : "uploaded a document"}</span>
+                  <span className={t.textMuted}>{it.kind === "comment" ? "commented" : it.kind === "edited" ? "made changes" : it.kind === "created" ? "created this record" : it.kind === "deleted" ? "deleted this record"
+                    : it.kind === "interaction" ? `logged a ${String(it.type || "note").toLowerCase()}${it.source === "fireflies" ? " (Fireflies)" : it.source === "voice" ? " (voice)" : ""}`
+                    : it.kind === "task" ? (it.status === "Done" ? "completed a task" : "added a task") : "uploaded a document"}</span>
                   <span className={`${t.textMuted} ml-1`} title={full(it.at)}>· {ago(it.at)}</span>
                 </div>
                 {it.kind === "comment" && <div className={`mt-1 text-xs whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 ${t.bgCard2} ${t.text}`}>{it.body}</div>}
                 {it.kind === "document" && <div className={`mt-0.5 text-xs ${t.text} truncate`}>{it.name}</div>}
+                {it.kind === "interaction" && (
+                  <div className={`mt-1 text-xs rounded-lg px-2.5 py-1.5 ${t.bgCard2} ${t.text}`}>
+                    {it.title && <div className="font-semibold">{it.title}</div>}
+                    {it.body && <div className={`whitespace-pre-wrap break-words ${t.textSub}`}>{it.body}</div>}
+                  </div>
+                )}
+                {it.kind === "task" && (
+                  <div className={`mt-0.5 text-xs ${t.text} ${it.status === "Done" ? "line-through opacity-70" : ""}`}>
+                    {it.title}{it.owner ? <span className={t.textMuted}> · {it.owner}</span> : null}{it.due ? <span className={t.textMuted}> · due {new Date(it.due).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span> : null}
+                  </div>
+                )}
                 {it.kind === "edited" && (
                   <ul className="mt-1 space-y-0.5">
                     {it.changes.map((c, j) => (
@@ -90,7 +106,7 @@ export function RecordActivity({ type, id, t, refreshKey = 0 }: { type: "lead" |
 }
 
 export function RecordDocuments({ type, id, vertical, clientId, t, onChange }: {
-  type: "lead" | "deal"; id: string; vertical?: string; clientId?: string | null; t: any; onChange?: () => void;
+  type: "lead" | "deal" | "client"; id: string; vertical?: string; clientId?: string | null; t: any; onChange?: () => void;
 }) {
   const [docs, setDocs] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);

@@ -46,6 +46,7 @@ function bearer(req: Request): string {
 const PUBLIC = [
   /^\/healthz?$/, /^\/auth\/login$/, /^\/auth\/verify-otp$/, /^\/auth\/resend-otp$/, /^\/auth\/dev-otp$/,
   /^\/auth\/m365\//, /^\/auth\/logout$/,
+  /^\/integrations\/fireflies\/webhook$/, // signed with the shared secret instead of a session
 ];
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {

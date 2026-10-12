@@ -33,7 +33,8 @@ app.use(
 app.set("trust proxy", "loopback"); // nginx on the same host sets X-Forwarded-*
 // Same-origin app: only allow cross-origin calls from origins listed in CORS_ORIGIN
 app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : false }));
-app.use(express.json({ limit: "50mb" }));
+// keep the raw body for webhook signature checks (Fireflies)
+app.use(express.json({ limit: "50mb", verify: (req: any, _res, buf) => { if (req.url?.startsWith("/api/integrations/")) req.rawBody = Buffer.from(buf); } }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Root-level health check — must respond 200 for deployment platform health checks

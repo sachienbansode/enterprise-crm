@@ -7,6 +7,10 @@ import MeetingReminders from "./components/MeetingReminders";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import { serverLogout } from "./lib/authFetch";
 import { RecordActivity, RecordDocuments } from "./components/RecordActivity";
+import { QuickLog } from "./components/QuickLog";
+import CompanyMaster from "./components/ib/CompanyMaster";
+import IBDashboard from "./components/ib/IBDashboard";
+import AdminFireflies from "./components/AdminFireflies";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -21,7 +25,7 @@ import {
   CornerDownLeft, Loader2, ClipboardList, Activity,
   Video, UserCheck, ExternalLink, UserCog, CalendarPlus, Trash2, Check,
   ListFilter, LayoutGrid, List, Edit2, Maximize2, Printer, ArrowUpDown,
-  KeyRound,
+  KeyRound, Mic,
 } from "lucide-react";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -34,7 +38,7 @@ type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clien
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
-  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking";
+  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking" | "admin-fireflies";
 type AuthMethod = "app" | "m365";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -185,6 +189,14 @@ let VERTICALS: Array<{ id: string; label: string; short: string; color: string; 
   { id: "ie",        label: "Institutional Equities", short: "IE",  color: "bg-rose-600",    icon: LineChart },
 ];
 function getVerticalsList() { return VERTICALS.filter(v => v); }
+// Modules an admin has hidden per vertical (Admin → Verticals Config), e.g. { retail: ["deals"] }
+const VERTICAL_LABEL_FALLBACK: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+const IB_LABELS: Record<string, string> = { leads: "Opportunities", deals: "Mandates & Deals", customers: "Companies & Promoters" };
+// Open the global Quick Log from anywhere (the host lives in CRMApp)
+const openQuickLog = (defaults: any = {}) => window.dispatchEvent(new CustomEvent("quicklog:open", { detail: defaults }));
+let HIDDEN_MODULES: Record<string, string[]> = {};
+const moduleVisible = (vId: string, mod: string) => !(HIDDEN_MODULES[vId] || []).includes(mod);
+const firstVisibleModule = (vId: string) => ["dashboard", "leads", "deals", "customers", "documents"].find(m => moduleVisible(vId, m)) || null;
 const SUBMENU = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "leads", label: "Leads Pipeline", icon: TrendingUp },
@@ -2361,6 +2373,7 @@ const ADMIN_MENU = [
   ]},
   { section: "Integrations", items: [
     { id: "admin-m365",    label: "M365 Integration",   icon: Globe },
+    { id: "admin-fireflies", label: "Fireflies (add-on)", icon: Mic },
   ]},
   { section: "Logs & Audit", items: [
     { id: "admin-audit",    label: "Audit Log",           icon: ClipboardList },
@@ -2380,7 +2393,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   const [adminCollapsed, setAdminCollapsed] = useState(false);
   const nav = (v: Vertical, p: Page) => { setActiveV(v); setPage(p); setIsAdmin(false); if (onClose) onClose(); };
   const navAdmin = (p: Page) => { setIsAdmin(true); setPage(p); setActiveV(null); if (onClose) onClose(); };
-  const toggleV = (vid: string) => { setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage("dashboard"); setIsAdmin(false); };
+  const toggleV = (vid: string) => { setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage((firstVisibleModule(vid) || "dashboard") as Page); setIsAdmin(false); };
   const initials = loggedUser ? loggedUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2) : "BN";
   const sb = {
     bg: isDark ? "bg-gray-950" : "bg-white",
@@ -2459,11 +2472,11 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
                     </button>
                     {open && isExp && (
                       <div className={`ml-3 mt-0.5 space-y-0.5 pl-3 border-l-2 ${sb.sep}`}>
-                        {SUBMENU.map(s => {
+                        {SUBMENU.filter(s => moduleVisible(v.id, s.id)).map(s => {
                           const isAct = activeV === v.id && activePage === s.id && !isAdmin;
                           return (
                             <button key={s.id} onClick={() => nav(v.id as Vertical, s.id as Page)} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${isAct ? (isDark ? "text-white bg-slate-700/60" : "text-slate-900 bg-slate-200") : sb.sub}`}>
-                              <s.icon className="w-3.5 h-3.5 flex-shrink-0" /><span>{s.label}</span>
+                              <s.icon className="w-3.5 h-3.5 flex-shrink-0" /><span>{(v.id === "ib" && IB_LABELS[s.id]) || s.label}</span>
                             </button>
                           );
                         })}
@@ -2543,6 +2556,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-llm":      "LLM Settings",
     "admin-prompts":  "AI Prompts & Access",
     "admin-m365":     "M365 Integration",
+    "admin-fireflies": "Fireflies (add-on)",
     "admin-theme":    "Theme & Display",
     "admin-system":   "System Config",
     "admin-audit":             "Audit Log",
@@ -2553,7 +2567,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-pipeline-stages":   "Pipeline Stages",
     "admin-pii-masking":       "PII Data Masking",
   };
-  const pageLabel = SUBMENU.find(s => s.id === activePage)?.label
+  const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || SUBMENU.find(s => s.id === activePage)?.label
     || ADMIN_PAGE_LABELS[activePage]
     || (activePage === "ai" ? "NIYTRI AI" : activePage.replace("admin-", "").replace(/-/g, " "));
   return (
@@ -2598,6 +2612,11 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             );
           })}
         </div>
+        <Tip label="Quick Log — speak or type a call / meeting note">
+          <button onClick={() => openQuickLog({})} aria-label="Quick Log" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-violet-300 hover:bg-gray-700" : "bg-slate-100 text-violet-700 hover:bg-slate-200"} transition-colors`}>
+            <Mic className="w-4 h-4" />
+          </button>
+        </Tip>
         <Tip label="NIYTRI AI Assistant">
           <button onClick={onNavAI} className={`p-2 rounded-lg ${activePage === "ai" ? "bg-violet-600 text-white" : isDark ? "bg-gray-800 text-violet-400 hover:bg-gray-700" : "bg-slate-100 text-violet-600 hover:bg-slate-200"} transition-colors`}>
             <Sparkles className="w-4 h-4" />
@@ -3173,13 +3192,29 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const [movingStage, setMovingStage] = useState(false);
   const [stageError, setStageError] = useState("");
   // Move the selected lead to another pipeline stage (recorded in History with who/when)
-  const moveStage = async (stageId: string) => {
+  // IB: moving to an active stage needs a next action; to Lost needs a reason → ask inline, then retry
+  const [stagePrompt, setStagePrompt] = useState<{ stageId: string; code: string } | null>(null);
+  const [promptVals, setPromptVals] = useState<{ next_action: string; next_action_date: string; lost_reason: string }>({ next_action: "", next_action_date: "", lost_reason: "" });
+  const [lostReasons, setLostReasons] = useState<string[]>([]);
+  useEffect(() => {
+    if (vId !== "ib") return;
+    fetch(`${API_BASE}/api/config/dropdowns?entity=lead&field=lost_reason`).then(r => r.json()).then(d => setLostReasons(Array.isArray(d) ? d.map((x: any) => x.value) : [])).catch(() => {});
+  }, [vId]);
+  const moveStage = async (stageId: string, extra: Record<string, any> = {}) => {
     if (!selected) return;
     setMovingStage(true); setStageError("");
     try {
-      const r = await fetch(`${API_BASE}/api/leads/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId }) });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not change stage");
-      setSelected({ ...selected, stage: stageId });
+      const r = await fetch(`${API_BASE}/api/leads/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId, ...extra }) });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        if (e.code === "NEED_NEXT_ACTION" || e.code === "NEED_LOST_REASON") {
+          setPromptVals({ next_action: selected.next_action || "", next_action_date: selected.next_action_date ? String(selected.next_action_date).slice(0, 10) : "", lost_reason: "" });
+          setStagePrompt({ stageId, code: e.code }); setMovingStage(false); return;
+        }
+        throw new Error(e.error || "Could not change stage");
+      }
+      setStagePrompt(null);
+      setSelected({ ...selected, stage: stageId, ...extra });
       setActivityKey(k => k + 1);
       load();
     } catch (e: any) { setStageError(e.message); }
@@ -3309,6 +3344,11 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                             <span className={`text-[9px] ${t.textMuted} font-mono`}>{lead.lead_code}</span>
                           </div>
                           {lead.days_open && <div className={`text-[9px] ${t.textMuted} flex items-center gap-1 mt-1`}><Clock className="w-2.5 h-2.5" />{lead.days_open}d open</div>}
+                          {lead.next_action && (
+                            <div className={`text-[9px] mt-1 truncate ${lead.next_action_date && new Date(lead.next_action_date) < new Date(new Date().toDateString()) ? "text-red-500 font-semibold" : t.textMuted}`} title={lead.next_action}>
+                              → {lead.next_action}
+                            </div>
+                          )}
                           {isWonStage(stage.id) && (
                             <button onClick={e => { e.stopPropagation(); convertToDeal(lead); }}
                               className={`mt-2 w-full text-[10px] py-1 rounded-lg border transition-colors ${isDark ? "bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30" : "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"}`}>
@@ -3396,6 +3436,16 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               <div className={`text-lg font-bold ${t.text} mt-1`}>{selected.value_estimate ? fmtMoneyStr(selected.value_estimate) : "TBD"}</div>
               <PriorityBadge p={selected.priority} />
             </div>
+            {selected.next_action && (
+              <div className={`rounded-xl border p-2.5 text-xs ${selected.next_action_date && new Date(selected.next_action_date) < new Date(new Date().toDateString()) ? t.alertRed : t.alertYellow}`}>
+                <div className="text-[10px] uppercase font-semibold opacity-80">Next action{selected.next_action_date ? ` · ${new Date(selected.next_action_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}` : ""}</div>
+                <div className="font-medium">{selected.next_action}</div>
+              </div>
+            )}
+            <button onClick={() => openQuickLog({ client_id: selected.client_id || undefined, client_name: selected.client_name || undefined, lead_id: selected.id })}
+              className={`w-full text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5 hover:bg-violet-500/10`}>
+              <Mic className="w-3.5 h-3.5" /> Log call / meeting / note
+            </button>
             {[
               { label: "Source", value: selected.source },
               { label: "Days Open", value: `${selected.days_open || 0}d` },
@@ -3404,6 +3454,13 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               { label: "RM", value: selected.rm_name || "—" },
               { label: "Created by", value: selected.created_by_name || "—" },
               { label: "Opened on", value: selected.opened_at ? new Date(selected.opened_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
+              ...(vId === "ib" ? [
+                { label: "Company", value: selected.client_name || "—" },
+                { label: "Opportunity type", value: selected.opportunity_type || "—" },
+                { label: "Expected fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
+                { label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" },
+                ...(selected.lost_reason ? [{ label: "Lost reason", value: selected.lost_reason }] : []),
+              ] : []),
             ].map(row => (
               <div key={row.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
                 <span className={t.textMuted}>{row.label}</span>
@@ -3444,6 +3501,30 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                   {lostStage && !isLost && (
                     <button disabled={movingStage} onClick={() => { if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id); }}
                       className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
+                  )}
+                  {stagePrompt && (
+                    <div className={`rounded-xl border p-2.5 space-y-2 ${t.alertYellow}`}>
+                      <div className="text-[11px] font-semibold">
+                        {stagePrompt.code === "NEED_LOST_REASON" ? "Why was this opportunity lost?" : `What's the next action? (needed for ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "this stage"})`}
+                      </div>
+                      {stagePrompt.code === "NEED_LOST_REASON" ? (
+                        <select value={promptVals.lost_reason} onChange={e => setPromptVals(p => ({ ...p, lost_reason: e.target.value }))} className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`}>
+                          <option value="">— Choose a reason —</option>
+                          {lostReasons.map(r => <option key={r}>{r}</option>)}
+                        </select>
+                      ) : (<>
+                        <input value={promptVals.next_action} onChange={e => setPromptVals(p => ({ ...p, next_action: e.target.value }))} placeholder="e.g. Share pitch deck with CFO"
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
+                        <input type="date" value={promptVals.next_action_date} onChange={e => setPromptVals(p => ({ ...p, next_action_date: e.target.value }))}
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Next action date" />
+                      </>)}
+                      <div className="flex gap-2">
+                        <button onClick={() => setStagePrompt(null)} className={`flex-1 text-xs py-1.5 rounded-lg border ${t.border}`}>Cancel</button>
+                        <button disabled={movingStage || (stagePrompt.code === "NEED_LOST_REASON" ? !promptVals.lost_reason : !promptVals.next_action.trim())}
+                          onClick={() => moveStage(stagePrompt.stageId, stagePrompt.code === "NEED_LOST_REASON" ? { lost_reason: promptVals.lost_reason } : { next_action: promptVals.next_action.trim(), next_action_date: promptVals.next_action_date || null })}
+                          className="flex-1 text-xs py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-40">Save & move</button>
+                      </div>
+                    </div>
                   )}
                   {stageError && <div className="text-[11px] text-red-500">{stageError}</div>}
                 </div>
@@ -6181,7 +6262,22 @@ function AdminVerticals({ t, onReload }: { t: ReturnType<typeof useTheme>; onRel
     } finally { setSaving(false); }
   };
 
-  const def = (id: string) => VERTICAL_DEFAULTS.find(d => d.id === id);
+  const def = (id: string) => VERTICAL_DEFAULTS.find(d => d.id === String(id).toLowerCase());
+
+  const [visBusy, setVisBusy] = useState<string | null>(null);
+  const [visMsg, setVisMsg] = useState<string | null>(null);
+  const setVisibility = async (row: any, patch: { is_active?: boolean; hidden_modules?: string[] }) => {
+    setVisBusy(row.vertical_id);
+    try {
+      const r = await fetch(`/api/admin/verticals-config/${row.vertical_id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      });
+      setVisMsg(r.ok ? "Saved — applied everywhere" : "Could not save");
+      setTimeout(() => setVisMsg(null), 2500);
+      await load();
+      onReload();
+    } finally { setVisBusy(null); }
+  };
 
   return (
     <div className="p-5 space-y-4 overflow-y-auto h-full">
@@ -6280,12 +6376,55 @@ function AdminVerticals({ t, onReload }: { t: ReturnType<typeof useTheme>; onRel
         </table>
       </div>
 
+      {/* Visibility — hide whole verticals or individual modules; enforced on the server for every page, report, export and AI answer */}
+      <div className={`${t.bgCard} border ${t.border} rounded-xl p-4 space-y-3`}>
+        <div className="flex items-center gap-2">
+          <Eye className={`w-4 h-4 ${t.textMuted}`} />
+          <div className={`text-sm font-semibold ${t.text}`}>Visibility</div>
+          {visMsg && <span className="text-[11px] text-emerald-500 ml-auto">{visMsg}</span>}
+        </div>
+        <p className={`text-xs ${t.textMuted}`}>
+          Hide a whole vertical, or just some of its modules. Hidden items disappear from menus, dashboards, analytics, lists,
+          exports and AI answers for everyone. No data is deleted — switch it back on at any time.
+        </p>
+        <div className="space-y-2">
+          {[...rows].sort((a, b) => a.display_order - b.display_order).map(row => {
+            const hidden: string[] = row.hidden_modules || [];
+            return (
+              <div key={row.vertical_id} className={`${t.bgCard2} border ${t.border} rounded-lg p-3 flex flex-col sm:flex-row sm:items-center gap-2`}>
+                <div className="flex items-center gap-2 sm:w-56">
+                  <button role="switch" aria-checked={row.is_active} aria-label={`Show ${row.label}`} disabled={!!visBusy}
+                    onClick={() => setVisibility(row, { is_active: !row.is_active })}
+                    className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${row.is_active ? "bg-emerald-500" : "bg-gray-500"} disabled:opacity-50`}>
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${row.is_active ? "left-[18px]" : "left-0.5"}`} />
+                  </button>
+                  <span className={`text-xs font-semibold uppercase tracking-wide ${row.is_active ? t.text : t.textMuted + " line-through"}`}>{row.label}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {SUBMENU.map(m => {
+                    const on = !hidden.includes(m.id);
+                    return (
+                      <button key={m.id} disabled={!row.is_active || !!visBusy}
+                        onClick={() => setVisibility(row, { hidden_modules: on ? [...hidden, m.id] : hidden.filter(x => x !== m.id) })}
+                        title={on ? `Hide ${m.label} for ${row.label}` : `Show ${m.label} for ${row.label}`}
+                        className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border transition-colors disabled:opacity-40 ${on ? "border-blue-500/50 bg-blue-600/15 text-blue-400" : `${t.border} ${t.textMuted} line-through`}`}>
+                        {on ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}{m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className={`${t.bgCard2} border ${t.border} rounded-xl p-4 text-xs ${t.textMuted} space-y-1`}>
         <div className="font-semibold">Notes:</div>
         <div>• Vertical IDs (retail, corporate, ib, aif, ie) are system identifiers and cannot be changed.</div>
         <div>• Full names and short names can be freely renamed to match your business terminology.</div>
         <div>• Display order controls the sequence in navigation and dashboards (1 = first).</div>
-        <div>• Disabling a vertical hides it from navigation but does not delete its data.</div>
+        <div>• Hiding a vertical or module (Visibility, above) removes it from every page, report, export and AI answer; data is kept.</div>
       </div>
     </div>
   );
@@ -7632,6 +7771,7 @@ export function CRMApp() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [m365Error, setM365Error] = useState("");
   const [, setVerticalsKey] = useState(0);
+  const [visRev, setVisRev] = useState(0); // bump to reload vertical/module visibility
   const [showPIIRequests, setShowPIIRequests] = useState(false);
   const [piiPendingCount, setPiiPendingCount] = useState(0);
 
@@ -7700,6 +7840,7 @@ export function CRMApp() {
       .then(r => r.ok ? r.json() : null)
       .then((rows: any[]) => {
         if (!Array.isArray(rows)) return;
+        HIDDEN_MODULES = Object.fromEntries(rows.map(r => [(r.vertical_id || "").toLowerCase(), r.hidden_modules || []]));
         VERTICALS = rows
           .filter(r => r.is_active)
           .sort((a, b) => a.display_order - b.display_order)
@@ -7711,7 +7852,7 @@ export function CRMApp() {
         setVerticalsKey(k => k + 1);
       })
       .catch(() => {});
-  }, [authStep]); // (re)load once signed in — these endpoints need a session
+  }, [authStep, visRev]); // (re)load once signed in — these endpoints need a session
 
   // Parse M365 callback params from URL (after Azure AD redirect)
   const urlParams = new URLSearchParams(window.location.search);
@@ -7780,6 +7921,13 @@ export function CRMApp() {
     );
   }
 
+  // Global Quick Log (opened from the header, Company 360, lead panels, IB dashboard)
+  const [quickLogDefaults, setQuickLogDefaults] = useState<any | null>(null);
+  useEffect(() => {
+    const h = (e: any) => setQuickLogDefaults(e.detail || {});
+    window.addEventListener("quicklog:open", h);
+    return () => window.removeEventListener("quicklog:open", h);
+  }, []);
   if (authStep === "login") return <LoginScreen
     onAppLogin={(email) => { setLoginEmail(email); setAuthStep("otp"); }}
     onM365Login={(token, userJson) => {
@@ -7836,13 +7984,14 @@ export function CRMApp() {
       if (activePage === "admin-roles")    return <AdminUserRoles t={t} />;
       if (activePage === "admin-role-map") return <AdminRoleMapping t={t} />;
       if (activePage === "admin-sla")              return <AdminSLAConfig t={t} />;
-      if (activePage === "admin-verticals")        return <AdminVerticals t={t} onReload={() => setVerticalsKey(k => k + 1)} />;
+      if (activePage === "admin-verticals")        return <AdminVerticals t={t} onReload={() => setVisRev(k => k + 1)} />;
       if (activePage === "admin-dropdown-config")  return <AdminDropdownConfig t={t} isDark={darkMode} />;
       if (activePage === "admin-pipeline-stages")  return <AdminPipelineStages t={t} isDark={darkMode} />;
       if (activePage === "admin-pii-masking")      return <AdminPIIMasking t={t} isDark={darkMode} />;
       if (activePage === "admin-llm")      return <AdminLLMSettings t={t} isDark={darkMode} />;
       if (activePage === "admin-prompts")  return <AdminAIPrompts t={t} isDark={darkMode} />;
       if (activePage === "admin-m365")     return <AdminM365Config t={t} isDark={darkMode} />;
+      if (activePage === "admin-fireflies") return <AdminFireflies t={t} />;
       if (activePage === "admin-audit")    return <AdminAuditLog t={t} />;
       if (activePage === "admin-ai-logs")  return <AdminAILogs t={t} />;
       if (activePage === "admin-theme")    return <AdminTheme t={t} isDark={darkMode} setIsDark={setDarkMode} />;
@@ -7853,6 +8002,29 @@ export function CRMApp() {
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
+    // Hidden vertical or hidden module (Admin → Verticals Config) — never render it, even via a saved link
+    if (!VERTICALS.some(v => v.id === activeV) || !moduleVisible(activeV, activePage)) {
+      const vLabel = VERTICAL_LABEL_FALLBACK[activeV] || activeV;
+      const alt = VERTICALS.some(v => v.id === activeV) ? firstVisibleModule(activeV) : null;
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className={`${t.bgCard} border ${t.border} rounded-xl p-6 max-w-sm text-center space-y-3`}>
+            <EyeOff className={`w-8 h-8 mx-auto ${t.textMuted}`} />
+            <div className={`text-sm font-semibold ${t.text}`}>Not available</div>
+            <div className={`text-xs ${t.textMuted}`}>
+              {alt ? `This section of ${vLabel} has been turned off by your administrator.` : `${vLabel} has been turned off by your administrator.`}
+            </div>
+            <button onClick={() => alt ? navTo(activeV, alt as Page) : navTo(null as any, "dashboard" as Page)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
+              {alt ? "Go to an available section" : "Go to the main dashboard"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    // Investment Banking / ECM has its own dashboard and a CIN-keyed company & promoter master
+    if (activeV === "ib" && activePage === "dashboard") return <IBDashboard t={t} isDark={darkMode} onNav={navTo} />;
+    if (activeV === "ib" && activePage === "customers") return <CompanyMaster t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (activePage === "dashboard") return <VerticalDashboard vId={activeV} t={t} />;
     if (activePage === "leads")     return <LeadsPipeline vId={activeV} t={t} loggedUser={loggedUser} />;
     if (activePage === "deals")     return <DealsView vId={activeV} t={t} loggedUser={loggedUser} />;
@@ -7863,6 +8035,8 @@ export function CRMApp() {
 
   return (
     <div className={`flex h-screen w-screen ${t.bg} overflow-hidden relative`}>
+      <QuickLog open={!!quickLogDefaults} defaults={quickLogDefaults || undefined} currentUser={loggedUser}
+        onClose={() => setQuickLogDefaults(null)} onSaved={it => window.dispatchEvent(new CustomEvent("quicklog:saved", { detail: it }))} />
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={() => setMobileSidebarOpen(false)} />

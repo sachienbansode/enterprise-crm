@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
+import { invalidateVisibility, MODULES } from "../lib/visibility";
 
 const router = Router();
 
@@ -511,12 +512,16 @@ router.get("/verticals-config", async (_req, res) => {
 
 router.put("/verticals-config/:vertical_id", async (req, res) => {
   try {
-    const { label, short_name, is_active, display_order } = req.body;
+    const { label, short_name, is_active, display_order, hidden_modules } = req.body;
+    const mods = Array.isArray(hidden_modules) ? hidden_modules.filter((m: any) => (MODULES as readonly string[]).includes(m)) : null;
     const r = await query(
-      "UPDATE verticals_config SET label=$1, short_name=$2, is_active=$3, display_order=$4, updated_at=NOW() WHERE vertical_id=$5 RETURNING *",
-      [label, short_name, is_active ?? true, display_order, req.params.vertical_id],
+      `UPDATE verticals_config SET label=COALESCE($1,label), short_name=COALESCE($2,short_name), is_active=COALESCE($3,is_active),
+         display_order=COALESCE($4,display_order), hidden_modules=COALESCE($5::text[],hidden_modules), updated_at=NOW()
+       WHERE vertical_id=$6 RETURNING *`,
+      [label ?? null, short_name ?? null, typeof is_active === "boolean" ? is_active : null, display_order ?? null, mods, req.params.vertical_id],
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Vertical not found" });
+    invalidateVisibility();
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

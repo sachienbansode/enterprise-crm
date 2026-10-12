@@ -15,7 +15,7 @@ const F = ({ label, children, span2 }: { label: string; children: React.ReactNod
 );
 
 // ─── Client picker (searchable) ───────────────────────────────────────────────
-function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string }) {
+export function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string }) {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [selectedName, setSelectedName] = useState(initialName);
@@ -91,6 +91,8 @@ interface LeadModalProps {
   editLead?: any;
   currentUser?: any;
   apiBase?: string;
+  defaultClientId?: string;
+  defaultClientName?: string;
 }
 
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
@@ -124,9 +126,13 @@ const BLANK_LEAD = {
   name: "", stage: "", priority: "Medium", value_estimate: "", source: "",
   sub_source: "", product: "", deal_type: "", assigned_rm_id: "", client_id: "",
   client_name: "", expected_close: "", notes: "",
+  opportunity_type: "", next_action: "", next_action_date: "", lost_reason: "", expected_fee: "", probability: "",
 };
 
-export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLead, currentUser, apiBase = "" }: LeadModalProps) {
+export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLead, currentUser, apiBase = "", defaultClientId, defaultClientName }: LeadModalProps) {
+  const isIB = verticalId === "ib"; // Investment Banking / ECM opportunity fields
+  const [oppTypes, setOppTypes] = useState<string[]>([]);
+  const [lostReasons, setLostReasons] = useState<string[]>([]);
   const [form, setForm] = useState({ ...BLANK_LEAD });
   const [stages, setStages] = useState<any[]>([]);
   const [sources, setSources] = useState<string[]>([]);
@@ -142,7 +148,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
     if (!open) return;
     Promise.all([
       fetch(`${apiBase}/api/config/pipeline-stages?entity=lead&vertical=${verticalId}`).then(r => r.json()),
-      fetch(`${apiBase}/api/config/dropdowns?entity=lead&field=source`).then(r => r.json()),
+      fetch(`${apiBase}/api/config/dropdowns?entity=lead&field=${verticalId === "ib" ? "source_ib" : "source"}`).then(r => r.json()),
       fetch(`${apiBase}/api/config/dropdowns?entity=lead&field=product`).then(r => r.json()),
       fetch(`${apiBase}/api/config/dropdowns?entity=deal&field=type`).then(r => r.json()),
       fetch(`${apiBase}/api/users`).then(r => r.json()),
@@ -153,6 +159,10 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
       setDealTypes(Array.isArray(typeRows) ? typeRows.map((r: any) => r.value) : []);
       setUsers(Array.isArray(userRows) ? userRows : userRows?.data || []);
     }).catch(() => {});
+    if (verticalId === "ib") {
+      fetch(`${apiBase}/api/config/dropdowns?entity=lead&field=opportunity_type`).then(r => r.json()).then(d => setOppTypes(Array.isArray(d) ? d.map((r: any) => r.value) : [])).catch(() => {});
+      fetch(`${apiBase}/api/config/dropdowns?entity=lead&field=lost_reason`).then(r => r.json()).then(d => setLostReasons(Array.isArray(d) ? d.map((r: any) => r.value) : [])).catch(() => {});
+    }
   }, [open, verticalId, apiBase]);
 
   useEffect(() => {
@@ -172,17 +182,26 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         client_name: editLead.client_name || "",
         expected_close: editLead.expected_close ? editLead.expected_close.split("T")[0] : "",
         notes: editLead.notes || "",
+        opportunity_type: editLead.opportunity_type || "",
+        next_action: editLead.next_action || "",
+        next_action_date: editLead.next_action_date ? String(editLead.next_action_date).split("T")[0] : "",
+        lost_reason: editLead.lost_reason || "",
+        expected_fee: editLead.expected_fee != null ? String(Math.round(Number(editLead.expected_fee))) : "",
+        probability: editLead.probability != null ? String(editLead.probability) : "",
       });
     } else {
-      setForm({ ...BLANK_LEAD, assigned_rm_id: currentUser?.id || "" });
+      setForm({ ...BLANK_LEAD, assigned_rm_id: currentUser?.id || "", client_id: defaultClientId || "", client_name: defaultClientName || "" });
     }
     setError("");
-  }, [open, editLead, currentUser]);
+  }, [open, editLead, currentUser, defaultClientId, defaultClientName]);
 
   const set = useCallback((k: string, v: any) => setForm(f => ({ ...f, [k]: v })), []);
 
   const handleSave = async () => {
-    if (!form.name.trim()) { setError("Lead name is required."); return; }
+    if (!form.name.trim()) { setError(isIB ? "Opportunity name is required." : "Lead name is required."); return; }
+    const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
+    if (isIB && st?.is_lost && !form.lost_reason) { setError("Choose why this opportunity was lost."); return; }
+    if (isIB && st && !st.is_won && !st.is_lost && !form.next_action.trim()) { setError("Add the next action — every active opportunity needs one."); return; }
     setSaving(true); setError("");
     try {
       const body = {
@@ -194,6 +213,11 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         assigned_rm_id: form.assigned_rm_id || null, client_id: form.client_id || null,
         expected_close: form.expected_close || null, notes: form.notes || null,
         updated_by: currentUser?.name || "System",
+        ...(isIB ? {
+          opportunity_type: form.opportunity_type || null, next_action: form.next_action || null, next_action_date: form.next_action_date || null,
+          lost_reason: form.lost_reason || null, expected_fee: form.expected_fee ? Number(form.expected_fee) : null,
+          probability: form.probability !== "" ? Math.max(0, Math.min(100, Number(form.probability))) : null,
+        } : {}),
       };
       const url = isEdit ? `${apiBase}/api/leads/${editLead.id}` : `${apiBase}/api/leads`;
       const method = isEdit ? "PATCH" : "POST";
@@ -216,7 +240,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           <div className="flex items-center gap-2">
             <TrendingUp size={16} className="text-violet-500" />
             <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              {isEdit ? "Edit Lead" : "New Lead"} — {vertical}
+              {isIB ? (isEdit ? "Edit Opportunity" : "New Opportunity") : (isEdit ? "Edit Lead" : "New Lead")} — {vertical}
             </h2>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -234,8 +258,8 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
             </div>
           )}
           {/* Name */}
-          <F label="Lead Name *" span2>
-            <input value={form.name} onChange={e => set("name", e.target.value)} disabled={isEdit} title={isEdit ? "Lead name can't be changed after creation" : undefined} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder="e.g. Mr. Rahul Sharma - Equity A/c Opening" />
+          <F label={isIB ? "Opportunity Name *" : "Lead Name *"} span2>
+            <input value={form.name} onChange={e => set("name", e.target.value)} disabled={isEdit} title={isEdit ? "Lead name can't be changed after creation" : undefined} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isIB ? "e.g. ABC Ltd — IPO" : "e.g. Mr. Rahul Sharma - Equity A/c Opening"} />
           </F>
           {/* Stage */}
           <F label="Stage">
@@ -261,6 +285,17 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           <F label="Sub-Source">
             <input value={form.sub_source} onChange={e => set("sub_source", e.target.value)} disabled={isEdit} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isEdit ? "—" : "e.g. LinkedIn, Friend referral…"} />
           </F>
+          {isIB ? (<>
+          <F label="Opportunity Type">
+            <select value={form.opportunity_type} onChange={e => set("opportunity_type", e.target.value)} className={selectCls}>
+              <option value="">— Select type —</option>
+              {withCurrent(oppTypes, form.opportunity_type).map(t => <option key={t}>{t}</option>)}
+            </select>
+          </F>
+          <F label="Probability (%)">
+            <input type="number" min={0} max={100} value={form.probability} onChange={e => set("probability", e.target.value)} className={inputCls} placeholder="Auto from stage" />
+          </F>
+          </>) : (<>
           {/* Product */}
           <F label="Product / Segment">
             <select value={form.product} onChange={e => set("product", e.target.value)} className={selectCls}>
@@ -275,15 +310,40 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
               {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
             </select>
           </F>
+          </>)}
           {/* Value estimate */}
-          <F label="Estimated Value (₹)">
+          <F label={isIB ? "Transaction Size (₹)" : "Estimated Value (₹)"}>
             <input type="number" value={form.value_estimate} onChange={e => set("value_estimate", e.target.value)} className={inputCls} placeholder="0" />
             {form.value_estimate && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.value_estimate)}</div>}
           </F>
+          {isIB && (
+            <F label="Expected Fee (₹)">
+              <input type="number" value={form.expected_fee} onChange={e => set("expected_fee", e.target.value)} className={inputCls} placeholder="0" />
+              {form.expected_fee && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.expected_fee)}</div>}
+            </F>
+          )}
           {/* Expected Close */}
           <F label="Expected Close Date">
             <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
           </F>
+          {isIB && (() => {
+            const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
+            return st?.is_lost ? (
+              <F label="Lost Reason *" span2>
+                <select value={form.lost_reason} onChange={e => set("lost_reason", e.target.value)} className={selectCls}>
+                  <option value="">— Why was it lost? —</option>
+                  {withCurrent(lostReasons, form.lost_reason).map(r => <option key={r}>{r}</option>)}
+                </select>
+              </F>
+            ) : st?.is_won ? null : (<>
+              <F label="Next Action *">
+                <input value={form.next_action} onChange={e => set("next_action", e.target.value)} className={inputCls} placeholder="e.g. Send pitch deck to CFO" />
+              </F>
+              <F label="Next Action Date">
+                <input type="date" value={form.next_action_date} onChange={e => set("next_action_date", e.target.value)} className={inputCls} />
+              </F>
+            </>);
+          })()}
           {/* RM */}
           <F label="Assigned RM" span2>
             <select value={form.assigned_rm_id} onChange={e => set("assigned_rm_id", e.target.value)} className={selectCls}>
@@ -292,7 +352,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
             </select>
           </F>
           {/* Client */}
-          <F label="Linked Client" span2>
+          <F label={isIB ? "Company" : "Linked Client"} span2>
             <ClientPicker
               value={form.client_id}
               onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))}
@@ -313,7 +373,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           <div className="flex gap-3">
             <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
             <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2">
-              {saving ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</> : <><TrendingUp size={14} /> {isEdit ? "Save Changes" : "Create Lead"}</>}
+              {saving ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</> : <><TrendingUp size={14} /> {isEdit ? "Save Changes" : isIB ? "Create Opportunity" : "Create Lead"}</>}
             </button>
           </div>
         </div>

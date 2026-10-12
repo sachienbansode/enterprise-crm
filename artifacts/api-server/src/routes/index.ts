@@ -20,6 +20,9 @@ import piiMaskingRouter from "./pii-masking";
 import auditRouter from "./audit";
 import systemStatusRouter from "./system-status";
 import activityRouter from "./activity";
+import ibRouter from "./ib";
+import { interactionsRouter, tasksRouter } from "./interactions";
+import { firefliesAdminRouter, firefliesWebhookRouter } from "./fireflies";
 
 const router: IRouter = Router();
 
@@ -65,6 +68,7 @@ router.use("/sla-config", adminForWrites, slaConfigRouter);
 router.use("/documents", documentsRouter);
 router.use("/users", adminForWrites, usersRouter);
 router.use("/ai", aiArea, aiRouter);
+router.use("/admin/fireflies", firefliesAdminRouter);
 router.use("/admin", adminArea, adminRouter);
 router.use("/leads", leadsRouter);
 router.use("/deals", dealsRouter);
@@ -77,5 +81,9 @@ router.use("/pii-masking", adminForWrites, piiMaskingRouter);
 router.use("/audit-logs", requireAdmin, auditRouter);
 router.use("/system-status", requireAdmin, systemStatusRouter);
 router.use("/activity", activityRouter);
+router.use("/ib", ibRouter);
+router.use("/interactions", interactionsRouter);
+router.use("/tasks", tasksRouter);
+router.use("/integrations/fireflies", firefliesWebhookRouter);
 
 export default router;

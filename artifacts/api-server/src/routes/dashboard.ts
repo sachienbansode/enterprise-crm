@@ -1,28 +1,33 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { visibleNames, visibleIds } from "../lib/visibility";
 
 const router = Router();
 
 // GET /api/dashboard — aggregate stats for the overall dashboard
 router.get("/", async (req, res) => {
   try {
+    const vn = await visibleNames(), vi = await visibleIds();
+    const CV = `(NOT EXISTS (SELECT 1 FROM client_verticals x WHERE x.client_id = clients.id) OR EXISTS (SELECT 1 FROM client_verticals x WHERE x.client_id = clients.id AND x.vertical = ANY($1)))`;
     const [clients, leads, deals, srs, recentSrs, srsBreached, clientsByV, clientsByKyc] = await Promise.all([
-      query("SELECT COUNT(*) as total, status FROM clients GROUP BY status"),
-      query("SELECT COUNT(*) as total, vertical FROM leads GROUP BY vertical"),
-      query("SELECT COUNT(*) as total, vertical FROM deals GROUP BY vertical"),
-      query("SELECT COUNT(*) as total, status FROM service_requests GROUP BY status"),
+      query(`SELECT COUNT(*) as total, status FROM clients WHERE ${CV} GROUP BY status`, [vi]),
+      query("SELECT COUNT(*) as total, vertical FROM leads WHERE vertical = ANY($1) GROUP BY vertical", [vn]),
+      query("SELECT COUNT(*) as total, vertical FROM deals WHERE vertical = ANY($1) GROUP BY vertical", [vn]),
+      query("SELECT COUNT(*) as total, status FROM service_requests WHERE (vertical IS NULL OR vertical = ANY($1)) GROUP BY status", [vn]),
       query(
         `SELECT sr.sr_code, sr.subject, sr.status, sr.priority, sr.vertical, sr.created_at, c.name as client_name
          FROM service_requests sr LEFT JOIN clients c ON sr.client_id = c.id
-         ORDER BY sr.created_at DESC LIMIT 10`,
+         WHERE (sr.vertical IS NULL OR sr.vertical = ANY($1))
+         ORDER BY sr.created_at DESC LIMIT 10`, [vn],
       ),
-      query("SELECT COUNT(*) as total FROM service_requests WHERE sla_status='breached'"),
+      query("SELECT COUNT(*) as total FROM service_requests WHERE sla_status='breached' AND (vertical IS NULL OR vertical = ANY($1))", [vn]),
       query(
         `SELECT cv.vertical, COUNT(DISTINCT c.id) as count
          FROM clients c JOIN client_verticals cv ON c.id = cv.client_id
-         GROUP BY cv.vertical ORDER BY cv.vertical`,
+         WHERE cv.vertical = ANY($1)
+         GROUP BY cv.vertical ORDER BY cv.vertical`, [vi],
       ),
-      query("SELECT COUNT(*) as total, kyc_status FROM clients GROUP BY kyc_status"),
+      query(`SELECT COUNT(*) as total, kyc_status FROM clients WHERE ${CV} GROUP BY kyc_status`, [vi]),
     ]);
 
     const totalClients = clients.rows.reduce((sum, r) => sum + parseInt(r.total), 0);
@@ -77,10 +82,10 @@ function rupees(v: any): number {
 router.get("/analytics", async (req, res) => {
   try {
     // Filters: ?verticals=Retail Broking,AIF  &rm=<user id>  &weeks=12
-    const ALL_V = ["Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities"];
+    const ALL_V = await visibleNames("dashboard"); // hidden verticals / hidden dashboards drop out of every figure
     const VCODE: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
     const vSel = String(req.query.verticals || "").split(",").map(v => v.trim()).filter(v => ALL_V.includes(v));
-    const verts = vSel.length ? vSel : ALL_V;
+    const verts = vSel.length ? vSel : (ALL_V.length ? ALL_V : ["__none__"]);
     const codes = verts.map(v => VCODE[v]);
     const rm = /^[0-9a-f-]{36}$/i.test(String(req.query.rm || "")) ? String(req.query.rm) : null;
     const weeks = Math.min(52, Math.max(4, parseInt(String(req.query.weeks || "12"), 10) || 12));
@@ -163,7 +168,7 @@ router.get("/analytics", async (req, res) => {
         clients: clients.rows[0], openSRs: srOpen.length, breachedSRs: srOpen.filter(r => r.breached).length,
         totalSRs: srNow.rows.length,
       },
-      filters: { verticals: verts, rm, weeks },
+      filters: { verticals: verts, rm, weeks, available: ALL_V },
       rmOptions: rms.rows.map(u => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name)),
       verticals: Object.keys(VID).filter(name => verts.includes(name)).map(name => ({ name, id: VID[name], ...(byV[name] || { open: 0, won: 0, openCount: 0, wonCount: 0, lostCount: 0 }), dealValue: dealValueByV[name] || 0 })),
       weekly: leadWeekly.rows.map((r, i) => ({ week: r.wk, leads: r.created, srOpened: srWeekly.rows[i]?.opened || 0, srResolved: srWeekly.rows[i]?.resolved || 0 })),
@@ -188,6 +193,7 @@ router.get("/vertical/:vId", async (req, res) => {
     };
     const vName = vMap[req.params.vId];
     if (!vName) return res.status(400).json({ error: "Invalid vertical" });
+    if (!(await visibleIds("dashboard")).includes(req.params.vId)) return res.status(404).json({ error: "This vertical is hidden by the administrator" });
 
     const [clients, leads, deals, srs] = await Promise.all([
       query(

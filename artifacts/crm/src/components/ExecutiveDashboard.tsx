@@ -15,6 +15,7 @@ import {
 // reserved status colours only for SR priority / SLA state (always with a label).
 
 type Analytics = {
+  filters?: { verticals: string[]; rm: string | null; weeks: number; available?: string[] };
   kpis: {
     openPipeline: number; openLeads: number; wonValue: number; wonLeads: number;
     winRate: number | null; closedLeads: number;
@@ -115,7 +116,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
 
       {/* Filters */}
       <div className={`${card} p-3 flex flex-wrap items-center gap-2 print:hidden`}>
-        <VerticalMultiSelect value={fVerts} onChange={setFVerts} t={t} />
+        <VerticalMultiSelect value={fVerts} onChange={setFVerts} t={t} available={data?.filters?.available} />
         <select value={fRm} onChange={e => setFRm(e.target.value)} className={`text-xs px-3 py-2 rounded-lg border outline-none ${t.inputBg}`}>
           <option value="">All RMs</option>
           {(data.rmOptions || []).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -174,7 +175,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
         </div>
         <div className={`${card} p-4 xl:col-span-2`}>
           <div className={`text-sm font-semibold ${t.text}`}>New leads per week</div>
-          <div className={`text-[11px] ${t.textMuted} mb-3`}>Last {fWeeks} weeks · {fVerts.length ? fVerts.map(v => VID_SHORT[ALL_VERTICALS.find(x => x.name === v)!.id]).join(", ") : "all verticals"}</div>
+          <div className={`text-[11px] ${t.textMuted} mb-3`}>Last {fWeeks} weeks · {(data?.filters?.verticals || []).length && fVerts.length ? (data!.filters!.verticals as string[]).map(v => VID_SHORT[ALL_VERTICALS.find(x => x.name === v)?.id || ""] || v).join(", ") : "all verticals"}</div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={weekly} margin={{ left: -16, right: 8, top: 8 }}>
@@ -312,7 +313,10 @@ const ALL_VERTICALS = [
 ];
 
 // Multi-select dropdown with checkboxes. Empty selection = all verticals.
-function VerticalMultiSelect({ value, onChange, t }: { value: string[]; onChange: (v: string[]) => void; t: any }) {
+function VerticalMultiSelect({ value: raw, onChange, t, available }: { value: string[]; onChange: (v: string[]) => void; t: any; available?: string[] }) {
+  // Only verticals the admin hasn't hidden are offered
+  const OPTIONS = Array.isArray(available) ? ALL_VERTICALS.filter(v => available.includes(v.name)) : ALL_VERTICALS;
+  const value = raw.filter(v => OPTIONS.some(o => o.name === v));
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -320,7 +324,7 @@ function VerticalMultiSelect({ value, onChange, t }: { value: string[]; onChange
     document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
   const toggle = (name: string) => onChange(value.includes(name) ? value.filter(v => v !== name) : [...value, name]);
-  const label = value.length === 0 || value.length === ALL_VERTICALS.length ? "All verticals"
+  const label = value.length === 0 || value.length === OPTIONS.length ? "All verticals"
     : value.length === 1 ? value[0] : `${value.length} verticals`;
   return (
     <div ref={ref} className="relative">
@@ -335,7 +339,7 @@ function VerticalMultiSelect({ value, onChange, t }: { value: string[]; onChange
             All verticals
           </button>
           <div className={`my-1 border-t ${t.border}`} />
-          {ALL_VERTICALS.map(v => {
+          {OPTIONS.map(v => {
             const on = value.includes(v.name);
             return (
               <button key={v.id} onClick={() => toggle(v.name)} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs hover:bg-blue-500/10 ${t.text}`}>

@@ -14,6 +14,8 @@ const LABELS: Record<string, string> = {
   name: "Name", stage: "Stage", priority: "Priority", status: "Status", value_estimate: "Estimated value", value: "Value",
   source: "Source", sub_source: "Sub-source", product: "Product", deal_type: "Deal type", type: "Type",
   assigned_rm_id: "Assigned RM", rm_id: "RM", client_id: "Linked client", expected_close: "Expected close", notes: "Notes",
+  opportunity_type: "Opportunity type", next_action: "Next action", next_action_date: "Next action date", lost_reason: "Lost reason",
+  expected_fee: "Expected fee (₹)", probability: "Probability %",
 };
 
 router.get("/:type/:id", async (req, res) => {
@@ -30,6 +32,11 @@ router.get("/:type/:id", async (req, res) => {
       query("SELECT id, name FROM clients"),
     ]);
     const stages = await query("SELECT stage_id, label FROM pipeline_stages WHERE entity=$1", [type]);
+    const col = type === "lead" ? "lead_id" : "deal_id";
+    const [inter, tasks] = await Promise.all([
+      query(`SELECT id, type, title, summary, source, occurred_at, created_by_name FROM interactions WHERE ${col}=$1 ORDER BY occurred_at DESC`, [id]),
+      query(`SELECT id, title, due_date, status, owner_name, created_at, completed_at, created_by_name FROM tasks WHERE ${col}=$1`, [id]),
+    ]);
     const stageLabel = Object.fromEntries(stages.rows.map(r => [r.stage_id, r.label]));
     const uName = Object.fromEntries(users.rows.map(u => [u.id, u.name]));
     const cName = Object.fromEntries(clients.rows.map(c => [c.id, c.name]));
@@ -38,6 +45,8 @@ router.get("/:type/:id", async (req, res) => {
       if (field === "assigned_rm_id" || field === "rm_id") return uName[v] || "—";
       if (field === "client_id") return cName[v] || "—";
       if (field === "stage") return stageLabel[v] || String(v);
+      if (field === "next_action_date") return new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+      if (field === "expected_fee") return "₹" + Number(v).toLocaleString("en-IN");
       if (field === "expected_close") return new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
       return String(v);
     };
@@ -55,6 +64,8 @@ router.get("/:type/:id", async (req, res) => {
     }
     comments.rows.forEach(c => items.push({ kind: "comment", at: c.created_at, by: c.user_name, body: c.body, id: c.id }));
     docs.rows.forEach(d => items.push({ kind: "document", at: d.created_at, by: d.user_name || "—", name: d.name, id: d.id }));
+    inter.rows.forEach(i => items.push({ kind: "interaction", at: i.occurred_at, by: i.created_by_name || "—", type: i.type, title: i.title, body: i.summary, source: i.source, id: i.id }));
+    tasks.rows.forEach(t => items.push({ kind: "task", at: t.completed_at || t.created_at, by: t.status === "Done" ? (t.owner_name || "—") : (t.created_by_name || "—"), title: t.title, status: t.status, due: t.due_date, owner: t.owner_name, id: t.id }));
     items.sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime());
     return res.json({ items });
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
