@@ -195,12 +195,6 @@ INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, 
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('d13362cc-88e4-4324-bccf-d1d4c4d4b6c3', 'deal', 'ib', 'Documentation', 'Documentation', 3, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('ec27b469-f5bc-4b1d-b9dd-325eda4d44c8', 'deal', 'ib', 'Regulatory Filing', 'Regulatory Filing', 4, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('9f7ed6a1-038f-475e-9fd0-19e9713c4522', 'deal', 'ib', 'Closed', 'Closed', 5, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('c5d90e03-7414-48b1-a63b-425ad80174ab', 'lead', 'ib', 'prospect', 'Prospect', 1, 'bg-gray-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('8e740acc-2d27-424e-918e-18feaf013052', 'lead', 'ib', 'initial_meeting', 'Initial Meeting', 2, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('bbb2f682-8e9d-434e-ab92-587001042b4f', 'lead', 'ib', 'mandate_discussion', 'Mandate Discussion', 3, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('e337e7d3-179b-46da-8678-6227d6064111', 'lead', 'ib', 'loi_signed', 'LOI Signed', 4, 'bg-orange-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('4e8492b5-e5bd-4832-b21a-33a66ec50a73', 'lead', 'ib', 'mandate_signed', 'Mandate Signed', 5, 'bg-violet-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
-INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('3db3dfe8-fe70-483c-805c-fc1c3d9cf82d', 'lead', 'ib', 'won', 'Won', 6, 'bg-emerald-500', true, true, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('256e9d20-0473-45ec-a0e0-451f1ffbb21a', 'lead', 'ib', 'lost', 'Lost', 7, 'bg-red-500', true, false, true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('96e784a4-6d55-46a5-a080-2251a42b09f2', 'deal', 'ie', 'Active', 'Active', 1, 'bg-blue-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
 INSERT INTO pipeline_stages (id, entity, vertical, stage_id, label, sort_order, color, is_active, is_won, is_lost) VALUES ('b6b11263-5c17-4ba8-9e61-76214cc6ec5e', 'deal', 'ie', 'In Progress', 'In Progress', 2, 'bg-yellow-500', true, false, false) ON CONFLICT (entity, vertical, stage_id) DO NOTHING;
@@ -249,6 +243,14 @@ INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled,
 INSERT INTO pii_masking_fields (field_key, field_label, description, is_enabled, regex_pattern, mask_display, example_before, example_after, sort_order, category) VALUES ('address', 'Residential Address', 'Full residential or mailing address', true, E'\\d{6}(?:\\s*[-,]\\s*\\d{6})?', '*** Masked ***', '', '[ADDRESS MASKED]', 24, 'contact') ON CONFLICT (field_key) DO UPDATE SET regex_pattern=EXCLUDED.regex_pattern, mask_display=EXCLUDED.mask_display;
 
 INSERT INTO pii_masking_settings (enabled) SELECT true WHERE NOT EXISTS (SELECT 1 FROM pii_masking_settings);
+-- IB lead stages are the ECM pipeline (see 07-ib-ecm.sql). Remove the retired pre-ECM IB stages if any
+-- earlier run of this script re-added them — only when the ECM stages exist and no IB lead still uses them.
+DELETE FROM pipeline_stages p
+ WHERE p.entity='lead' AND p.vertical='ib'
+   AND p.stage_id IN ('prospect','initial_meeting','mandate_discussion','loi_signed','mandate_signed','won')
+   AND EXISTS (SELECT 1 FROM pipeline_stages x WHERE x.entity='lead' AND x.vertical='ib' AND x.stage_id='identified')
+   AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.vertical='Investment Banking' AND l.stage = p.stage_id);
+
 -- Admin → Verticals Config → Visibility (modules hidden per vertical)
 ALTER TABLE verticals_config ADD COLUMN IF NOT EXISTS hidden_modules text[] DEFAULT '{}';
 SELECT 'schema sync done' AS status;

@@ -4890,10 +4890,10 @@ const ALL_DB_TABLES = [
   { id: "service_requests", label: "Service Requests", desc: "All SRs, status, messages, SLA data" },
   { id: "leads", label: "Leads", desc: "Pipeline leads across all verticals" },
   { id: "deals", label: "Deals", desc: "Active deals, value, stage, RM assignment" },
-  { id: "users", label: "Users", desc: "User list (names, roles, verticals — no passwords)" },
-  { id: "sla_config", label: "SLA Config", desc: "TAT targets, escalation matrix" },
-  { id: "audit_logs", label: "Audit Logs", desc: "User action history (read-only)" },
   { id: "documents", label: "Documents", desc: "Document metadata and versions" },
+  { id: "interactions", label: "Meetings & Calls", desc: "Logged calls, meetings, notes, Fireflies summaries" },
+  { id: "tasks", label: "Tasks", desc: "Action items, owners, due dates" },
+  { id: "audit_logs", label: "Audit Logs", desc: "User action history (read-only)" },
 ];
 
 const DEFAULT_PROMPT = `You are NIYTRI CRM AI Assistant — an intelligent financial services assistant for NIYTRI Financial Services.
@@ -6502,16 +6502,17 @@ function AdminSystem({ t }: { t: ReturnType<typeof useTheme> }) {
 }
 
 // ─── AI MODULE ────────────────────────────────────────────────────────────────
-type ChatMsg = { id: string; from: "user" | "ai"; text: string; ts: string; thinking?: boolean; recordCount?: number | null; sourceLabel?: string; };
+type ChatMsg = { id: string; from: "user" | "ai"; text: string; ts: string; thinking?: boolean; recordCount?: number | null; sourceLabel?: string; queries?: string[]; followUps?: string[] };
 
 const AI_SUGGESTED_PROMPTS: Record<string, string[]> = {
-  "Super Admin": ["Show all SLA breached SRs", "AIF AUM and investor count", "Retail Broking MTD summary", "KYC expiry alerts", "Top deals by value"],
-  "AIF Admin": ["AIF AUM and NAV summary", "Active AIF investors and commitments", "Pending capital calls", "AIF service requests", "AIF compliance status"],
-  "Retail Admin": ["Retail Broking MTD KPIs", "New demat accounts this month", "KYC pending clients", "Retail SR status", "Lead pipeline summary"],
-  "Corporate Admin": ["Corporate Broking volume", "Block deals this quarter", "Corporate client SRs", "CB lead pipeline"],
-  "IB Admin": ["Active IB deals and status", "M&A pipeline value", "Near-closure deals", "IB revenue FY26"],
-  "IE Admin": ["Institutional client summary", "FII allocation overview", "Research coverage stocks", "IE brokerage volume"],
-  default: ["Show pending service requests", "SLA breach summary", "My client list", "Recent audit log"],
+  // Only questions the CRM data can actually answer
+  "Super Admin": ["Open pipeline by vertical", "Which service requests have breached SLA?", "Biggest open IB opportunities", "Overdue tasks across the team", "Clients with KYC pending"],
+  "AIF Admin": ["AIF open leads by stage", "AIF deals and their value", "AIF service requests still open", "AIF clients with KYC pending"],
+  "Retail Admin": ["Retail leads created this month", "Clients with KYC pending", "Retail service requests still open", "Retail pipeline by stage"],
+  "Corporate Admin": ["Corporate Broking pipeline by stage", "Corporate deals by value", "Corporate client service requests"],
+  "IB Admin": ["Biggest open IB opportunities", "Which IB opportunities have overdue next actions?", "Summarise our relationship with Aarohan", "Which companies look like IPO candidates?"],
+  "IE Admin": ["Institutional Equities pipeline", "IE deals by value", "IE service requests still open"],
+  default: ["My open leads", "My overdue tasks", "Service requests breaching SLA", "My biggest opportunities"],
 };
 
 function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; loggedUser: any; isDark: boolean }) {
@@ -6548,11 +6549,13 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
     let apiOk = false;
     let aiRecords: number | null = null;
     let aiSource: string | undefined;
+    let aiQueries: string[] | undefined;
+    let aiFollow: string[] | undefined;
     try {
       const res = await fetch(`${API_BASE}/api/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: messages }),
+        body: JSON.stringify({ message: text, history: messages.map(m => ({ from: m.from, text: m.text, queries: m.queries })) }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.response) {
@@ -6561,6 +6564,8 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
         apiOk = true;
         aiRecords = data.recordCount ?? null;
         aiSource = data.sourceLabel ?? undefined;
+        aiQueries = Array.isArray(data.queries) ? data.queries : undefined;
+        aiFollow = Array.isArray(data.followUps) ? data.followUps : undefined;
       } else if (!res.ok || data.error) {
         responseText = "I'm having trouble connecting right now. Please try again in a moment.";
         apiOk = true;
@@ -6571,48 +6576,57 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
     if (!apiOk) responseText = "I couldn't reach the CRM server. Please check your connection and try again.";
 
     setIsTyping(false);
-    setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), from: "ai", text: responseText, ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), recordCount: aiRecords, sourceLabel: aiSource }]);
+    setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), from: "ai", text: responseText, ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), recordCount: aiRecords, sourceLabel: aiSource, queries: aiQueries, followUps: aiFollow }]);
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); }
   };
 
+  // Markdown → HTML for AI answers (headings, bold/italic, code, lists, tables with header rows)
   const mdToHtml = (text: string): string => {
-    let html = text
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = (x: string) => esc(x)
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-      .replace(/`([^`]+)`/g, '<code class="bg-violet-500/20 text-violet-300 px-1 py-0.5 rounded text-[10px]">$1</code>');
-
-    const lines = html.split("\n");
-    let out = "";
-    let inTable = false;
-    let inList = false;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-        if (trimmed.replace(/[|\-\s]/g, "").length === 0) continue;
-        if (!inTable) { out += '<table class="w-full text-[10px] border-collapse my-2">'; inTable = true; }
-        const cells = trimmed.split("|").filter(Boolean).map(c => c.trim());
-        out += "<tr>" + cells.map(c => `<td class="border border-current/10 px-2 py-1">${c}</td>`).join("") + "</tr>";
-      } else {
-        if (inTable) { out += "</table>"; inTable = false; }
-        if (/^[•\-]\s/.test(trimmed)) {
-          if (!inList) { out += '<ul class="list-disc list-inside my-1 space-y-0.5">'; inList = true; }
-          out += `<li>${trimmed.replace(/^[•\-]\s*/, "")}</li>`;
-        } else {
-          if (inList) { out += "</ul>"; inList = false; }
-          if (/^\d+\.\s/.test(trimmed)) out += `<p class="ml-2">${trimmed}</p>`;
-          else if (trimmed === "") out += "<br/>";
-          else out += `<p class="my-0.5">${trimmed}</p>`;
-        }
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-violet-500/15 text-[0.9em]">$1</code>');
+    const lines = text.replace(/\r/g, "").split("\n");
+    let out = ""; let i = 0;
+    while (i < lines.length) {
+      const line = lines[i]; const tr = line.trim();
+      if (/^\|.*\|$/.test(tr)) {
+        const rows: string[][] = [];
+        while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) { rows.push(lines[i].trim().slice(1, -1).split("|").map(c => c.trim())); i++; }
+        const body = rows.filter(r => !r.every(c => /^:?-{2,}:?$/.test(c)));
+        const hasHead = rows.length > 1 && rows[1].every(c => /^:?-{2,}:?$/.test(c));
+        const head = hasHead ? body.shift() : null;
+        const num = (c: string) => /^[₹\-+]?[\d,.]+\s*(Cr|L|%|K)?$/.test(c.replace(/<[^>]+>/g, ""));
+        out += '<div class="overflow-x-auto my-2 rounded-lg border border-current/10"><table class="w-full text-[12px] border-collapse">';
+        if (head) out += "<thead><tr>" + head.map(c => `<th class="text-left font-semibold px-2.5 py-1.5 border-b border-current/15 whitespace-nowrap opacity-80">${inline(c)}</th>`).join("") + "</tr></thead>";
+        out += "<tbody>" + body.map(r => '<tr class="border-b border-current/5 last:border-0">' + r.map(c => `<td class="px-2.5 py-1.5 align-top ${num(c) ? "text-right whitespace-nowrap tabular-nums" : ""}">${inline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table></div>";
+        continue;
       }
+      if (/^#{1,4}\s/.test(tr)) { const lvl = tr.match(/^#+/)![0].length; out += `<div class="${lvl <= 2 ? "text-[15px]" : "text-[13px]"} font-semibold mt-3 mb-1">${inline(tr.replace(/^#+\s*/, ""))}</div>`; i++; continue; }
+      if (/^([-*•])\s+/.test(tr)) {
+        out += '<ul class="list-disc pl-5 my-1.5 space-y-1">';
+        while (i < lines.length && /^\s*([-*•])\s+/.test(lines[i])) { out += `<li>${inline(lines[i].trim().replace(/^[-*•]\s+/, ""))}</li>`; i++; }
+        out += "</ul>"; continue;
+      }
+      if (/^\d+[.)]\s+/.test(tr)) {
+        out += '<ol class="list-decimal pl-5 my-1.5 space-y-1">';
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { out += `<li>${inline(lines[i].trim().replace(/^\d+[.)]\s+/, ""))}</li>`; i++; }
+        out += "</ol>"; continue;
+      }
+      if (/^---+$/.test(tr)) { out += '<hr class="my-2 border-current/10"/>'; i++; continue; }
+      if (tr === "") { i++; continue; }
+      out += `<p class="my-1.5">${inline(tr)}</p>`; i++;
     }
-    if (inTable) out += "</table>";
-    if (inList) out += "</ul>";
     return out;
   };
+  const lastAi = [...messages].reverse().find(m => m.from === "ai");
+  const nextQuestions = lastAi?.followUps?.length ? lastAi.followUps : prompts.slice(0, 3);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (m: ChatMsg) => { navigator.clipboard?.writeText(m.text).then(() => { setCopied(m.id); setTimeout(() => setCopied(null), 1500); }).catch(() => {}); };
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -6688,11 +6702,14 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
                 {msg.from === "ai" ? <Bot className="w-3.5 h-3.5" /> : (loggedUser?.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2) || "BN")}
               </div>
               <div className={`max-w-[80%] ${msg.from === "user" ? "items-end" : "items-start"} flex flex-col gap-1`}>
-                <div className={`rounded-2xl px-4 py-3 text-xs leading-relaxed ${msg.from === "ai" ? `${t.bgCard} border ${t.border} ${t.text}` : "bg-violet-600 text-white"}`}>
+                <div className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed max-w-full overflow-hidden ${msg.from === "ai" ? `${t.bgCard} border ${t.border} ${t.text}` : "bg-violet-600 text-white"}`}>
                   {msg.from === "ai" ? <div dangerouslySetInnerHTML={{ __html: mdToHtml(msg.text) }} /> : <p>{msg.text}</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-[10px] ${t.textMuted}`}>{msg.ts}</span>
+                  {msg.from === "ai" && (
+                    <button onClick={() => copy(msg)} className={`text-[10px] px-1.5 py-0.5 rounded-full border ${t.border} ${t.textMuted} hover:text-violet-400`}>{copied === msg.id ? "Copied" : "Copy"}</button>
+                  )}
                   {msg.from === "ai" && msg.sourceLabel && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${t.border} ${t.textMuted}`}>
                       Source: {msg.sourceLabel}
@@ -6711,6 +6728,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
             <div className="flex gap-3">
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center"><Bot className="w-3.5 h-3.5 text-white" /></div>
               <div className={`${t.bgCard} border ${t.border} rounded-2xl px-4 py-3 flex items-center gap-1.5`}>
+                <span className={`text-[11px] ${t.textMuted} mr-1`}>Looking at your CRM data…</span>
                 <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "0ms" }} />
                 <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "150ms" }} />
                 <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "300ms" }} />
@@ -6724,13 +6742,14 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
         <div className={`border-t ${t.border} p-4 flex-shrink-0`}>
           {messages.length > 0 && (
             <div className="flex gap-2 mb-2 flex-wrap">
-              {prompts.slice(0, 3).map((p, i) => (
-                <button key={i} onClick={() => sendMessage(p)} className={`text-[10px] px-2 py-1 rounded-full border ${t.border} ${t.textMuted} ${t.rowHover} transition-colors`}>{p}</button>
+              {nextQuestions.map((p, i) => (
+                <button key={i} disabled={isTyping} onClick={() => sendMessage(p)} className={`text-[11px] px-2.5 py-1 rounded-full border ${t.border} ${t.textSub} hover:border-violet-500/60 hover:text-violet-400 disabled:opacity-50 transition-colors`}>{p}</button>
               ))}
+              <button onClick={() => { setMessages([]); setInput(""); }} disabled={isTyping} className={`ml-auto text-[11px] px-2.5 py-1 rounded-full border ${t.border} ${t.textMuted} hover:text-red-400`}>New chat</button>
             </div>
           )}
           <div className={`flex gap-2 items-end ${t.bgCard2} rounded-2xl border ${t.border} px-3 py-2`}>
-            <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} placeholder={`Ask about ${userRole === "AIF Admin" ? "AIF portfolio, investors, NAV…" : "clients, SRs, pipeline, compliance…"}`} className={`flex-1 bg-transparent text-xs ${t.text} placeholder:${t.textMuted} outline-none resize-none max-h-24 leading-relaxed`} />
+            <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} rows={1} placeholder={`Ask about ${userRole === "AIF Admin" ? "AIF portfolio, investors, NAV…" : "clients, SRs, pipeline, compliance…"}`} className={`flex-1 bg-transparent text-sm ${t.text} placeholder:${t.textMuted} outline-none resize-none max-h-24 leading-relaxed`} />
             <button onClick={() => sendMessage(input)} disabled={!input.trim() || isTyping} className="w-8 h-8 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 flex items-center justify-center flex-shrink-0 transition-colors">
               {isTyping ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <Send className="w-3.5 h-3.5 text-white" />}
             </button>

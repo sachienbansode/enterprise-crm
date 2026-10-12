@@ -63,7 +63,7 @@ router.get("/companies", async (req, res) => {
               (SELECT COUNT(*)::int FROM leads l WHERE l.client_id=c.id AND l.vertical=$${params.length + 1}
                   AND l.stage NOT IN ('closed','lost','deleted')) AS open_opps,
               (SELECT MAX(occurred_at) FROM interactions i WHERE i.client_id=c.id) AS last_interaction,
-              (SELECT string_agg(p.name, ', ') FROM (SELECT name FROM company_people WHERE client_id=c.id AND role_type='Promoter' ORDER BY created_at LIMIT 2) p) AS promoters
+              (SELECT string_agg(p.name, ', ') FROM (SELECT name FROM company_people WHERE client_id=c.id ORDER BY (role_type='Promoter') DESC, is_key DESC, created_at LIMIT 2) p) AS promoters
          FROM clients c LEFT JOIN users ro ON ro.id = c.relationship_owner_id
          ${where} ORDER BY c.name LIMIT 500`,
       [...params, IB],

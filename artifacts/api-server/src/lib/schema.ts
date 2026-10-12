@@ -92,6 +92,10 @@ export async function ensureAppSchema() {
   ];
   for (const s of stmts) await query(s);
   await seedIB();
+  // AI table access saved before Meetings/Tasks existed: give those to the assistant once (admins can untick them)
+  await query(`UPDATE ai_config SET table_access = table_access || '["interactions","tasks","_v2"]'::jsonb
+                WHERE jsonb_typeof(table_access) = 'array' AND jsonb_array_length(table_access) > 0
+                  AND NOT table_access ? '_v2' AND table_access ? 'clients'`).catch(() => {});
 }
 
 // ECM pipeline + dropdowns for Investment Banking (from the ECM CRM requirements note). Runs once:
@@ -131,6 +135,11 @@ async function seedIB() {
         WHERE l.vertical='Investment Banking' AND l.stage = m.from_stage`, [JSON.stringify(STAGE_MAP)]);
     await query("UPDATE leads SET stage='identified' WHERE vertical='Investment Banking' AND stage NOT IN (SELECT stage_id FROM pipeline_stages WHERE entity='lead' AND vertical='ib') AND stage <> 'deleted'");
   }
+  // retired pre-ECM IB stages (an older 04-schema-sync.sql re-added them on every deploy) — remove if unused
+  await query(`DELETE FROM pipeline_stages p WHERE p.entity='lead' AND p.vertical='ib'
+      AND p.stage_id IN ('prospect','initial_meeting','mandate_discussion','loi_signed','mandate_signed','won')
+      AND EXISTS (SELECT 1 FROM pipeline_stages x WHERE x.entity='lead' AND x.vertical='ib' AND x.stage_id='identified')
+      AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.vertical='Investment Banking' AND l.stage = p.stage_id)`);
   for (const [key, values] of Object.entries(IB_DROPDOWNS)) {
     const [entity, field] = key.split(":");
     for (const [i, v] of values.entries()) {

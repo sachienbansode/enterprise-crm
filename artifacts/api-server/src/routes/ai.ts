@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query, pool } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 import { visibleNames } from "../lib/visibility";
+import { VERTICALS, runScoped, schemaText, renderResults, makeMasker, type Scope } from "../lib/aiAgent";
 
 const router = Router();
 
@@ -165,134 +166,59 @@ router.get("/logs", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── DB SCHEMA for AI SQL Agent ───────────────────────────────────────────────
-// IMPORTANT: This schema must exactly match the real PostgreSQL tables.
-const DB_SCHEMA = `
-TABLE: clients
-  id (uuid PK), client_code (varchar), name (varchar),
-  type (varchar: 'Individual'|'Non-Individual'),
-  category (varchar), pan (varchar), mobile (varchar), email (varchar),
-  address (text), date_of_birth (date), date_of_incorporation (date),
-  rm_id (uuid FK→users.id), owner_id (uuid FK→users.id),
-  status (varchar: 'Active'|'Dormant'|'Suspended'|'Closed'),
-  kyc_status (varchar: 'Verified'|'Pending'|'Expired'),
-  risk_profile (varchar: 'Low'|'Moderate'|'High'|'Ultra-High'),
-  fatca_status (varchar: 'Compliant'|'Non-Compliant'|'Pending'|'N/A'),
-  demat_account (varchar), dp_id (varchar), ckyc_id (varchar),
-  created_at (timestamptz), updated_at (timestamptz)
-  NOTE: There is NO city or state column — use address instead. pan_number does NOT exist — use pan.
-
-TABLE: client_verticals
-  client_id (uuid FK→clients.id), vertical (varchar: 'retail'|'corporate'|'ib'|'aif'|'ie'), activated_at (timestamptz)
-  JOIN clients c: JOIN client_verticals cv ON c.id = cv.client_id
-  VERTICAL CODE MAPPING: 'retail'=Retail Broking, 'corporate'=Corporate Broking, 'ib'=Investment Banking, 'aif'=AIF, 'ie'=Institutional Equities
-
-TABLE: leads
-  id (uuid PK), lead_code (varchar), name (varchar),
-  vertical (varchar: 'Retail Broking'|'Corporate Broking'|'Investment Banking'|'AIF'|'Institutional Equities'),
-  stage (varchar — free text, e.g. 'active','qualified','identified','interest','pitch','closure', etc.),
-  priority (varchar: 'Low'|'Medium'|'High'|'Critical'),
-  value_estimate (varchar — textual estimate, NOT numeric),
-  source (varchar), assigned_rm_id (uuid FK→users.id), client_id (uuid FK→clients.id),
-  status (varchar: 'Active'|'Inactive'), opened_at (timestamptz), closed_at (timestamptz),
-  notes (text), created_at (timestamptz)
-  NOTE: No email, mobile, assigned_to, or value columns — use assigned_rm_id and value_estimate.
-
-TABLE: deals
-  id (uuid PK), deal_code (varchar), name (varchar),
-  vertical (varchar: same full names as leads),
-  type (varchar), value (varchar — textual, NOT numeric), stage (varchar — free text),
-  client_id (uuid FK→clients.id), rm_id (uuid FK→users.id),
-  deal_date (date), notes (text), created_at (timestamptz)
-  NOTE: No title, assigned_to, probability, or close_date columns — use name, rm_id, deal_date.
-
-TABLE: service_requests
-  id (uuid PK), sr_code (varchar), subject (varchar), description (text),
-  category (varchar), subcategory (varchar), channel (varchar: 'Email'|'Phone'|'Chat'|'Portal'|'WhatsApp'|'Branch'),
-  priority (varchar: 'Low'|'Medium'|'High'|'Critical'),
-  status (varchar: 'Open'|'In Progress'|'Escalated'|'Resolved'|'Closed'),
-  sla_deadline (timestamptz), sla_status (varchar — NOT MAINTAINED, never use it),
-  client_id (uuid FK→clients.id), vertical (varchar),
-  created_by (uuid FK→users.id), assigned_to (uuid FK→users.id),
-  resolved_at (timestamptz), closed_at (timestamptz), resolution_notes (text),
-  created_at (timestamptz)
-  SLA RULE: an SR is "SLA breached" ONLY when status NOT IN ('Resolved','Closed') AND sla_deadline < NOW().
-  Resolved/Closed SRs are never "breached". For any SLA question ALWAYS select sla_deadline and
-  ROUND(EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600) AS hours_overdue, and ORDER BY sla_deadline.
-
-TABLE: documents
-  id (uuid PK), doc_code (varchar), name (varchar), type (varchar),
-  client_id (uuid FK→clients.id), sr_id (uuid FK→service_requests.id),
-  vertical (varchar), status (varchar: 'Pending'|'Active'|'Expired'),
-  current_version (varchar), created_by (uuid FK→users.id), created_at (timestamptz)
-  NOTE: No file_path, expiry_date, or uploaded_at columns.
-
-TABLE: users
-  id (uuid PK), name (varchar), email (varchar), role (varchar), vertical (varchar),
-  status (varchar: 'Active'|'Inactive'), auth_type (varchar: 'app'|'m365'),
-  last_login (timestamptz), created_at (timestamptz)
-
-TABLE: interactions  (calls, meetings, notes, roadshows with companies)
-  id, type ('Call'|'Meeting'|'Note'|'Email'|'Roadshow'|'Site Visit'), occurred_at (timestamptz), client_id (FK→clients.id),
-  lead_id (FK→leads.id), vertical (full name), title, summary (text), key_points (jsonb array), opportunity_update (text),
-  next_follow_up (date), source ('manual'|'voice'|'fireflies'), created_by_name
-
-TABLE: tasks  (action items / follow-ups)
-  id, title, due_date (date), priority, status ('Open'|'Done'), owner_name, client_id, lead_id, vertical, created_at
-  Overdue = status='Open' AND due_date < CURRENT_DATE
-
-TABLE: company_people  (promoters / management of a company)
-  id, client_id (FK→clients.id), name, designation, role_type ('Promoter'|'Management'|'Board'|'CFO'|'CS'|'Other'), email, mobile
-
-IB / ECM NOTES: companies are rows in clients (client_verticals.vertical='ib') with cin, sector, listed_status, group_name,
-  revenue_cr, ebitda_cr, pat_cr, net_worth_cr, valuation_cr (₹ crore), fin_year, fin_source, relationship_strength ('Cold'|'Warm'|'Strong').
-  IB opportunities are leads with vertical='Investment Banking', opportunity_type ('IPO'|'Pre-IPO'|'QIP'|'Private Placement'|'M&A'|'Fundraising'|…),
-  stage ('identified'|'contacted'|'qualified'|'meeting'|'pitch'|'negotiation'|'mandate'|'execution'|'closed'|'lost'),
-  expected_fee (₹), probability (0-100), next_action, next_action_date, lost_reason.
-  "Summarise our relationship with X" → join clients, interactions, leads, tasks for that company.
-
-TABLE: audit_logs
-  id (uuid PK), entity_type (varchar), entity_id (uuid), user_id (uuid FK→users.id),
-  user_name (varchar), action (varchar), details (text),
-  old_value (jsonb), new_value (jsonb), ip_address (inet), created_at (timestamptz)
-`.trim();
+// Providers want strictly alternating user/assistant turns that start with the user.
+function normalizeTurns(messages: any[]): { role: "user" | "assistant"; content: string }[] {
+  const out: { role: "user" | "assistant"; content: string }[] = [];
+  for (const m of messages) {
+    const role = m.role === "assistant" ? "assistant" : "user";
+    const content = String(m.content ?? "").trim();
+    if (!content) continue;
+    if (out.length && out[out.length - 1].role === role) out[out.length - 1].content += "\n\n" + content;
+    else out.push({ role, content });
+  }
+  while (out.length && out[0].role !== "user") out.shift();
+  return out;
+}
 
 // Helper: call one LLM provider. Throws on HTTP/API errors so the caller can fail over.
-async function callProvider(config: any, apiKey: string, system: string, messages: any[]): Promise<string> {
+async function callProvider(config: any, apiKey: string, system: string, rawMessages: any[]): Promise<string> {
+  const messages = normalizeTurns(rawMessages);
+  const maxTokens = Math.max(Number(config.max_tokens) || 0, 2048);
+  const temperature = Number.isFinite(parseFloat(String(config.temperature))) ? parseFloat(String(config.temperature)) : 0.2;
   if (config.provider === "anthropic") {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: config.model || "claude-3-5-sonnet-20241022", max_tokens: config.max_tokens || 2048, system, messages }),
+      body: JSON.stringify({ model: config.model || "claude-3-5-sonnet-20241022", max_tokens: maxTokens, temperature, system, messages }),
     });
     const d: any = await r.json().catch(() => ({}));
-    if (!r.ok || !d.content?.[0]?.text) throw new Error(`anthropic ${r.status}: ${d.error?.message || "no content"}`);
-    return d.content[0].text;
+    const text = (d.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+    if (!r.ok || !text) throw new Error(`anthropic ${r.status}: ${d.error?.message || "no content"}`);
+    return text;
   }
   if (config.provider === "gemini") {
-    const contents = [
-      { role: "user", parts: [{ text: system }] },
-      { role: "model", parts: [{ text: "Understood." }] },
-      ...messages.map((m: any) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-    ];
+    const contents = messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${config.model || "gemini-1.5-pro"}:generateContent?key=${apiKey}`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contents, generationConfig: { temperature: config.temperature, maxOutputTokens: config.max_tokens || 2048 } }) },
+      `https://generativelanguage.googleapis.com/v1beta/models/${config.model || "gemini-2.0-flash"}:generateContent?key=${apiKey}`,
+      { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature, maxOutputTokens: maxTokens } }) },
     );
     const d: any = await r.json().catch(() => ({}));
-    const text = d.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = (d.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("");
     if (!r.ok || !text) throw new Error(`gemini ${r.status}: ${d.error?.message || "no content"}`);
     return text;
   }
-  // OpenAI / Azure / custom endpoint
+  // OpenAI / Azure / custom endpoint (OpenAI-compatible)
   const endpoint = config.endpoint_url || "https://api.openai.com/v1/chat/completions";
+  const model = config.model || "gpt-4o";
+  const reasoning = /^(o\d|gpt-5)/i.test(model); // reasoning models: no temperature, max_completion_tokens
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (config.provider === "azure") headers["api-key"] = apiKey; else headers["Authorization"] = `Bearer ${apiKey}`;
   const r = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    method: "POST", headers,
     body: JSON.stringify({
-      model: config.model || "gpt-4o",
-      temperature: parseFloat(String(config.temperature)) || 0.3,
-      max_tokens: config.max_tokens || 2048,
+      model,
+      ...(reasoning ? { max_completion_tokens: Math.max(maxTokens, 8000) } : { temperature, max_tokens: maxTokens }),
       messages: [{ role: "system", content: system }, ...messages],
     }),
   });
@@ -325,300 +251,156 @@ async function callLLM(config: any, apiKey: string, system: string, messages: an
   }
 }
 
-// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+// ─── POST /api/ai/chat — agent: look up data (several queries if needed), then answer ───
+const MAX_ROUNDS = 5;
+
+function extractQueries(text: string): string[] {
+  const out: string[] = [];
+  const re = /<sql>([\s\S]*?)<\/sql>|```sql\s*([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) { const q = (m[1] || m[2] || "").trim(); if (q) out.push(q); }
+  return out.slice(0, 4);
+}
+
+function splitFollowUps(text: string): { body: string; followUps: string[] } {
+  const m = text.match(/\n?\s*\**FOLLOW-?UPS?\**\s*:?\**\s*(.+)\s*$/i);
+  if (!m) return { body: text.trim(), followUps: [] };
+  const followUps = m[1].split("|").map(x => x.replace(/^[\s\-*•\d.)]+|[\s*]+$/g, "").trim()).filter(x => x.length > 3).slice(0, 3);
+  return { body: text.slice(0, m.index).trim(), followUps };
+}
+
 router.post("/chat", async (req, res) => {
   const t0 = Date.now();
   try {
-    const { message, history = [] } = req.body;
+    const message = String(req.body?.message || "").trim().slice(0, 4000);
+    const history: any[] = Array.isArray(req.body?.history) ? req.body.history : [];
+    if (!message) return res.status(400).json({ error: "Empty message" });
     // Identity and data scope come from the server-side session, never from the request body
     const userRole = req.user!.role;
     const userName = req.user!.name;
     const userId = req.user!.id;
     const ALL_V = await visibleNames(); // verticals hidden by the admin are out of AI scope too
     const userVerticals: string[] = (!req.user!.vertical || req.user!.vertical === "All" ? ALL_V : [req.user!.vertical]).filter(v => ALL_V.includes(v));
-    const someHidden = ALL_V.length < 5;
 
-    const configResult = await query("SELECT * FROM ai_config LIMIT 1");
-    const config = configResult.rows[0];
-
-    if (!config?.enabled) {
-      return res.json({ response: "The AI Assistant is currently disabled. A Super Admin can enable it under Administration → LLM Settings.", configured: false });
-    }
-    if (!config?.api_key) {
-      return res.json({ response: "The AI Assistant has no API key configured. Please go to Administration → LLM Settings and enter a valid API key.", configured: false });
-    }
-
+    const config = (await query("SELECT * FROM ai_config LIMIT 1")).rows[0];
+    if (!config?.enabled) return res.json({ response: "The AI Assistant is currently disabled. A Super Admin can enable it under Administration → LLM Settings.", configured: false });
+    if (!config?.api_key) return res.json({ response: "The AI Assistant has no API key configured. Please go to Administration → LLM Settings and enter a valid API key.", configured: false });
     let apiKey: string;
-    try { apiKey = decrypt(config.api_key); } catch {
-      return res.status(500).json({ error: "Failed to decrypt AI API key. Contact your administrator." });
-    }
+    try { apiKey = decrypt(config.api_key); } catch { return res.status(500).json({ error: "Failed to decrypt AI API key. Contact your administrator." }); }
 
-    // Allowed tables — default to ALL tables if not restricted
-    const allowedTables: string[] = Array.isArray(config.table_access) && config.table_access.length > 0
-      ? config.table_access
-      : ["clients", "service_requests", "leads", "deals", "documents", "users", "audit_logs", "interactions", "tasks", "company_people"];
-
-    // Build filtered schema: only include sections for allowed tables
-    const TABLE_SECTION_KEYS: Record<string, string[]> = {
-      clients: ["clients", "client_verticals", "client_contacts"],
-      leads: ["leads"],
-      deals: ["deals"],
-      service_requests: ["service_requests"],
-      users: ["users"],
-      audit_logs: ["audit_logs"],
-      documents: ["documents"],
-      interactions: ["interactions"], tasks: ["tasks"], company_people: ["company_people"],
-    };
-    const allowedSectionIds = new Set(allowedTables.flatMap(t => TABLE_SECTION_KEYS[t] || [t]));
-    const filteredSchema = DB_SCHEMA.split(/(?=^TABLE: )/m)
-      .filter(section => {
-        const match = section.match(/^TABLE: (\w+)/);
-        return match ? allowedSectionIds.has(match[1]) : true;
-      })
-      .join("\n");
-
+    // What this user may see — enforced in the database sandbox (lib/aiAgent.ts), not by the prompt
+    const ALL_TABLES = ["clients", "company_people", "leads", "deals", "service_requests", "documents", "interactions", "tasks", "audit_logs"];
+    const allowed = new Set<string>(Array.isArray(config.table_access) && config.table_access.length
+      ? [...config.table_access, ...(config.table_access.includes("clients") ? ["company_people"] : [])] : ALL_TABLES.filter(t => t !== "audit_logs"));
     const isSuperAdmin = ["Super Admin", "Business Head", "Super Admin (NIYTRI)"].includes(userRole);
-    const VCODE: Record<string, string> = {
-      "Retail Broking": "retail", "Corporate Broking": "corporate",
-      "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie",
-    };
-    const scoped = !isSuperAdmin || someHidden;
-    const verticalCodes = scoped ? (userVerticals as string[]).map(v => VCODE[v] || v).filter(Boolean) : [];
-    const verticalFullNames = scoped ? (userVerticals as string[]) : [];
+    const restricted = !isSuperAdmin || ALL_V.length < VERTICALS.length;
+    const scope: Scope = restricted
+      ? { names: userVerticals, codes: VERTICALS.filter(v => userVerticals.includes(v.name)).map(v => v.code) }
+      : { names: null, codes: null };
 
-    const clientVFilter = !scoped ? "TRUE" : verticalCodes.length
-      ? `c.id IN (SELECT client_id FROM client_verticals WHERE vertical = ANY(ARRAY['${verticalCodes.join("','")}']::varchar[]))`
-      : "FALSE";
-    const fullVFilter = !scoped ? "TRUE" : verticalFullNames.length
-      ? `vertical = ANY(ARRAY['${verticalFullNames.join("','")}']::varchar[])`
-      : "FALSE";
-
-    // Role-specific prompt from config (bot_prompts)
-    const botPrompts: Record<string, string> = config.bot_prompts || {};
-    const rolePrompt = botPrompts[userRole] || "";
-
-    // Table restriction warning for prompt
-    const tableNote = allowedTables.length < 6
-      ? `\nDATA ACCESS RESTRICTION: You may ONLY query these tables: ${allowedTables.join(", ")}. Refuse queries for any other tables.`
-      : "";
-
-    const accessContext = `
-USER ACCESS:
-- Name: ${userName || "Unknown"}, Role: ${userRole}
-- Verticals: ${!scoped ? "ALL" : (verticalFullNames.join(", ") || "None")}
-- SQL filter for clients: WHERE ${clientVFilter}
-- SQL filter for leads/deals/SRs: WHERE ${fullVFilter}
-${config.system_prompt ? `\nCUSTOM INSTRUCTIONS: ${config.system_prompt}` : ""}
-${rolePrompt ? `\nROLE-SPECIFIC INSTRUCTIONS: ${rolePrompt}` : ""}${tableNote}`.trim();
-
-    const sqlAgentSystem = `You are the NIYTRI CRM SQL Agent — an expert at querying PostgreSQL databases for financial services data.
-
-DATABASE SCHEMA (only these tables are available):
-${filteredSchema}
-
-${accessContext}
-
-STRICT RULES:
-1. When the user asks a data question, respond ONLY with valid JSON: {"sql": "<SELECT query>"}
-2. ALWAYS apply the access filters from USER ACCESS section in your WHERE clause.
-3. Only generate SELECT queries. NEVER use INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE.
-4. Add LIMIT 50 to all queries unless the user explicitly asks for all records.
-5. If the question requires NO database lookup (e.g. greeting, explanation, help), respond with: {"answer": "<markdown response>"}
-6. Return ONLY raw JSON — no code fences, no markdown wrapper, no explanation outside the JSON.
-7. CRITICAL: NEVER invent, assume, or hallucinate data. Only use what the query returns.
-8. NEVER reference tables, column names, SQL syntax, or technical details in your final responses to the user.
-9. Use ONLY the exact column names defined in the schema above. Do NOT guess column names.
-10. Follow-up questions refer to the conversation above: if the user asks for more detail about a previous
-    answer (e.g. "you say it's breached but no SLA shown?"), write a query that returns those extra columns.`;
-
-    const historyMessages = history.slice(-6).map((h: any) => ({ role: h.from === "ai" ? "assistant" : "user", content: h.text }));
-    const userMessage = { role: "user" as const, content: message };
-
-    // Step 1: LLM decides SQL or direct answer
-    const rawRequest1 = { system: sqlAgentSystem, messages: [...historyMessages, userMessage] };
-    const step1 = await callLLM(config, apiKey, sqlAgentSystem, [...historyMessages, userMessage]);
-    console.log("[AI SQL Agent] Step1 raw:", step1.slice(0, 300));
-
-    let sqlQuery: string | null = null;
-    let directAnswer: string | null = null;
+    // PII masking — per column for data the model sees, and only number/date-safe rules on the final text
+    let piiFields: PiiField[] = []; let piiShouldMask = true;
     try {
-      const parsed = JSON.parse(step1.replace(/```json|```/g, "").trim());
-      if (parsed.sql) sqlQuery = parsed.sql;
-      if (parsed.answer) directAnswer = parsed.answer;
-    } catch { directAnswer = step1; }
-
-    // Safety: block any non-SELECT or disallowed-table query
-    if (sqlQuery) {
-      const safe = sqlQuery.trim().toLowerCase();
-      if (!safe.startsWith("select") || /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke)\b/.test(safe)) {
-        console.warn("[AI SQL Agent] Blocked unsafe query:", sqlQuery.slice(0, 100));
-        sqlQuery = null;
-        directAnswer = "I cannot execute data modification queries. Please ask a read-only data question.";
-      } else if (config.vertical_access_strict !== false) {
-        // Check the query doesn't reference tables not in allowedTables
-        const forbiddenTable = Object.keys(TABLE_SECTION_KEYS).find(t =>
-          !allowedTables.includes(t) && new RegExp(`\\b${t}\\b`).test(safe)
-        );
-        if (forbiddenTable) {
-          console.warn("[AI SQL Agent] Blocked restricted table:", forbiddenTable);
-          sqlQuery = null;
-          directAnswer = `Access to the '${forbiddenTable}' table is not allowed for your role.`;
-        }
-      }
-    }
-
-    // ── Source label mapping (generic — never expose real table names) ──────────
-    const TABLE_SOURCE_LABELS: Record<string, string> = {
-      clients: "Client Registry", client_verticals: "Client Registry",
-      leads: "Lead Pipeline", deals: "Deal Records",
-      service_requests: "Service Requests", documents: "Document Vault",
-      users: "Team Directory", audit_logs: "Audit Trail",
-    };
-    function getSourceLabel(sql: string | null): string {
-      if (!sql) return "AI Knowledge Base";
-      const lower = sql.toLowerCase();
-      const matched = Object.keys(TABLE_SOURCE_LABELS).filter(t => new RegExp(`\\b${t}\\b`).test(lower));
-      if (matched.length === 0) return "CRM Database";
-      if (matched.length === 1) return TABLE_SOURCE_LABELS[matched[0]];
-      const unique = [...new Set(matched.map(t => TABLE_SOURCE_LABELS[t]))];
-      return unique.length === 1 ? unique[0] : "CRM Database";
-    }
-
-    // Load PII masking config ONCE — used both to sanitise DB results before LLM and to mask final output
-    let piiFields: PiiField[] = [];
-    let piiShouldMask = true;
-    try {
-      const [settingsRow, fieldsRow] = await Promise.all([
+      const [st, fl] = await Promise.all([
         query(`SELECT enabled, apply_to_ai FROM pii_masking_settings LIMIT 1`),
         query(`SELECT field_key, regex_pattern, mask_display FROM pii_masking_fields WHERE is_enabled=true ORDER BY sort_order`),
       ]);
-      const s = settingsRow.rows[0];
-      piiShouldMask = s ? (s.enabled && s.apply_to_ai) : true;
-      piiFields = fieldsRow.rows as PiiField[];
-    } catch { /* keep defaults */ }
+      piiShouldMask = st.rows[0] ? (st.rows[0].enabled && st.rows[0].apply_to_ai) : true;
+      piiFields = fl.rows as PiiField[];
+    } catch { /* defaults */ }
+    const masker = makeMasker(piiFields, config.pii_masking_enabled !== false && piiShouldMask);
 
-    let response = "";
-    let rawResponse: any = { step1 };
-    let recordCount: number | null = null; // how many CRM records the answer is based on (no made-up "accuracy %")
-    let sourceLabel = "AI Knowledge Base";
+    const now = new Date();
+    const today = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const time = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+    const rolePrompt = (config.bot_prompts || {})[userRole] || "";
+    const schema = await schemaText(allowed);
 
-    if (directAnswer) {
-      response = directAnswer;
-      sourceLabel = "General answer (no CRM data used)";
-    } else if (sqlQuery) {
-      let dbResults = "";
-      let rowCount = 0;
-      let dbError = false;
-      try {
-        console.log("[AI SQL Agent] Executing:", sqlQuery.slice(0, 200));
-        // Run AI-generated SQL in a READ-ONLY transaction with a timeout — the prompt says
-        // "SELECT only", but the database must enforce it (prompt injection could ask otherwise).
-        const client = await pool.connect();
-        let result: any;
-        try {
-          await client.query("BEGIN TRANSACTION READ ONLY");
-          await client.query("SET LOCAL statement_timeout = '8s'");
-          result = await client.query(sqlQuery);
-        } finally {
-          await client.query("ROLLBACK").catch(() => {});
-          client.release();
-        }
-        rowCount = result.rows.length;
-        if (rowCount > 0) {
-          // Mask PII in the raw DB data BEFORE sending to the LLM for synthesis
-          // This ensures the model never sees real PAN, mobile, email, Aadhaar etc.
-          const rawJson = JSON.stringify(result.rows.slice(0, 50), null, 2);
-          dbResults = piiShouldMask ? maskPiiInText(rawJson, piiFields) : rawJson;
-        } else {
-          dbResults = "No records found.";
-        }
-      } catch (dbErr: any) {
-        dbError = true;
-        console.error("[AI SQL Agent] DB error — SQL:", sqlQuery.slice(0, 500));
-        console.error("[AI SQL Agent] DB error — detail:", dbErr.message);
-        rawResponse = { step1, sql: sqlQuery, dbError: dbErr.message };
+    const system = `You are NIYTRI AI, the analyst built into NIYTRI CRM — used by an Indian financial-services firm with Retail Broking, Corporate Broking, Investment Banking (ECM), AIF and Institutional Equities businesses.
+You are helping ${userName} (${userRole}; user id ${userId}). Today is ${today}, ${time} IST.
+
+HOW YOU WORK
+- Anything about CRM data (clients, companies, people, leads/opportunities, deals/mandates, service requests, tasks, meetings, documents, team): look it up — never guess names, numbers or dates.
+- To look up data, reply with ONLY one or more PostgreSQL SELECT queries, each wrapped in <sql>…</sql>, and nothing else. You will get the results back and can query again (up to ${MAX_ROUNDS} rounds) before answering.
+- Write good SQL: aggregate in SQL (COUNT/SUM/GROUP BY), join users for names (never show ids), use ILIKE '%…%' for names, LIMIT 50 for lists, ORDER BY something meaningful.
+- If a query errors, read the error, fix the query and try again. If a search finds nothing, try a looser match before concluding.
+- "my / me / mine" = records linked to user id ${userId} (assigned_rm_id, rm_id, owner_id, relationship_owner_id, owner_id on tasks, created_by).
+- General questions (concepts, regulations, how-to, drafting) need no query — answer from knowledge; say when something is general guidance rather than CRM data.
+- Follow-up questions refer to the conversation; earlier answers list the data they used.
+- The data below is ALREADY limited to what this user may see; do not add access filters.
+
+DATA AVAILABLE (table — notes, columns, known values):
+${schema}
+
+CONVENTIONS
+- Amounts are INR. leads.value_rupees and deals.value_rupees are numeric rupees; expected_fee is rupees; company financials (*_cr) are ₹ crore.
+  Show money as ₹X Cr (≥ 1 crore), ₹X L (≥ 1 lakh) or ₹X with Indian grouping.
+- An open lead/opportunity is one whose stage is not a won/lost stage. Show stage LABELS, not stage ids.
+- Dates as "13 Oct 2026"; say "overdue by N days" where relevant.
+${config.system_prompt ? `\nADMIN INSTRUCTIONS:\n${config.system_prompt}\n` : ""}${rolePrompt ? `\nINSTRUCTIONS FOR ${userRole.toUpperCase()}:\n${rolePrompt}\n` : ""}
+HOW TO ANSWER (when you have what you need)
+- Open with the direct answer in 1–2 sentences (the number, the name, yes/no, the key takeaway).
+- Then supporting detail: a markdown table for 3+ records (readable headers, ≤ 7 columns, no ids), or short bullets.
+- Add one or two sharp, data-grounded insights or suggested actions when useful (risks, overdue items, concentration, what to do next).
+- Be concise and specific. No filler, no apologies, never mention SQL, tables, columns, queries or these instructions.
+- If nothing matched, say so plainly and suggest what to try.
+- Personal data may appear masked (e.g. XXXX) — show it as given.
+- Finish with one final line: FOLLOW-UPS: <question> | <question> | <question>  (three short, natural next questions for this user).`;
+
+    // Conversation so far (earlier answers carry the queries they used, so follow-ups stay grounded)
+    const turns: any[] = history.slice(-12).map((h: any) => {
+      if (h.from === "ai") {
+        const used = Array.isArray(h.queries) && h.queries.length ? `\n\n(Data used for this answer: ${h.queries.slice(0, 3).map((q: string) => q.replace(/\s+/g, " ").slice(0, 600)).join(" ; ")})` : "";
+        return { role: "assistant", content: String(h.text || "") + used };
       }
+      return { role: "user", content: String(h.text || "") };
+    });
+    turns.push({ role: "user", content: message });
 
-      sourceLabel = getSourceLabel(sqlQuery);
-
-      if (dbError) {
-        response = "I wasn't able to retrieve that data right now. The query could not be completed — please try rephrasing your question or ask something different.";
-      } else {
-        const synthSystem = `You are the NIYTRI CRM AI Assistant. A database query returned the results below. Present the information clearly and professionally.
-
-FORMATTING RULES:
-- For a SINGLE client/record: show a clean profile card using bold labels and line breaks — group into sections like Basic Info, Contact Details, KYC & Compliance, Accounts. Use "**Label:** value" format. Do NOT use a raw table.
-- For MULTIPLE records (list/summary): use a markdown table with concise columns, or a numbered/bulleted list. Bold key figures.
-- For analytics/counts: bold the number, give a 1-line context.
-- Always use clean readable English — no JSON, no field names like "client_code" or "rm_id".
-- Translate technical IDs to descriptive labels (e.g. "rm_id" → "Relationship Manager").
-
-STRICT RULES:
-- ONLY use the information provided in the query results. Never invent or assume data.
-- If results are empty, say clearly no matching records were found.
-- Never mention SQL, table names, column names, or any technical implementation details.
-- Sensitive fields (PAN, Aadhaar, mobile, email, account numbers) shown in the data are already masked — present them as-is.
-- Be concise. No filler phrases like "Based on the data" or "It seems that".
-- Answer the user's LATEST message specifically. If it questions or follows up on your previous answer,
-  address that point directly (e.g. if asked "where is the SLA?", show the SLA deadline and how overdue each item is) —
-  do not just repeat the previous answer.
-- Always include the columns that support your claim (e.g. for SLA breaches: SLA deadline and time overdue).
-- Do NOT state any accuracy or confidence percentage — the app shows how many records the answer is based on.`;
-
-        const synthMessages = [
-          ...historyMessages, userMessage,
-          {
-            role: "assistant" as const,
-            content: `Query results (${rowCount} record${rowCount !== 1 ? "s" : ""} found):\n${dbResults}`
-          },
-          {
-            role: "user" as const,
-            content: rowCount > 0
-              ? "Present these results clearly for the user using the formatting rules above."
-              : "No records were found. Tell the user that no matching data exists — do not invent any.",
-          },
-        ];
-        response = await callLLM(config, apiKey, synthSystem, synthMessages);
-        rawResponse = { step1, sql: sqlQuery, dbRows: rowCount, dbResults: dbResults.slice(0, 2000) };
-        recordCount = rowCount;
-      }
-    } else {
-      response = "I wasn't able to process your request. Please try rephrasing your question.";
+    const ranQueries: string[] = [];
+    const trace: any[] = [];
+    let records = 0;
+    let answer = "";
+    for (let round = 1; round <= MAX_ROUNDS + 1; round++) {
+      const forceAnswer = round > MAX_ROUNDS;
+      const out = await callLLM(config, apiKey, system, forceAnswer
+        ? [...turns, { role: "user", content: "That's enough lookups — answer now with what you have." }] : turns);
+      const qs = forceAnswer ? [] : extractQueries(out);
+      if (!qs.length) { answer = out.replace(/<sql>[\s\S]*?<\/sql>/gi, "").trim(); break; }
+      const results = await runScoped(qs, allowed, scope);
+      results.forEach(r => { if (r.ok) { ranQueries.push(r.sql); records += r.rowCount || 0; } });
+      trace.push({ round, queries: qs, results: results.map(r => ({ ok: r.ok, rows: r.rowCount, error: r.error })) });
+      turns.push({ role: "assistant", content: qs.map(q => `<sql>${q}</sql>`).join("\n") });
+      turns.push({ role: "user", content: `Results:\n${renderResults(results, masker.maskValue)}\n\nIf you need more, query again; otherwise answer my question: "${message.slice(0, 500)}"` });
     }
 
-    // Apply PII masking to the final response (piiFields already loaded above)
-    // This is a second pass — catches anything the LLM may have rephrased from history or context
-    if (config.pii_masking_enabled !== false) {
-      if (piiShouldMask) {
-        response = maskPiiInText(response, piiFields.length > 0 ? piiFields : undefined);
-      }
-    }
-
+    if (!answer) answer = "I couldn't put an answer together for that. Could you rephrase or narrow it down?";
+    const { body, followUps } = splitFollowUps(answer);
+    const response = masker.maskText(body);
     const latencyMs = Date.now() - t0;
 
-    // Log to ai_chat_logs (detailed)
     await query(
       `INSERT INTO ai_chat_logs (user_id, user_name, user_role, user_verticals, query, response, sql_query, provider, model, latency_ms, raw_request, raw_response)
        VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb)`,
-      [
-        userId || null, userName || "Unknown", userRole || null,
-        userVerticals, message, response.slice(0, 10000), sqlQuery,
-        config.__used?.provider || config.provider, config.__used?.model || config.model, latencyMs,
-        JSON.stringify(rawRequest1), JSON.stringify(rawResponse),
-      ],
-    );
+      [userId || null, userName || "Unknown", userRole || null, userVerticals, message, response.slice(0, 10000),
+       ranQueries.join(";\n\n").slice(0, 20000) || null, config.__used?.provider || config.provider, config.__used?.model || config.model, latencyMs,
+       JSON.stringify({ history: history.length, scope }), JSON.stringify({ trace })],
+    ).catch(e => console.error("[AI] log failed:", e.message));
+    await query("INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('ai_chat', gen_random_uuid(), $1, 'AI Chat', $2)",
+      [userName || "Unknown", message.slice(0, 100)]).catch(() => {});
 
-    // Also add brief entry to audit_logs
-    await query(
-      "INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('ai_chat', gen_random_uuid(), $1, 'AI Chat', $2)",
-      [userName || "Unknown", message.slice(0, 100)],
-    );
-
-    res.json({ response, configured: true, sqlUsed: !!sqlQuery, recordCount, sourceLabel, usedFallback: !!config.__used?.fallback });
+    res.json({
+      response, followUps, configured: true, sqlUsed: ranQueries.length > 0,
+      recordCount: ranQueries.length ? records : null,
+      sourceLabel: ranQueries.length ? "Live CRM data" : "General answer (no CRM data used)",
+      queries: ranQueries, usedFallback: !!config.__used?.fallback, latencyMs,
+    });
   } catch (err: any) {
-    console.error("[AI chat error] Full detail:", err.message, err.stack?.slice(0, 500));
-    // Return a friendly response — never expose raw error to UI
-    res.json({ response: "Something went wrong while processing your request. Please try again in a moment.", configured: true, sqlUsed: false });
+    console.error("[AI chat error]", err.message, err.stack?.slice(0, 500));
+    const msg = /401|invalid.*key|authentication/i.test(err.message) ? "The AI provider rejected the API key. An admin can check it under Administration → LLM Settings."
+      : /429|rate|quota/i.test(err.message) ? "The AI provider is rate-limiting right now. Please try again in a minute."
+      : "Something went wrong while processing your request. Please try again in a moment.";
+    res.json({ response: msg, configured: true, sqlUsed: false });
   }
 });
 

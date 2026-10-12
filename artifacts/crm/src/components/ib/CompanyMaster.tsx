@@ -88,7 +88,7 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
             <table className="w-full">
               <thead className={`sticky top-0 ${t.tableHead}`}>
                 <tr className={`border-b ${t.border}`}>
-                  {(openId ? ["Company", "Relationship", "Open opps"] : ["Company", "CIN", "Sector", "Promoters", "Relationship", "Open opps", "Last contact"]).map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2.5`}>{h}</th>)}
+                  {(openId ? ["Company", "Relationship", "Open opps"] : ["Company", "CIN", "Sector", "Key people", "Relationship", "Open opps", "Last contact"]).map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2.5`}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -334,7 +334,9 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                 <span className="font-mono">{c.cin || "No CIN"}</span><span>{c.client_code}</span>{c.sector && <span>{c.sector}</span>}{c.listed_status && <span>{c.listed_status}{c.exchange_symbol ? ` · ${c.exchange_symbol}` : ""}</span>}
               </div>
               <div className="flex items-center gap-2 mt-1.5">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${strengthCls(c.relationship_strength)}`}>{c.relationship_strength || "—"} relationship</span>
+                {c.relationship_strength
+                  ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${strengthCls(c.relationship_strength)}`}>{c.relationship_strength} relationship</span>
+                  : <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.bgCard2} ${t.textMuted}`}>No relationship set</span>}
                 <span className={`text-[11px] ${t.textMuted}`}>Owner: <b className={t.text}>{c.relationship_owner || "—"}</b></span>
               </div>
             </div>
