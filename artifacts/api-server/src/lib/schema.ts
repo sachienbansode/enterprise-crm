@@ -91,6 +91,9 @@ export async function ensureAppSchema() {
        updated_by varchar(255), updated_at timestamptz DEFAULT now()
      )`,
     "INSERT INTO speech_config (id) VALUES (1) ON CONFLICT DO NOTHING",
+    // Free fallback when Azure Speech isn't available: Groq-hosted Whisper (no speaker separation — the AI assigns speakers)
+    "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS groq_api_key text",
+    "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS groq_model varchar(60) DEFAULT 'whisper-large-v3'",
     // ── Fireflies add-on (optional) ──
     `CREATE TABLE IF NOT EXISTS fireflies_config (
        id integer PRIMARY KEY DEFAULT 1, enabled boolean DEFAULT false, api_key text, webhook_secret text,

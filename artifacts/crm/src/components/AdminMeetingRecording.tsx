@@ -9,6 +9,9 @@ const LOCALES = [["en-IN", "English (India)"], ["hi-IN", "Hindi"], ["mr-IN", "Ma
 export default function AdminMeetingRecording({ t }: { t: any }) {
   const [c, setC] = useState<any>(null);
   const [key, setKey] = useState("");
+  const [gkey, setGkey] = useState("");
+  const [gtest, setGtest] = useState<any>(null);
+  const [gbusy, setGbusy] = useState(false);
   const [endpoint, setEndpoint] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [test, setTest] = useState<any>(null);
@@ -23,6 +26,7 @@ export default function AdminMeetingRecording({ t }: { t: any }) {
     setKey(""); load();
   };
   const runTest = async () => { setBusy(true); setTest(await fetch("/api/admin/speech/test", { method: "POST" }).then(r => r.json()).catch(() => ({ ok: false, msg: "Request failed" }))); setBusy(false); };
+  const runGroqTest = async () => { setGbusy(true); setGtest(await fetch("/api/admin/speech/test-groq", { method: "POST" }).then(r => r.json()).catch(() => ({ ok: false, msg: "Request failed" }))); setGbusy(false); };
   const copy = (s: string) => navigator.clipboard?.writeText(s).catch(() => {});
 
   if (!c) return <div className={`p-5 text-xs ${t.textMuted}`}>Loading…</div>;
@@ -50,7 +54,7 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
 
       <div className={card}>
         <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><Mic className="w-4 h-4" /> In-person recordings — Azure AI Speech</div>
-        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="Transcribe recordings" sub="Speaker separation (diarization) is always on; the AI then names each speaker from the attendee list." />
+        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="Transcribe recordings" sub="Uses Azure AI Speech when a key is set (speakers separated by voice); otherwise, or if Azure fails, the free Groq Whisper fallback below." />
         <div>
           <label className={`block text-xs ${t.textMuted} mb-1`}>Endpoint — Azure portal → your Speech resource → Keys and Endpoint (choose the Central India region for data residency)</label>
           <div className="flex gap-2">
@@ -91,7 +95,40 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
           </button>
           {test && <span className={`text-xs flex items-center gap-1 ${test.ok ? "text-emerald-500" : "text-red-500"}`}>{test.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{test.msg}</span>}
         </div>
+        <div className={`text-[11px] ${t.textMuted}`}>Status: {c.has_key && c.endpoint ? <span className="text-emerald-500">Azure Speech set up</span> : <span className="text-amber-500">Azure Speech not set up</span>}{c.has_groq_key ? <> · <span className="text-emerald-500">free fallback ready</span></> : null}</div>
         <div className={`text-[11px] ${t.textMuted}`}>After the retention period only the audio file is deleted — the transcript and summary stay on the company record. A consent confirmation is recorded with every recording.</div>
+      </div>
+
+      <div className={card}>
+        <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><Mic className="w-4 h-4" /> Free fallback — Whisper on Groq
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">Free tier</span></div>
+        <div className={`text-xs ${t.textMuted} space-y-1`}>
+          <div>Used when Azure Speech isn't set up, or if it fails. Create a free key at <b>console.groq.com → API Keys</b> (no card needed). Free use has a daily limit; if it's reached, the meeting shows "Failed" and <b>Try again</b> works later.</div>
+          <div>Whisper doesn't separate voices — the AI works out who said what from the attendee list and the conversation. Check the speaker names on the transcript and correct them if needed.</div>
+          <div className="text-amber-600 dark:text-amber-400">Audio is sent to Groq (US data centres). Confirm this is acceptable for client meetings under your data-protection policy.</div>
+          <div>Recordings over 25 MB (roughly 45+ minutes) are compressed and split automatically when ffmpeg is installed on the server.</div>
+        </div>
+        <div>
+          <label className={`block text-xs ${t.textMuted} mb-1`}>Groq API key {c.has_groq_key && <span className="text-emerald-500">· saved (encrypted)</span>}</label>
+          <div className="flex gap-2">
+            <input type="password" value={gkey} onChange={e => setGkey(e.target.value)} className={input} placeholder={c.has_groq_key ? "•••••••• — enter a new key to replace" : "gsk_…"} autoComplete="off" />
+            <button onClick={() => { save({ groq_api_key: gkey }); setGkey(""); }} disabled={!gkey.trim()} className="text-xs px-3 rounded-lg bg-blue-600 text-white disabled:opacity-40">Save</button>
+            {c.has_groq_key && <button onClick={() => save({ groq_api_key: "" })} className={`text-xs px-3 rounded-lg border ${t.border} ${t.textMuted}`}>Remove</button>}
+          </div>
+        </div>
+        <div>
+          <label className={`block text-xs ${t.textMuted} mb-1`}>Model</label>
+          <select value={c.groq_model || "whisper-large-v3"} onChange={e => save({ groq_model: e.target.value })} className={input}>
+            <option value="whisper-large-v3">whisper-large-v3 — most accurate (best for Hindi + English)</option>
+            <option value="whisper-large-v3-turbo">whisper-large-v3-turbo — faster</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={runGroqTest} disabled={gbusy || !c.has_groq_key} className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white disabled:opacity-40 flex items-center gap-1.5">
+            {gbusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Test connection
+          </button>
+          {gtest && <span className={`text-xs flex items-center gap-1 ${gtest.ok ? "text-emerald-500" : "text-red-500"}`}>{gtest.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{gtest.msg}</span>}
+        </div>
       </div>
 
       <div className={card}>

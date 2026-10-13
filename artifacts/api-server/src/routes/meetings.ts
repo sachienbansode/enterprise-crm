@@ -1,9 +1,12 @@
 import { Router, raw } from "express";
-import { existsSync, mkdirSync, appendFileSync, statSync, createReadStream, readFileSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, appendFileSync, statSync, createReadStream, readFileSync, unlinkSync, readdirSync, rmSync } from "fs";
+import { spawn } from "child_process";
+import { tmpdir } from "os";
 import { join } from "path";
 import { query } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 import { requireAdmin } from "../lib/session";
+import { logAudit } from "../lib/audit";
 import { aiComplete } from "./ai";
 import { saveInteraction } from "./interactions";
 import { getGraphToken } from "./teams";
@@ -38,7 +41,7 @@ async function vertFor(clientId: string | null, leadId: string | null) {
 // ─── Transcription (Azure AI Speech fast transcription, with diarization) ───
 async function transcribeAzure(file: string, mime: string): Promise<{ segments: Seg[]; duration: number }> {
   const c = await speechCfg();
-  if (!c.enabled || !c.endpoint || !c.api_key) throw new Error("Meeting transcription is not set up (Admin → Integrations → Meeting Recording)");
+  if (!c.endpoint || !c.api_key) throw new Error("Azure Speech is not set up");
   const base = String(c.endpoint).replace(/\/+$/, "");
   const url = `${base}/speechtotext/transcriptions:transcribe?api-version=${c.api_version || "2024-11-15"}`;
   const form = new FormData();
@@ -66,6 +69,107 @@ async function transcribeAzure(file: string, mime: string): Promise<{ segments: 
     return { segments: mergeSegs(segments), duration: Math.round((d.durationMilliseconds || 0) / 1000) };
   }
   throw new Error(last || "Azure Speech unavailable");
+}
+
+// ─── Free fallback: Whisper on Groq (OpenAI-compatible). No diarization — speakers are assigned by the AI afterwards. ───
+const GROQ_BASE = (process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
+const GROQ_MAX = Number(process.env.GROQ_MAX_BYTES) || 24 * 1024 * 1024; // Groq free tier accepts files up to 25 MB
+function run(cmd: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] }); let err = "";
+    p.stderr.on("data", d => { err += d; if (err.length > 4000) err = err.slice(-4000); });
+    p.on("error", e => reject(e)); p.on("close", code => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${err.slice(-300)}`))));
+  });
+}
+// Long recordings: compress to 16 kHz mono speech-quality Opus and cut into 20-minute parts (needs ffmpeg on the server)
+async function prepareForGroq(file: string): Promise<{ parts: { path: string; offset: number }[]; cleanup: () => void }> {
+  if (statSync(file).size <= GROQ_MAX) return { parts: [{ path: file, offset: 0 }], cleanup: () => {} };
+  const dir = join(tmpdir(), `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`); mkdirSync(dir, { recursive: true });
+  const cleanup = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } };
+  const SEG = 1200;
+  try {
+    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", file, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "24k",
+      "-f", "segment", "-segment_time", String(SEG), "-reset_timestamps", "1", join(dir, "part%03d.ogg")]);
+  } catch (e: any) {
+    cleanup();
+    if (/ENOENT/.test(e.message)) throw new Error(`This recording is ${(statSync(file).size / 1048576).toFixed(0)} MB and the free transcription accepts up to 25 MB per file. Install ffmpeg on the server (sudo apt install -y ffmpeg) so long recordings are compressed automatically, then press Try again.`);
+    throw e;
+  }
+  const parts = readdirSync(dir).filter(f => f.endsWith(".ogg")).sort().map((f, i) => ({ path: join(dir, f), offset: i * SEG }));
+  return { parts, cleanup };
+}
+async function transcribeGroq(file: string, mime: string): Promise<{ segments: Seg[]; duration: number }> {
+  const c = await speechCfg();
+  if (!c.groq_api_key) throw new Error("Groq is not set up");
+  const key = decrypt(c.groq_api_key);
+  const locales: string[] = c.locales || [];
+  const lang = locales.length === 1 ? locales[0].slice(0, 2) : null; // mixed English/Hindi → let Whisper detect
+  const { parts, cleanup } = await prepareForGroq(file);
+  const segments: Seg[] = []; let duration = 0;
+  try {
+    for (const part of parts) {
+      const form = new FormData();
+      const pm = part.path === file ? (mime || "audio/webm") : "audio/ogg";
+      form.append("file", new Blob([readFileSync(part.path)], { type: pm }), `meeting.${part.path === file ? extFor(mime) : "ogg"}`);
+      form.append("model", c.groq_model || "whisper-large-v3");
+      form.append("response_format", "verbose_json");
+      form.append("temperature", "0");
+      form.append("prompt", "Business meeting between an Indian investment bank and a client company. English with some Hindi.");
+      if (lang) form.append("language", lang);
+      let d: any = null, last = "";
+      for (let attempt = 0; attempt < 5 && !d; attempt++) {
+        const r = await fetch(`${GROQ_BASE}/audio/transcriptions`, { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form });
+        if (r.status === 429 || r.status >= 500) {
+          last = `Groq ${r.status}`;
+          const wait = Number(r.headers.get("retry-after")) || 5 * 2 ** attempt;
+          await new Promise(s => setTimeout(s, Math.min(wait, 120) * 1000)); continue;
+        }
+        const j: any = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(`Groq ${r.status}: ${j.error?.message || "transcription failed"}`);
+        d = j;
+      }
+      if (!d) throw new Error(`${last || "Groq unavailable"} — the free quota may be used up for now; try again later`);
+      for (const x of d.segments || []) {
+        const text = String(x.text || "").trim();
+        if (text) segments.push({ s: "?", t0: Math.round((x.start || 0) + part.offset), t1: Math.round((x.end || 0) + part.offset), text });
+      }
+      duration = Math.max(duration, Math.round((d.duration || 0) + part.offset));
+    }
+  } finally { cleanup(); }
+  return { segments, duration };
+}
+// Without speaker separation, the AI decides who said each line from the attendee list and the conversation itself
+async function assignSpeakers(segs: Seg[], attendees: Attendee[], recorderName: string): Promise<{ segs: Seg[]; speakers: Record<string, any> }> {
+  const single = () => ({ segs: mergeSegs(segs.map(x => ({ ...x, s: "1" }))), speakers: { "1": { name: attendees.length === 1 ? attendees[0].name : "Speaker 1", attendee: attendees.length === 1 ? attendees[0].key : null, confidence: 0.3, confirmed: false, why: "No speaker separation in the free transcription" } } });
+  if (!segs.length) return single();
+  const list = attendees.map(a => `- "${a.key}": ${a.name}${a.role ? ` (${a.role})` : ""}${a.kind === "user" ? " — our team" : a.kind === "person" ? " — client side" : ""}`).join("\n");
+  const labels: string[] = new Array(segs.length).fill("");
+  const B = 120;
+  for (let start = 0; start < segs.length; start += B) {
+    const lines = segs.slice(start, start + B).map((x, i) => `[${start + i + 1}] ${x.text.slice(0, 300)}`).join("\n");
+    const prev = start ? `Earlier lines were assigned like this (last 10): ${labels.slice(Math.max(0, start - 10), start).map((l, i) => `[${start - Math.min(10, start) + i + 1}]=${l}`).join(" ")}\n` : "";
+    const out = await aiComplete(
+      `You split a meeting transcript (no speaker labels) by speaker. It is a meeting between an Indian investment bank / broking firm and a client.
+Attendees (use these keys):\n${list || "- (none listed)"}\nThe person who recorded is ${recorderName} (our team) and usually opens the meeting.
+Decide who most likely said each numbered line, using turn-taking (questions vs answers), names used ("thanks Neha"), self-references ("as CFO", "our plant") and topic.
+If someone is not in the list, use "other1", "other2"… consistently. Return ONLY JSON: {"lines": {"<line number>": "<attendee key or otherN>"}}`,
+      `${prev}Lines:\n${lines}`).catch(() => null);
+    if (!out) return single();
+    try {
+      const j = JSON.parse(out.match(/\{[\s\S]*\}/)?.[0] || "{}");
+      for (const [k, v] of Object.entries<any>(j.lines || {})) { const n = Number(String(k).replace(/\D/g, "")) - 1; if (n >= 0 && n < segs.length) labels[n] = String(v); }
+    } catch { return single(); }
+  }
+  // Fill gaps with the previous speaker, then number speakers in order of first appearance
+  for (let i = 0; i < labels.length; i++) if (!labels[i]) labels[i] = labels[i - 1] || (attendees[0]?.key ?? "other1");
+  const order = new Map<string, string>();
+  const out = segs.map((x, i) => { if (!order.has(labels[i])) order.set(labels[i], String(order.size + 1)); return { ...x, s: order.get(labels[i])! }; });
+  const speakers: Record<string, any> = {};
+  for (const [label, n] of order) {
+    const a = attendees.find(x => x.key === label);
+    speakers[n] = { name: a ? a.name : `Speaker ${n}`, attendee: a ? a.key : null, confidence: a ? 0.5 : 0, confirmed: false, why: "Assigned by AI from the conversation (free transcription has no voice separation) — please check" };
+  }
+  return { segs: mergeSegs(out), speakers };
 }
 
 // Join consecutive phrases from the same speaker into one readable turn
@@ -184,11 +288,30 @@ async function processRecording(id: string) {
   const m = (await query("SELECT * FROM meetings WHERE id=$1", [id])).rows[0];
   if (!m?.audio_path || !existsSync(m.audio_path)) throw new Error("No audio was received for this meeting");
   await query("UPDATE meetings SET status='transcribing', attempts=attempts+1, updated_at=NOW() WHERE id=$1", [id]);
-  const { segments, duration } = await transcribeAzure(m.audio_path, m.audio_mime);
-  if (!segments.length) throw new Error("No speech was detected in the recording");
-  const speakers = await identifySpeakers(segments, m.attendees || [], m.created_by_name || "the recorder");
-  await query("UPDATE meetings SET segments=$1::jsonb, speakers=$2::jsonb, transcript_source='azure-speech', duration_sec=COALESCE(NULLIF($3,0), duration_sec), updated_at=NOW() WHERE id=$4",
-    [JSON.stringify(segments), JSON.stringify(speakers), duration, id]);
+  // Azure AI Speech (speakers separated by voice) when configured; otherwise — or if Azure fails — the free Groq Whisper fallback
+  const c = await speechCfg();
+  if (!c.enabled) throw new Error("Meeting transcription is switched off (Admin → Integrations → Meeting Recording)");
+  const azureReady = !!(c.endpoint && c.api_key), groqReady = !!c.groq_api_key;
+  if (!azureReady && !groqReady) throw new Error("Meeting transcription is not set up — add an Azure Speech key or a free Groq key (Admin → Integrations → Meeting Recording)");
+  let result: { segments: Seg[]; duration: number } | null = null, source = "";
+  if (azureReady) {
+    try { result = await transcribeAzure(m.audio_path, m.audio_mime); source = "azure-speech"; }
+    catch (e: any) { if (!groqReady) throw e; console.warn("[meetings] Azure failed, using Groq fallback:", e.message); }
+  }
+  let segments: Seg[], speakers: Record<string, any>;
+  if (!result) {
+    const g = await transcribeGroq(m.audio_path, m.audio_mime); source = "groq-whisper";
+    if (!g.segments.length) throw new Error("No speech was detected in the recording");
+    const a = await assignSpeakers(g.segments, m.attendees || [], m.created_by_name || "the recorder");
+    segments = a.segs; speakers = a.speakers; result = g;
+  } else {
+    segments = result.segments;
+    if (!segments.length) throw new Error("No speech was detected in the recording");
+    speakers = await identifySpeakers(segments, m.attendees || [], m.created_by_name || "the recorder");
+  }
+  const duration = result.duration;
+  await query("UPDATE meetings SET segments=$1::jsonb, speakers=$2::jsonb, transcript_source=$5, duration_sec=COALESCE(NULLIF($3,0), duration_sec), error=NULL, updated_at=NOW() WHERE id=$4",
+    [JSON.stringify(segments), JSON.stringify(speakers), duration, id, source]);
   await publish(id);
 }
 
@@ -427,6 +550,24 @@ meetingsRouter.patch("/:id", async (req, res) => {
 });
 
 // Play the audio: local recording, or stream the Teams recording through the server
+// Delete a recording — Admin / Super Admin only. Removes the audio file, the transcript and the meeting note it created;
+// tasks raised from it stay (unlinked) so nobody loses an action item.
+meetingsRouter.delete("/:id", requireAdmin, async (req, res) => {
+  try {
+    const m = (await query("SELECT id, title, client_id, audio_path, interaction_id, source FROM meetings WHERE id=$1", [req.params.id])).rows[0];
+    if (!m) return res.status(404).json({ error: "Meeting not found" });
+    if (m.audio_path) { try { if (existsSync(m.audio_path)) unlinkSync(m.audio_path); } catch { /* ignore */ } }
+    if (m.interaction_id) {
+      await query("UPDATE tasks SET interaction_id=NULL WHERE interaction_id=$1", [m.interaction_id]);
+      await query("DELETE FROM interactions WHERE id=$1", [m.interaction_id]);
+    }
+    await query("DELETE FROM interactions WHERE source IN ('recording','teams') AND external_id=$1", [`meeting:${m.id}`]);
+    await query("DELETE FROM meetings WHERE id=$1", [m.id]);
+    await logAudit({ entityType: "meeting", entityId: m.id, action: "DELETE", userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, recordDisplay: `${m.title || "Meeting"} (${m.source})`, before: m });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 meetingsRouter.get("/:id/audio", async (req, res) => {
   const m = await canSee(req, req.params.id);
   if (!m) return res.status(404).end();
@@ -466,7 +607,8 @@ speechAdminRouter.use(requireAdmin);
 speechAdminRouter.get("/", async (_req, res) => {
   const c = await speechCfg();
   res.json({ enabled: !!c.enabled, endpoint: c.endpoint || "", api_version: c.api_version, locales: c.locales || [], max_speakers: c.max_speakers,
-    teams_auto_fetch: c.teams_auto_fetch !== false, keep_audio_days: c.keep_audio_days, has_key: !!c.api_key, updated_by: c.updated_by, updated_at: c.updated_at });
+    teams_auto_fetch: c.teams_auto_fetch !== false, keep_audio_days: c.keep_audio_days, has_key: !!c.api_key, updated_by: c.updated_by, updated_at: c.updated_at,
+    has_groq_key: !!c.groq_api_key, groq_model: c.groq_model || "whisper-large-v3" });
 });
 speechAdminRouter.put("/", async (req, res) => {
   const b = req.body || {};
@@ -475,13 +617,35 @@ speechAdminRouter.put("/", async (req, res) => {
     await query(`UPDATE speech_config SET enabled=COALESCE($1,enabled), endpoint=COALESCE($2,endpoint), api_version=COALESCE($3,api_version),
         locales=COALESCE($4::text[],locales), max_speakers=COALESCE($5,max_speakers), teams_auto_fetch=COALESCE($6,teams_auto_fetch),
         keep_audio_days=COALESCE($7,keep_audio_days),
-        api_key=CASE WHEN $8::text IS NULL THEN api_key WHEN $8='' THEN NULL ELSE $8 END, updated_by=$9, updated_at=NOW() WHERE id=1`,
+        api_key=CASE WHEN $8::text IS NULL THEN api_key WHEN $8='' THEN NULL ELSE $8 END,
+        groq_api_key=CASE WHEN $10::text IS NULL THEN groq_api_key WHEN $10='' THEN NULL ELSE $10 END, groq_model=COALESCE($11,groq_model),
+        updated_by=$9, updated_at=NOW() WHERE id=1`,
       [typeof b.enabled === "boolean" ? b.enabled : null, typeof b.endpoint === "string" ? b.endpoint.trim().replace(/\/+$/, "") : null,
        clean(b.api_version), locales && locales.length ? locales : null, b.max_speakers ? Math.min(Math.max(Number(b.max_speakers), 2), 35) : null,
        typeof b.teams_auto_fetch === "boolean" ? b.teams_auto_fetch : null, b.keep_audio_days !== undefined && b.keep_audio_days !== "" ? Math.max(0, Number(b.keep_audio_days) || 0) : null,
-       typeof b.api_key === "string" ? (b.api_key.trim() ? encrypt(b.api_key.trim()) : "") : null, req.user!.name]);
+       typeof b.api_key === "string" ? (b.api_key.trim() ? encrypt(b.api_key.trim()) : "") : null, req.user!.name,
+       typeof b.groq_api_key === "string" ? (b.groq_api_key.trim() ? encrypt(b.groq_api_key.trim()) : "") : null,
+       ["whisper-large-v3", "whisper-large-v3-turbo"].includes(b.groq_model) ? b.groq_model : null]);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+const silentWav = () => {
+  const sr = 16000, n = sr, buf = Buffer.alloc(44 + n * 2);
+  buf.write("RIFF", 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write("WAVEfmt ", 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write("data", 36); buf.writeUInt32LE(n * 2, 40);
+  return buf;
+};
+speechAdminRouter.post("/test-groq", async (_req, res) => {
+  const c = await speechCfg();
+  if (!c.groq_api_key) return res.json({ ok: false, msg: "Enter the Groq API key first" });
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([silentWav()], { type: "audio/wav" }), "test.wav");
+    form.append("model", c.groq_model || "whisper-large-v3"); form.append("response_format", "json");
+    const r = await fetch(`${GROQ_BASE}/audio/transcriptions`, { method: "POST", headers: { Authorization: `Bearer ${decrypt(c.groq_api_key)}` }, body: form });
+    const d: any = await r.json().catch(() => ({}));
+    res.json(r.ok ? { ok: true, msg: "Connected to Groq Whisper" } : { ok: false, msg: `Groq ${r.status}: ${d.error?.message || "error"}` });
+  } catch (e: any) { res.json({ ok: false, msg: e.message }); }
 });
 speechAdminRouter.post("/test", async (_req, res) => {
   const c = await speechCfg();

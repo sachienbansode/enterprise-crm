@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, RefreshCw, Video, Mic, Play, AlertTriangle, CheckCircle2, Search, Sparkles, Download } from "lucide-react";
+import { X, RefreshCw, Video, Mic, Play, AlertTriangle, CheckCircle2, Search, Sparkles, Download, Trash2 } from "lucide-react";
+import { appConfirm, appToast } from "../lib/dialog";
 
 // Meeting transcript: who said what (speakers named), summary, action items, and audio/recording playback.
 // Speaker names can be corrected — the summary and the company timeline update.
@@ -8,8 +9,21 @@ const COLORS = ["text-sky-600 dark:text-sky-400", "text-emerald-600 dark:text-em
 const ts = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const when = (d: any) => (d ? new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
+// Admin / Super Admin can delete a recording
+const isAdminUser = () => { try { return /admin/i.test(JSON.parse(localStorage.getItem("niytri_user") || "{}").role || ""); } catch { return false; } };
+
 export function MeetingView({ id, onClose }: { id: string; onClose: () => void }) {
   const [m, setM] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+  const del = async () => {
+    const ok = await appConfirm({ title: "Delete this recording?", message: "The audio, transcript and the meeting note on the company timeline are removed for everyone. Tasks raised from it are kept. This can't be undone.", confirmLabel: "Delete recording", tone: "danger" });
+    if (!ok) return;
+    setDeleting(true);
+    const r = await fetch(`/api/meetings/${id}`, { method: "DELETE" });
+    setDeleting(false);
+    if (r.ok) { appToast("Recording deleted", "success"); window.dispatchEvent(new CustomEvent("quicklog:saved")); window.dispatchEvent(new CustomEvent("company:changed")); onClose(); }
+    else appToast((await r.json().catch(() => ({}))).error || "Could not delete the recording", "error");
+  };
   const [err, setErr] = useState("");
   const [edit, setEdit] = useState<Record<string, string>>({});
   const [otherName, setOtherName] = useState<Record<string, string>>({});
@@ -90,6 +104,10 @@ export function MeetingView({ id, onClose }: { id: string; onClose: () => void }
             </div>
           </div>
           {m && <span className={`text-[10px] px-2 py-1 rounded-full font-semibold whitespace-nowrap ${statusBadge(m.status)[1]}`}>{statusBadge(m.status)[0]}</span>}
+          {m && isAdminUser() && (
+            <button onClick={del} disabled={deleting} aria-label="Delete recording" title="Delete recording (admin)"
+              className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 disabled:opacity-40 transition-colors">{deleting ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}</button>
+          )}
           <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
 
