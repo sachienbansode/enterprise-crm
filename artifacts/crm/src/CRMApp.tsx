@@ -3492,8 +3492,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       )}
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 ${panelWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}>
-          <div className={panelWide ? "max-w-4xl mx-auto" : ""}>
+        <div className={panelWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
+          onMouseDown={e => { if (panelWide && e.target === e.currentTarget) setPanelWide(false); }}>
+          <div className={panelWide ? `w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border ${t.border} ${t.bgCard} shadow-2xl p-5 animate-in zoom-in-95 fade-in duration-200` : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
             <div className="min-w-0">
               <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Opportunity" : "Lead Detail"}</div>
@@ -3514,7 +3515,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               <button onClick={() => { setSelected(null); setPanelWide(false); }} aria-label="Close" className={`p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}><X className="w-4 h-4" /></button>
             </div>
           </div>
-          <div className="space-y-3">
+          {/* Pop-up (expanded): two columns — record on the left, history & documents on the right */}
+          <div className={panelWide ? "grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-6 items-start" : "space-y-3"}>
+          <div className="space-y-3 min-w-0">
             <div className={`${t.bgCard2} rounded-xl p-3`}>
               <div className={`text-xs font-semibold ${t.text}`}>{selected.name}</div>
               <code className="text-[10px] text-blue-400">{selected.lead_code}</code>
@@ -3589,6 +3592,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               className={`w-full text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5 hover:bg-violet-500/10`}>
               <Mic className="w-3.5 h-3.5" /> Log call / meeting / note
             </button>
+            <div className={panelWide ? "grid sm:grid-cols-2 gap-x-6" : ""}>
             {[
               { label: "Source", value: selected.source },
               { label: "Days Open", value: `${selected.days_open || 0}d` },
@@ -3611,11 +3615,14 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 <span className={`font-medium ${t.text}`}>{row.value}</span>
               </div>
             ))}
+            </div>
             {panelEdit && isWonStage(selected.stage) && (
               <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Convert to Deal →
               </button>
             )}
+          </div>
+          <div className={`space-y-3 min-w-0 ${panelWide ? "lg:sticky lg:top-0" : ""}`}>
             {/* History & documents */}
             <div className={`flex gap-1 border-b ${t.border} pt-2`}>
               {(["activity", "documents"] as const).map(tab => (
@@ -3628,6 +3635,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
             {detailTab === "activity"
               ? <RecordActivity type="lead" id={selected.id} t={t} refreshKey={activityKey} />
               : <RecordDocuments type="lead" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setActivityKey(k => k + 1)} />}
+            </div>
           </div>
           </div>
         </div>
@@ -3950,8 +3958,9 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
       )}
       {/* Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 ${dealWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}>
-          <div className={dealWide ? "max-w-4xl mx-auto" : ""}>
+        <div className={dealWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
+          onMouseDown={e => { if (dealWide && e.target === e.currentTarget) setDealWide(false); }}>
+          <div className={dealWide ? `w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border ${t.border} ${t.bgCard} shadow-2xl p-5 animate-in zoom-in-95 fade-in duration-200` : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
             <div className="min-w-0">
               <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Mandate / Deal" : "Deal Details"}</div>
@@ -3970,6 +3979,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
               <button onClick={() => { setSelected(null); setDealWide(false); }} aria-label="Close" className={`p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}><X className="w-4 h-4" /></button>
             </div>
           </div>
+          <div className={dealWide ? "grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-6 items-start" : ""}>
+          <div className="min-w-0">
           <div className={`${t.bgCard2} rounded-xl p-3 mb-3`}>
             <code className={`text-[10px] ${verticalAccent(v.id)}`}>{selected.deal_code}</code>
             <div className={`text-sm font-bold ${t.text} mt-1`}>{selected.name}</div>
@@ -3982,6 +3993,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             {dealPrompt && <StageFlowPrompt prompt={{ ...dealPrompt, from: dealPathStages.find(s => s.id === selected.stage)?.label }} stages={dealPathStages} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} onCancel={() => setDealPrompt(null)} />}
             {dealStageMsg && !dealPrompt && <div className={`text-[11px] ${dealStageMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{dealStageMsg.text}</div>}
           </div>
+          <div className={dealWide ? "grid sm:grid-cols-2 gap-x-6" : ""}>
           {[
             { label: "Type", value: selected.type },
             { label: "RM", value: selected.rm_name || "—" },
@@ -3997,6 +4009,9 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
               <span className={`font-medium ${t.text} text-right max-w-48 truncate`}>{r.value}</span>
             </div>
           ))}
+          </div>
+          </div>
+          <div className="min-w-0">
           <div className={`flex gap-1 border-b ${t.border} pt-3 mb-3`}>
             {(["activity", "documents"] as const).map(tab => (
               <button key={tab} onClick={() => setDealTab(tab)}
@@ -4008,6 +4023,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
           {dealTab === "activity"
             ? <RecordActivity type="deal" id={selected.id} t={t} refreshKey={dealActivityKey} />
             : <RecordDocuments type="deal" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setDealActivityKey(k => k + 1)} />}
+          </div>
+          </div>
           </div>
         </div>
       )}

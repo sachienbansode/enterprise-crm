@@ -340,7 +340,9 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   ];
 
   return (
-    <div className={`fixed inset-0 z-[46] ${wide ? "md:z-50" : "md:static md:z-auto md:w-[600px] lg:w-[680px] border-l"} flex-shrink-0 ${t.border} ${t.bgCard} flex flex-col overflow-hidden animate-in slide-in-from-right-8 fade-in duration-300`}>
+    <>
+    {wide && <div className="hidden md:block fixed inset-0 z-50 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setWide(false)} />}
+    <div className={`fixed inset-0 z-[46] ${wide ? "md:z-[51] md:inset-y-6 md:inset-x-[6%] md:rounded-2xl md:shadow-2xl md:border animate-in zoom-in-95 fade-in duration-200" : "md:static md:z-auto md:w-[600px] lg:w-[680px] border-l animate-in slide-in-from-right-8 fade-in duration-300"} flex-shrink-0 ${t.border} ${t.bgCard} flex flex-col overflow-hidden`}>
       {!c ? <div className={`p-6 text-xs ${t.textMuted} flex items-center`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading company…</div> : (<>
         <div className={`px-4 py-3 border-b ${t.border} flex-shrink-0`}>
           <div className="flex items-start gap-2">
@@ -585,5 +587,6 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
         vertical="Investment Banking" verticalId="ib" editLead={editOpp ? { ...editOpp, client_name: c?.name } : undefined} currentUser={loggedUser}
         defaultClientId={c?.id} defaultClientName={c?.name} />
     </div>
+    </>
   );
 }

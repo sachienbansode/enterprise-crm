@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsRight, ChevronLeft, ChevronRight, Flag, Lock, ArrowRight } from "lucide-react";
+import { Check, ChevronsRight, Flag, Lock, ArrowRight } from "lucide-react";
 
 // Stage path for opportunities and deals: chevrons across the top of the record, one action button.
 // Click a chevron to select it, then "Mark as Current Stage"; or "Mark Stage as Complete" to move to the next one.
@@ -29,25 +29,19 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   const [confirmFor, setConfirmFor] = useState<string | null>(null);   // stage the user is about to move to
   useEffect(() => { setSel(current); setConfirmFor(null); }, [current]);
   useEffect(() => { if (readOnly) { setSel(current); setConfirmFor(null); } }, [readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
-  const curRef = useRef<HTMLButtonElement>(null);
-  const scroller = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ left: false, right: false });
-  const measure = () => { const el = scroller.current; if (el) setEdge({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 }); };
+  // Fit the whole path in the available width — no sideways scrolling. When space is short, other stages
+  // shrink to an icon / step number (name on hover) and the current or selected stage keeps its full label.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
   useEffect(() => {
-    const el = scroller.current, c = curRef.current;
-    if (el && c) el.scrollTo({ left: Math.max(0, c.offsetLeft - el.clientWidth / 2 + c.offsetWidth / 2), behavior: "smooth" });
-    setTimeout(measure, 350);
-  }, [current]);
-  useEffect(() => {
-    const el = scroller.current; if (!el) return;
-    measure();
-    const ro = new ResizeObserver(measure); ro.observe(el);
-    // Mouse wheel scrolls the stage line sideways
-    const wheel = (e: WheelEvent) => { if (el.scrollWidth > el.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { el.scrollLeft += e.deltaY; e.preventDefault(); } };
-    el.addEventListener("wheel", wheel, { passive: false });
-    return () => { ro.disconnect(); el.removeEventListener("wheel", wheel); };
+    const el = boxRef.current; if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth)); ro.observe(el); setWidth(el.clientWidth);
+    return () => ro.disconnect();
   }, []);
-  const nudge = (dir: -1 | 1) => scroller.current?.scrollBy({ left: dir * Math.max(160, (scroller.current?.clientWidth || 300) * 0.7), behavior: "smooth" });
+  const slots = flow.length + (isLost ? 1 : 0);
+  const condensed = width > 0 && width / Math.max(1, slots) < 104;
+  // Width of a shrunk stage: whatever leaves ~120px for the current one, between 28 and 44px
+  const cw = Math.max(28, Math.min(44, Math.floor((width - 120) / Math.max(1, slots - 1))));
 
   const state = (s: PathStage, i: number) => {
     const m = path?.[s.id];
@@ -66,13 +60,9 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   else if (atEnd) { label = flow[cur]?.is_won ? "Completed" : "Last stage"; action = null; }
 
   return (
-    <div className={`flex flex-col ${compact || confirmFor ? "" : "lg:flex-row lg:items-center"} gap-2`}>
+    <div className="flex flex-col gap-2">
       <div className="flex-1 min-w-0">
-        <div className="relative group/path">
-        {edge.left && <button type="button" onClick={() => nudge(-1)} aria-label="Earlier stages" className="absolute left-0 top-0 z-10 h-9 w-8 flex items-center justify-start pl-1 bg-gradient-to-r from-white via-white/90 dark:from-gray-900 dark:via-gray-900/90 to-transparent text-gray-600 dark:text-gray-300 animate-in fade-in duration-200"><ChevronLeft className="w-4 h-4" /></button>}
-        {edge.right && <button type="button" onClick={() => nudge(1)} aria-label="Later stages" className="absolute right-0 top-0 z-10 h-9 w-8 flex items-center justify-end pr-1 bg-gradient-to-l from-white via-white/90 dark:from-gray-900 dark:via-gray-900/90 to-transparent text-gray-600 dark:text-gray-300 animate-in fade-in duration-200"><ChevronRight className="w-4 h-4" /></button>}
-        <div ref={scroller} onScroll={measure} className="overflow-x-auto scroll-smooth pb-1.5 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700">
-        <div className={`flex min-w-max rounded-full overflow-hidden ${isLost ? "opacity-60" : ""}`} role="list" aria-label="Stages">
+        <div ref={boxRef} className={`flex w-full rounded-full overflow-hidden ${isLost ? "opacity-60" : ""}`} role="list" aria-label="Stages">
           {flow.map((s, i) => {
             const st = state(s, i);
             const selected = s.id === sel && sel !== current;
@@ -84,20 +74,22 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
             const tip = [s.label, st === "skipped" ? `Skipped${m?.by ? ` by ${m.by}` : ""}${m?.at ? ` on ${fmt(m.at)}` : ""}` : st === "done" && m?.at ? `Completed ${fmt(m.at)}${m.by ? ` by ${m.by}` : ""}` : "",
               st === "todo" && s.skip_allowed === false ? "Mandatory — skipping it needs a comment" : ""].filter(Boolean).join(" · ");
             return (
-              <button key={s.id} ref={s.id === current ? curRef : undefined} role="listitem" disabled={busy || readOnly} onClick={() => { setSel(s.id); setConfirmFor(null); }} title={tip}
+              <button key={s.id} role="listitem" disabled={busy || readOnly} onClick={() => { setSel(s.id); setConfirmFor(null); }} title={tip}
                 aria-current={st === "current" ? "step" : undefined}
-                style={{ clipPath: i === 0 ? CLIP_FIRST : i === flow.length - 1 ? CLIP_LAST : CLIP_MID, marginLeft: i === 0 ? 0 : -8 }}
-                className={`relative h-9 ${compact ? "min-w-[104px] px-5" : "min-w-[120px] px-6"} flex-1 flex items-center justify-center gap-1 text-xs font-medium whitespace-nowrap transition-colors disabled:cursor-default ${tone} ${selected ? "ring-2 ring-inset ring-[#0b2a5b] dark:ring-blue-400" : ""}`}>
+                style={{ clipPath: i === 0 ? CLIP_FIRST : i === flow.length - 1 ? CLIP_LAST : CLIP_MID, marginLeft: i === 0 ? 0 : -8,
+                  ...(condensed && st !== "current" && !selected ? { width: cw, paddingLeft: i === 0 ? 4 : 12, paddingRight: 4 } : {}) }}
+                className={`relative h-9 min-w-0 flex items-center justify-center gap-1 text-xs font-medium whitespace-nowrap transition-all duration-300 disabled:cursor-default ${tone} ${selected ? "ring-2 ring-inset ring-[#0b2a5b] dark:ring-blue-400" : ""}
+                  ${condensed && st !== "current" && !selected ? "flex-none" : "flex-1 px-5"}`}>
                 {st === "done" && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                <span className={`truncate max-w-[140px] ${st === "skipped" ? "line-through decoration-1" : ""}`}>{s.label}</span>
+                {condensed && st !== "current" && !selected
+                  ? (st === "todo" && <span className="text-[11px] tabular-nums opacity-80">{i + 1}</span>)
+                  : <span className={`truncate ${st === "skipped" ? "line-through decoration-1" : ""}`}>{s.label}</span>}
                 {st === "skipped" && <ChevronsRight className="w-3 h-3 flex-shrink-0" aria-label="skipped" />}
                 {st === "todo" && s.skip_allowed === false && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" aria-label="mandatory" />}
               </button>
             );
           })}
           {isLost && <div className="h-9 px-4 -ml-2 flex items-center bg-red-600 text-white text-xs font-semibold" style={{ clipPath: CLIP_LAST }}>{lostStage!.label}</div>}
-        </div>
-        </div>
         </div>
         {/* Summary line — always lists skipped steps, so they're visible even when scrolled out of view */}
         {(() => {
@@ -115,7 +107,7 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
       ) : (
         <div className="flex gap-2 flex-shrink-0">
           <button disabled={busy || !action || !!confirmFor} onClick={() => action?.()}
-            className="h-9 px-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 lg:flex-none disabled:opacity-50">
+            className="h-9 px-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 sm:flex-none disabled:opacity-50 transition-colors">
             {sel !== current && !isLost ? <Flag className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />} {label}
           </button>
         </div>
