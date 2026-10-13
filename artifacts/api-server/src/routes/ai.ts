@@ -3,6 +3,7 @@ import { query, pool } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 import { visibleNames } from "../lib/visibility";
 import { VERTICALS, runScoped, schemaText, renderResults, makeMasker, type Scope } from "../lib/aiAgent";
+import { agentTurn, isNarration, type AgentMsg } from "../lib/aiTools";
 
 const router = Router();
 
@@ -254,18 +255,10 @@ async function callLLM(config: any, apiKey: string, system: string, messages: an
 // ─── POST /api/ai/chat — agent: look up data (several queries if needed), then answer ───
 const MAX_ROUNDS = 5;
 
-function extractQueries(text: string): string[] {
-  const out: string[] = [];
-  const re = /<sql>([\s\S]*?)<\/sql>|```sql\s*([\s\S]*?)```/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) { const q = (m[1] || m[2] || "").trim(); if (q) out.push(q); }
-  return out.slice(0, 4);
-}
-
 function splitFollowUps(text: string): { body: string; followUps: string[] } {
   const m = text.match(/\n?\s*\**FOLLOW-?UPS?\**\s*:?\**\s*(.+)\s*$/i);
   if (!m) return { body: text.trim(), followUps: [] };
-  const followUps = m[1].split("|").map(x => x.replace(/^[\s\-*•\d.)]+|[\s*]+$/g, "").trim()).filter(x => x.length > 3).slice(0, 3);
+  const followUps = m[1].split("|").map(x => x.replace(/^[\s\-*•\d.)]+|[\s*]+$/g, "").trim()).filter(x => x.length > 1).slice(0, 3);
   return { body: text.slice(0, m.index).trim(), followUps };
 }
 
@@ -321,7 +314,9 @@ You are helping ${userName} (${userRole}; user id ${userId}). Today is ${today},
 
 HOW YOU WORK
 - Anything about CRM data (clients, companies, people, leads/opportunities, deals/mandates, service requests, tasks, meetings, documents, team): look it up — never guess names, numbers or dates.
-- To look up data, reply with ONLY one or more PostgreSQL SELECT queries, each wrapped in <sql>…</sql>, and nothing else. You will get the results back and can query again (up to ${MAX_ROUNDS} rounds) before answering.
+- To look up data, call the run_sql tool (PostgreSQL SELECT). Call it as often as you need (up to ${MAX_ROUNDS} rounds; several queries in parallel are fine), then answer.
+- Never tell the user you are going to fetch or check something — just run the query. Write text only for the final answer.
+- Each new question needs fresh data: don't answer data questions from memory of earlier turns without querying.
 - Write good SQL: aggregate in SQL (COUNT/SUM/GROUP BY), join users for names (never show ids), use ILIKE '%…%' for names, LIMIT 50 for lists, ORDER BY something meaningful.
 - If a query errors, read the error, fix the query and try again. If a search finds nothing, try a looser match before concluding.
 - "my / me / mine" = records linked to user id ${userId} (assigned_rm_id, rm_id, owner_id, relationship_owner_id, owner_id on tasks, created_by).
@@ -347,31 +342,46 @@ HOW TO ANSWER (when you have what you need)
 - Personal data may appear masked (e.g. XXXX) — show it as given.
 - Finish with one final line: FOLLOW-UPS: <question> | <question> | <question>  (three short, natural next questions for this user).`;
 
-    // Conversation so far (earlier answers carry the queries they used, so follow-ups stay grounded)
-    const turns: any[] = history.slice(-12).map((h: any) => {
+    // Conversation so far (earlier answers carry the queries they used, so follow-ups stay grounded).
+    // Earlier "let me fetch…" replies that never ran anything are dropped so they don't teach the model to stall.
+    const msgs: AgentMsg[] = [];
+    for (const h of history.slice(-12)) {
+      const text = String(h?.text || "").trim();
+      if (!text) continue;
       if (h.from === "ai") {
-        const used = Array.isArray(h.queries) && h.queries.length ? `\n\n(Data used for this answer: ${h.queries.slice(0, 3).map((q: string) => q.replace(/\s+/g, " ").slice(0, 600)).join(" ; ")})` : "";
-        return { role: "assistant", content: String(h.text || "") + used };
-      }
-      return { role: "user", content: String(h.text || "") };
-    });
-    turns.push({ role: "user", content: message });
+        if (!(Array.isArray(h.queries) && h.queries.length) && isNarration(text)) continue;
+        const used = Array.isArray(h.queries) && h.queries.length ? `\n\n(Data used for this answer: ${h.queries.slice(0, 3).map((q: string) => String(q).replace(/\s+/g, " ").slice(0, 600)).join(" ; ")})` : "";
+        msgs.push({ role: "assistant", content: text + used });
+      } else msgs.push({ role: "user", content: text });
+    }
+    msgs.push({ role: "user", content: message });
 
     const ranQueries: string[] = [];
     const trace: any[] = [];
     let records = 0;
     let answer = "";
+    let nudges = 0;
     for (let round = 1; round <= MAX_ROUNDS + 1; round++) {
-      const forceAnswer = round > MAX_ROUNDS;
-      const out = await callLLM(config, apiKey, system, forceAnswer
-        ? [...turns, { role: "user", content: "That's enough lookups — answer now with what you have." }] : turns);
-      const qs = forceAnswer ? [] : extractQueries(out);
-      if (!qs.length) { answer = out.replace(/<sql>[\s\S]*?<\/sql>/gi, "").trim(); break; }
-      const results = await runScoped(qs, allowed, scope);
+      const final = round > MAX_ROUNDS;
+      const reply = await agentTurn(config, apiKey, system, msgs, { final, require: nudges > 0 && !final }, callProvider);
+      const calls = reply.toolCalls.filter(c => c.sql.trim()).slice(0, 4);
+      if (!calls.length) {
+        // The model announced a lookup instead of doing it → push it to actually run the query
+        if (!final && nudges < 2 && isNarration(reply.text)) {
+          nudges++;
+          trace.push({ round, nudge: reply.text.slice(0, 200) });
+          msgs.push({ role: "assistant", content: reply.text });
+          msgs.push({ role: "user", content: "Don't describe it — run the lookup now, then give me the answer." });
+          continue;
+        }
+        answer = reply.text;
+        break;
+      }
+      const results = await runScoped(calls.map(c => c.sql), allowed, scope);
       results.forEach(r => { if (r.ok) { ranQueries.push(r.sql); records += r.rowCount || 0; } });
-      trace.push({ round, queries: qs, results: results.map(r => ({ ok: r.ok, rows: r.rowCount, error: r.error })) });
-      turns.push({ role: "assistant", content: qs.map(q => `<sql>${q}</sql>`).join("\n") });
-      turns.push({ role: "user", content: `Results:\n${renderResults(results, masker.maskValue)}\n\nIf you need more, query again; otherwise answer my question: "${message.slice(0, 500)}"` });
+      trace.push({ round, queries: calls.map(c => c.sql), results: results.map(r => ({ ok: r.ok, rows: r.rowCount, error: r.error })) });
+      msgs.push({ role: "assistant", content: reply.text || "", toolCalls: calls });
+      calls.forEach((c, i) => msgs.push({ role: "tool", id: c.id, content: renderResults([results[i]], masker.maskValue).replace(/^\[1\] /, "") }));
     }
 
     if (!answer) answer = "I couldn't put an answer together for that. Could you rephrase or narrow it down?";

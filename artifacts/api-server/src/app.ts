@@ -46,8 +46,17 @@ app.use("/api", requireAuth, router);
 
 if (process.env.NODE_ENV === "production") {
   const crmDist = path.resolve(__dirname, "../../crm/dist/public");
-  app.use("/crm", express.static(crmDist, { index: "index.html" }));
+  // index.html is never cached (so a deploy shows up on the next page load); hashed assets are cached for a year
+  const noCache = (res: any) => res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  app.use("/crm", express.static(crmDist, {
+    index: "index.html",
+    setHeaders: (res, file) => {
+      if (file.endsWith(".html")) noCache(res);
+      else if (/[\\/]assets[\\/]/.test(file)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  }));
   app.get("/crm/*splat", (_req, res) => {
+    noCache(res);
     res.sendFile(path.join(crmDist, "index.html"));
   });
   app.get("/", (_req, res) => res.redirect("/crm/"));
