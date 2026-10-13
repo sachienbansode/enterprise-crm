@@ -120,7 +120,7 @@ export function QuickLog({ open, onClose, onSaved, defaults, currentUser }: {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/60 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
       <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-2xl max-h-[95vh] overflow-y-auto bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800">
         <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
           <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center"><Mic className="w-4 h-4 text-white" /></div>

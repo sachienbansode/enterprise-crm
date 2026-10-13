@@ -185,7 +185,7 @@ function CompanyForm({ t, edit, sectors, loggedUser, onClose, onSaved }: { t: an
   })();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-50 flex items-end sm:items-center justify-center bg-black/60 sm:p-4" onClick={onClose}>
       <div onClick={e => e.stopPropagation()} className="bg-white dark:bg-gray-950 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl max-h-[95vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2"><Building2 className="w-4 h-4 text-amber-500" /><h2 className="text-base font-semibold text-gray-900 dark:text-white">{isEdit ? `Edit ${edit.name}` : "New Company"}</h2></div>
@@ -340,7 +340,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   ];
 
   return (
-    <div className={`fixed inset-0 z-[46] ${wide ? "md:z-50" : "md:static md:z-auto md:w-[600px] lg:w-[680px] border-l"} flex-shrink-0 ${t.border} ${t.bgCard} flex flex-col overflow-hidden`}>
+    <div className={`fixed inset-0 z-[46] ${wide ? "md:z-50" : "md:static md:z-auto md:w-[600px] lg:w-[680px] border-l"} flex-shrink-0 ${t.border} ${t.bgCard} flex flex-col overflow-hidden animate-in slide-in-from-right-8 fade-in duration-300`}>
       {!c ? <div className={`p-6 text-xs ${t.textMuted} flex items-center`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading company…</div> : (<>
         <div className={`px-4 py-3 border-b ${t.border} flex-shrink-0`}>
           <div className="flex items-start gap-2">
@@ -561,7 +561,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
       </>)}
 
       {person && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setPerson(null)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setPerson(null)}>
           <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-md bg-white dark:bg-gray-950 rounded-t-2xl sm:rounded-2xl p-4 space-y-3">
             <div className="text-sm font-semibold text-gray-900 dark:text-white">{person.id ? "Edit person" : "Add promoter / management"}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

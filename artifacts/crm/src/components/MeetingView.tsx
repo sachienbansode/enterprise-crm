@@ -78,7 +78,7 @@ export function MeetingView({ id, onClose }: { id: string; onClose: () => void }
   } as any)[st] || [st, "bg-gray-500/15 text-gray-500"];
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full sm:max-w-4xl h-full sm:h-[92vh] bg-white dark:bg-gray-950 sm:rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-start gap-3 px-4 sm:px-5 py-3 border-b border-gray-200 dark:border-gray-800">
           <div className="w-9 h-9 rounded-lg bg-violet-600/15 text-violet-500 flex items-center justify-center flex-shrink-0">{m?.source === "teams" ? <Video size={17} /> : <Mic size={17} />}</div>

@@ -107,8 +107,8 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
   };
 
   return (
-    <div className="fixed inset-0 z-[55] flex justify-end bg-black/40" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="relative w-full md:max-w-md h-full bg-gray-100 dark:bg-gray-950 flex flex-col shadow-2xl">
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-[55] flex justify-end bg-black/40" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="relative w-full md:max-w-md h-full bg-gray-100 dark:bg-gray-950 flex flex-col shadow-2xl animate-in slide-in-from-right-10 fade-in duration-300">
         {/* Top bar */}
         <div className="flex items-center gap-3 px-3 h-14 bg-slate-800 dark:bg-slate-900 text-white flex-shrink-0">
           <button onClick={onClose} aria-label="Back" className="p-2 -ml-1 rounded-lg hover:bg-white/10"><ArrowLeft className="w-5 h-5" /></button>
@@ -182,7 +182,7 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
 
         {p && sheet && (
           <div className="absolute inset-0 z-10 bg-black/50 flex items-end" onClick={() => setSheet(null)}>
-            <div onClick={e => e.stopPropagation()} className="w-full max-h-[92%] overflow-y-auto bg-white dark:bg-gray-950 rounded-t-3xl p-4 pb-6 space-y-3">
+            <div onClick={e => e.stopPropagation()} className="w-full max-h-[92%] overflow-y-auto bg-white dark:bg-gray-950 rounded-t-3xl p-4 pb-6 space-y-3 animate-in slide-in-from-bottom-10 duration-300">
               <div className="mx-auto w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700" />
               {sheet === "meeting" && <MeetingSheet p={p} onDone={() => setSheet(null)} />}
               {sheet === "task" && <TaskSheet p={p} onDone={msg => { setSheet(null); setToast(msg); load(); }} />}

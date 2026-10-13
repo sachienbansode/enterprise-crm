@@ -19,7 +19,8 @@ import { MeetingView } from "./components/MeetingView";
 import PersonView from "./components/PersonView";
 import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
-import { StagePath, StageFlowPrompt } from "./components/StagePath";
+import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
+import { useBoardDrag } from "./lib/boardDrag";
 import { ScanLine as ScanIcon } from "lucide-react";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
@@ -382,7 +383,7 @@ function TeamsMeetingModal({ client, organizerEmail, t, isDark, onClose }: {
   const DURATIONS = [15, 30, 45, 60, 90, 120];
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className={`${t.bgCard} rounded-2xl border ${t.border} w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl`}>
         {/* Header */}
         <div className={`flex items-center justify-between px-5 py-4 border-b ${t.border}`}>
@@ -611,7 +612,7 @@ function AccessRequestModal({ clientId, clientName, requesterId, requesterName, 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className={`${t.bgCard} rounded-2xl border ${t.border} w-full max-w-md`}>
         <div className={`flex items-center justify-between p-4 border-b ${t.border}`}>
           <div className={`flex items-center gap-2 ${t.text} font-semibold text-sm`}>
@@ -689,7 +690,7 @@ function PIIRequestsPanel({ loggedUser, t, isDark: dark, onClose }: { loggedUser
   const pendingApprovals = approvalReqs.filter(r => r.status === "pending").length;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-end sm:justify-end p-0 sm:p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-end sm:items-center justify-end sm:justify-end p-0 sm:p-4">
       <div className={`${t.bgCard} border-l ${t.border} w-full sm:w-[480px] h-full sm:h-auto sm:max-h-[80vh] sm:rounded-2xl flex flex-col shadow-2xl`}>
         {/* Header */}
         <div className={`flex items-center justify-between px-4 py-3 border-b ${t.border} flex-shrink-0`}>
@@ -816,7 +817,7 @@ function ChangeOwnerModal({ clientId, clientName, currentOwnerId, changedBy, t, 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className={`${t.bgCard} rounded-2xl border ${t.border} w-full max-w-md`}>
         <div className={`flex items-center justify-between p-4 border-b ${t.border}`}>
           <div className={`flex items-center gap-2 ${t.text} font-semibold text-sm`}>
@@ -1061,7 +1062,7 @@ function ClientExpandModal({ client, loggedUser, canViewPII, t, isDark, onClose,
   );
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-3">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/80 z-50 flex items-center justify-center p-3">
       <div className={`${t.bgCard} rounded-2xl border ${t.border} w-full max-w-6xl max-h-[96vh] flex flex-col shadow-2xl`}>
 
         {/* Header */}
@@ -3113,7 +3114,7 @@ function CreateLeadModal({ vId, vName, t, onClose, onCreated }: { vId: string; v
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-md shadow-2xl`}>
         <div className={`flex items-center justify-between px-5 py-4 border-b ${t.border}`}>
           <div className={`flex items-center gap-2 text-sm font-semibold ${t.text}`}>
@@ -3258,6 +3259,35 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
     setMovingStage(false);
   };
   const [activityKey, setActivityKey] = useState(0);
+  // Board: drag a card to another stage → confirmation (comments, next action, lost reason) → only Submit moves it
+  const [dropMove, setDropMove] = useState<{ lead: any; to: string } | null>(null);
+  const [dropBusy, setDropBusy] = useState(false);
+  const [dropErr, setDropErr] = useState("");
+  const leadDrag = useBoardDrag<any>((lead, to) => { setDropErr(""); setDropMove({ lead, to }); }, l => l.name);
+  const submitDrop = async (extra: Record<string, any>) => {
+    if (!dropMove) return;
+    setDropBusy(true); setDropErr("");
+    try {
+      const r = await fetch(`${API_BASE}/api/leads/${dropMove.lead.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: dropMove.to, skip_confirmed: true, ...extra }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not move");
+      appToast(`${dropMove.lead.name} → ${stages.find((s: any) => s.id === dropMove.to)?.label || dropMove.to}`, "success");
+      if (selected?.id === dropMove.lead.id) setSelected({ ...selected, ...d });
+      setDropMove(null); setActivityKey(k => k + 1); load();
+    } catch (e: any) { setDropErr(e.message); } finally { setDropBusy(false); }
+  };
+  const dropInfo = (() => {
+    if (!dropMove) return null;
+    const flow = stages.filter((st: any) => !st.is_lost && !/lost/i.test(st.id));
+    const path = dropMove.lead.stage_path || {};
+    let iFrom = flow.findIndex((s: any) => s.id === dropMove.lead.stage);
+    if (iFrom === -1) iFrom = Math.max(-1, ...flow.map((s: any, i: number) => (path[s.id] ? i : -1)));
+    const iTo = flow.findIndex((s: any) => s.id === dropMove.to);
+    const target: any = stages.find((s: any) => s.id === dropMove.to);
+    const toLost = !!target && (target.is_lost || /lost/i.test(target.id));
+    const skip = iTo > iFrom ? flow.slice(iFrom + 1, iTo).filter((s: any) => !path[s.id]).map((s: any) => ({ stage_id: s.id, label: s.label, mandatory: s.skip_allowed === false })) : [];
+    return { from: stages.find((s: any) => s.id === dropMove.lead.stage)?.label || dropMove.lead.stage, to: target?.label || dropMove.to, toLost, skip, back: iTo >= 0 && iTo < iFrom, active: !!target && !toLost && !target.is_won };
+  })();
   // Leads whose stage isn't in the configured pipeline still get a column, so nothing disappears from the board
   const boardStages = [
     ...stages,
@@ -3351,15 +3381,15 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               {boardStages.map((stage: any) => {
                 const sl = stageLeads(stage.id);
                 if (!sl.length && !openEmpty.has(stage.id)) return (
-                  <button key={stage.id} onClick={() => setOpenEmpty(prev => new Set(prev).add(stage.id))} title={`${stage.label} — no leads. Click to expand`}
-                    className={`group rounded-xl border border-dashed ${t.border} ${t.textMuted} hover:border-blue-500/60 transition-colors flex sm:flex-col items-center gap-2 px-3 py-2 sm:px-0 sm:py-3 sm:min-h-[320px]`}>
+                  <button key={stage.id} data-drop-stage={stage.id} onClick={() => setOpenEmpty(prev => new Set(prev).add(stage.id))} title={`${stage.label} — no leads. Click to expand`}
+                    className={`group rounded-xl border border-dashed ${leadDrag.overStage === stage.id ? "border-blue-500 bg-blue-500/10 text-blue-500 scale-[1.02]" : `${t.border} ${t.textMuted}`} hover:border-blue-500/60 transition-all duration-200 flex sm:flex-col items-center gap-2 px-3 py-2 sm:px-0 sm:py-3 sm:min-h-[320px]`}>
                     <div className={`w-2 h-2 rounded-full ${v.color} flex-shrink-0`} />
                     <span className="text-xs font-semibold sm:[writing-mode:vertical-rl] sm:rotate-180 whitespace-nowrap">{stage.label}</span>
                     <span className={`text-[10px] ${t.tagGray} px-1.5 py-0.5 rounded-full ml-auto sm:ml-0 sm:mt-auto`}>0</span>
                   </button>
                 );
                 return (
-                  <div key={stage.id} className="min-w-0 flex flex-col">
+                  <div key={stage.id} data-drop-stage={stage.id} className={`min-w-0 flex flex-col rounded-xl transition-all duration-200 ${leadDrag.overStage === stage.id ? "bg-blue-500/10 ring-2 ring-blue-500 ring-offset-2 ring-offset-transparent" : leadDrag.dragging ? "ring-1 ring-dashed ring-gray-400/40" : ""}`}>
                     <div className="flex items-center justify-between mb-2.5">
                       <div className="flex items-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${v.color}`} />
@@ -3369,8 +3399,8 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                     </div>
                     <div className="flex-1 overflow-y-auto space-y-2">
                       {sl.map((lead: any) => (
-                        <div key={lead.id} onClick={() => setSelected(selected?.id === lead.id ? null : lead)}
-                          className={`${t.bgCard} border ${selected?.id === lead.id ? `border-blue-500` : t.border} rounded-xl p-3 cursor-pointer transition-all hover:shadow-md`}>
+                        <div key={lead.id} {...leadDrag.cardProps(lead, lead.stage)} onClick={() => setSelected(selected?.id === lead.id ? null : lead)} title="Click to open · drag to move to another stage"
+                          className={`${t.bgCard} border ${selected?.id === lead.id ? `border-blue-500` : t.border} rounded-xl p-3 cursor-grab active:cursor-grabbing transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 animate-in fade-in ${leadDrag.draggingItem === lead ? "opacity-40 scale-95" : ""}`}>
                           <div className="flex items-start justify-between mb-1">
                             <div className={`text-xs font-semibold ${t.text} leading-tight flex-1 min-w-0 truncate`}>{lead.name}</div>
                             <PriorityBadge p={lead.priority} />
@@ -3453,9 +3483,16 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         </div>
       </div>
 
+      {leadDrag.ghost}
+      {dropMove && dropInfo && (
+        <StageMoveDialog title={dropMove.lead.name} from={dropInfo.from} to={dropInfo.to} skip={dropInfo.skip} back={dropInfo.back} busy={dropBusy} error={dropErr}
+          askNextAction={vId === "ib" && dropInfo.active} nextAction={dropMove.lead.next_action} nextActionDate={dropMove.lead.next_action_date}
+          lostReasons={dropInfo.toLost && vId === "ib" ? lostReasons : null}
+          onCancel={() => { setDropMove(null); setDropErr(""); }} onSubmit={submitDrop} />
+      )}
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 ${panelWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 ${panelWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}>
           <div className={panelWide ? "max-w-4xl mx-auto" : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
             <div className="min-w-0">
@@ -3633,7 +3670,7 @@ function CreateDealModal({ vId, vName, t, onClose, onCreated }: { vId: string; v
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-md shadow-2xl`}>
         <div className={`flex items-center justify-between px-5 py-4 border-b ${t.border}`}>
           <div className={`flex items-center gap-2 text-sm font-semibold ${t.text}`}>
@@ -3734,6 +3771,30 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
   const [dealMoving, setDealMoving] = useState(false);
   const [dealPrompt, setDealPrompt] = useState<any>(null);
   const [dealStageMsg, setDealStageMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Board drag & drop → confirmation → Submit (Cancel leaves the deal where it was)
+  const [dealDrop, setDealDrop] = useState<{ deal: any; to: string } | null>(null);
+  const [dealDropErr, setDealDropErr] = useState("");
+  const dealDrag = useBoardDrag<any>((deal, to) => { setDealDropErr(""); setDealDrop({ deal, to }); }, d => d.name);
+  const submitDealDrop = async (extra: Record<string, any>) => {
+    if (!dealDrop) return;
+    setDealMoving(true); setDealDropErr("");
+    try {
+      const r = await fetch(`${API_BASE}/api/deals/${dealDrop.deal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: dealDrop.to, skip_confirmed: true, ...extra }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not move");
+      appToast(`${dealDrop.deal.name} → ${dealDrop.to}`, "success");
+      if (selected?.id === dealDrop.deal.id) setSelected({ ...selected, ...d, rm_name: selected.rm_name, client_name: selected.client_name });
+      setDealDrop(null); setDealActivityKey(k => k + 1); load();
+    } catch (e: any) { setDealDropErr(e.message); } finally { setDealMoving(false); }
+  };
+  const dealDropInfo = (() => {
+    if (!dealDrop) return null;
+    const flow = dealPathStages.filter((s: any) => !s.is_lost);
+    const path = dealDrop.deal.stage_path || {};
+    const iFrom = flow.findIndex((s: any) => s.id === dealDrop.deal.stage), iTo = flow.findIndex((s: any) => s.id === dealDrop.to);
+    const skip = iFrom >= 0 && iTo > iFrom ? flow.slice(iFrom + 1, iTo).filter((s: any) => !path[s.id]).map((s: any) => ({ stage_id: s.id, label: s.label, mandatory: s.skip_allowed === false })) : [];
+    return { from: dealDrop.deal.stage, to: dealDrop.to, skip, back: iTo >= 0 && iTo < iFrom };
+  })();
   const [dealEdit, setDealEdit] = useState(false);
   const [dealWide, setDealWide] = useState(false);
   useEffect(() => { setDealPrompt(null); setDealStageMsg(null); setDealEdit(false); }, [selected?.id]);
@@ -3850,7 +3911,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
               {[...dealBoardStages, ...Array.from(new Set(deals.map(d => d.stage).filter((st: string) => st && !dealBoardStages.includes(st))))].map(stageName => {
                 const stageDeals = deals.filter(d => d.stage === stageName);
                 return (
-                  <div key={stageName} className="min-w-0 flex flex-col">
+                  <div key={stageName} data-drop-stage={stageName} className={`min-w-0 flex flex-col rounded-xl transition-all duration-200 ${dealDrag.overStage === stageName ? "bg-blue-500/10 ring-2 ring-blue-500" : dealDrag.dragging ? "ring-1 ring-gray-400/40" : ""}`}>
                     <div className="flex items-center justify-between mb-2.5">
                       <div className="flex items-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${v.color}`} />
@@ -3860,8 +3921,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
                     </div>
                     <div className="flex-1 overflow-y-auto space-y-2">
                       {stageDeals.map((deal: any) => (
-                        <div key={deal.id} onClick={() => setSelected(selected?.id === deal.id ? null : deal)}
-                          className={`${t.bgCard} border ${selected?.id === deal.id ? "border-blue-500" : t.border} rounded-xl p-3 cursor-pointer transition-all hover:shadow-md`}>
+                        <div key={deal.id} {...dealDrag.cardProps(deal, deal.stage)} onClick={() => setSelected(selected?.id === deal.id ? null : deal)} title="Click to open · drag to move to another stage"
+                          className={`${t.bgCard} border ${selected?.id === deal.id ? "border-blue-500" : t.border} rounded-xl p-3 cursor-grab active:cursor-grabbing transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 animate-in fade-in ${dealDrag.draggingItem === deal ? "opacity-40 scale-95" : ""}`}>
                           <div className={`text-xs font-semibold ${t.text} leading-tight mb-1 truncate`}>{deal.name}</div>
                           <div className={`text-sm font-bold ${t.text} mb-1`}>{deal.value ? fmtMoneyStr(deal.value) : "—"}</div>
                           <div className="flex items-center justify-between">
@@ -3882,9 +3943,14 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
         )}
       </div>
 
+      {dealDrag.ghost}
+      {dealDrop && dealDropInfo && (
+        <StageMoveDialog title={dealDrop.deal.name} from={dealDropInfo.from} to={dealDropInfo.to} skip={dealDropInfo.skip} back={dealDropInfo.back} busy={dealMoving} error={dealDropErr}
+          onCancel={() => { setDealDrop(null); setDealDropErr(""); }} onSubmit={submitDealDrop} />
+      )}
       {/* Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 ${dealWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 ${dealWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}>
           <div className={dealWide ? "max-w-4xl mx-auto" : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
             <div className="min-w-0">
@@ -4106,7 +4172,7 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   return (
     <>
     {showUpload && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="fixed inset-0 animate-in fade-in duration-200 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div className={`${t.bgCard} border ${t.border} rounded-2xl p-6 w-full max-w-md shadow-2xl`}>
           <div className={`text-sm font-bold ${t.text} mb-4 flex items-center gap-2`}><Upload className="w-4 h-4 text-blue-400" /> Upload Document</div>
           <div className="space-y-3">
@@ -4278,7 +4344,7 @@ function UserFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-lg shadow-2xl`} onClick={e => e.stopPropagation()}>
         <div className={`px-5 py-4 border-b ${t.border} flex items-center justify-between`}>
           <div>
@@ -5387,7 +5453,7 @@ function AdminAuditLog({ t }: { t: ReturnType<typeof useTheme> }) {
 
       {/* Detail modal */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
           <div className={`${t.bgCard} border ${t.border} rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
             {/* Modal header */}
             <div className={`flex items-start justify-between gap-3 p-5 border-b ${t.border} sticky top-0 ${t.bgCard} z-10`}>
@@ -5581,7 +5647,7 @@ function AdminAILogs({ t }: { t: ReturnType<typeof useTheme> }) {
 
       {/* Detail modal */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
           <div className={`${t.bgCard} border ${t.border} rounded-2xl p-5 max-w-2xl w-full space-y-3 max-h-[85vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <span className={`font-semibold ${t.text}`}>AI Chat Detail</span>
@@ -6256,7 +6322,7 @@ function AdminSLAConfig({ t }: { t: ReturnType<typeof useTheme> }) {
 
       {/* Add subcategory SLA modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowAdd(false)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowAdd(false)}>
           <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-md p-5 shadow-2xl`} onClick={e => e.stopPropagation()}>
             <div className={`text-sm font-bold ${t.text} mb-4`}>Add Subcategory SLA</div>
             <div className="space-y-3">
@@ -6307,7 +6373,7 @@ function AdminSLAConfig({ t }: { t: ReturnType<typeof useTheme> }) {
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
           <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-sm p-5 shadow-2xl`} onClick={e => e.stopPropagation()}>
             <div className={`text-sm font-bold ${t.text} mb-2`}>Delete SLA Rule?</div>
             <div className={`text-xs ${t.textMuted} mb-4`}>This will remove the subcategory SLA for <span className={t.text}>{confirmDelete.category} › {confirmDelete.subcategory}</span>. New SRs with this subcategory will use the category default.</div>
@@ -8208,7 +8274,7 @@ export function CRMApp() {
         onClose={() => setQuickLogDefaults(null)} onSaved={it => window.dispatchEvent(new CustomEvent("quicklog:saved", { detail: it }))} />
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
-        <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
+        <div className="fixed inset-0 animate-in fade-in duration-200 bg-black/60 z-40 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
       )}
       {/* Desktop sidebar — static */}
       <div className="hidden md:flex flex-shrink-0 print:hidden">
@@ -8222,7 +8288,7 @@ export function CRMApp() {
       )}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <div className="print:hidden"><Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onMobileMenu={() => setMobileSidebarOpen(true)} activeV={activeV} activePage={activePage} isDark={darkMode} setIsDark={setDarkMode} t={t} loggedUser={loggedUser} onNavAI={() => navTo(null, "ai")} onPIIRequests={() => setShowPIIRequests(true)} piiPendingCount={piiPendingCount} currUnit={currUnit} setCurrUnit={setCurrUnit} /></div>
-        <main className="flex-1 overflow-hidden">{renderContent()}</main>
+        <main className="flex-1 overflow-hidden"><div key={`${isAdmin ? "admin" : activeV || "main"}/${activePage}`} className="h-full animate-in fade-in duration-300">{renderContent()}</div></main>
       </div>
       {showPIIRequests && <PIIRequestsPanel loggedUser={loggedUser} t={t} isDark={darkMode} onClose={() => { setShowPIIRequests(false); /* refresh badge */ const isSA = (loggedUser?.role || "").toLowerCase().includes("super"); fetch(`${API_BASE}/api/clients/access-requests/list?user_id=${loggedUser?.id}&role=approver&is_super_admin=${isSA}`).then(r => r.ok ? r.json() : { data: [] }).then(d => setPiiPendingCount((d.data || []).filter((r: any) => r.status === "pending").length)).catch(() => {}); }} />}
     </div>

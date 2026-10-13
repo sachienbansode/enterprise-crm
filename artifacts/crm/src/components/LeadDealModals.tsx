@@ -81,8 +81,8 @@ function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer, on
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full h-full flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 ${wide ? "sm:max-w-6xl sm:h-[96vh]" : "sm:max-w-3xl sm:h-auto sm:max-h-[92vh]"}`}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full h-full flex flex-col animate-in slide-in-from-bottom-4 sm:zoom-in-95 fade-in duration-200 transition-[max-width,height] overflow-hidden border border-gray-200 dark:border-gray-800 ${wide ? "sm:max-w-6xl sm:h-[96vh]" : "sm:max-w-3xl sm:h-auto sm:max-h-[92vh]"}`}>
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-3 min-w-0">
             {onBack ? <button onClick={onBack} aria-label="Back" className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 flex items-center justify-center flex-shrink-0"><ArrowLeft size={18} /></button>

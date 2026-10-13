@@ -282,7 +282,7 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
       <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl`} onClick={e => e.stopPropagation()}>
         <div className={`px-5 py-4 border-b ${t.border} flex items-center justify-between flex-shrink-0`}>
           <div className="flex items-center gap-2">
@@ -387,7 +387,7 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
       </div>
       {/* Confirmation dialog */}
       {showCreateConfirm && (
-        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowCreateConfirm(false)}>
+        <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowCreateConfirm(false)}>
           <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-sm p-5 shadow-2xl`} onClick={e => e.stopPropagation()}>
             <div className={`text-sm font-bold ${t.text} mb-3`}>Confirm New Service Request</div>
             <div className={`text-xs ${t.textMuted} space-y-1 mb-4`}>
@@ -663,7 +663,7 @@ function SrDetailPanel({ sr: initialSr, t, isDark, onClose, onUpdate, loggedUser
             </div>
             {/* Submit confirmation dialog */}
             {showSubmitConfirm && (
-              <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowSubmitConfirm(false)}>
+              <div className="fixed inset-0 animate-in fade-in duration-200 z-[100] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowSubmitConfirm(false)}>
                 <div className={`${t.bgCard} border ${t.border} rounded-2xl w-full max-w-sm p-5 shadow-2xl`} onClick={e => e.stopPropagation()}>
                   <div className={`text-sm font-bold ${t.text} mb-2`}>Confirm Changes</div>
                   <div className={`text-xs ${t.textMuted} mb-4 space-y-1`}>

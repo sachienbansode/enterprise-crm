@@ -128,8 +128,8 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   );
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4" onClick={() => step !== "saving" && step !== "reading" && onClose()}>
-      <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-xl bg-gray-50 dark:bg-gray-950 sm:rounded-2xl shadow-2xl flex flex-col max-h-full sm:max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4" onClick={() => step !== "saving" && step !== "reading" && onClose()}>
+      <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-xl bg-gray-50 dark:bg-gray-950 sm:rounded-2xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 fade-in duration-200 max-h-full sm:max-h-[92vh] overflow-hidden">
         <div className="flex items-center gap-2 px-3 h-14 bg-slate-800 text-white flex-shrink-0">
           {step === "review" ? <button onClick={() => setStep("capture")} aria-label="Back to photo" className="p-2 rounded-lg hover:bg-white/10"><ArrowLeft className="w-5 h-5" /></button> : <ScanLine className="w-5 h-5 ml-2" />}
           <div className="flex-1 font-semibold">{step === "review" ? "Check & save" : step === "done" ? "Saved" : "Scan business card"}</div>

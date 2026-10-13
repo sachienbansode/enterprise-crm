@@ -39,8 +39,8 @@ export function DialogHost() {
 
   return (<>
     {cur && (
-      <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) done(false); }}>
-        <div role="alertdialog" aria-modal="true" aria-labelledby="appdlg-t" className="w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 p-5">
+      <div className="fixed inset-0 animate-in fade-in duration-200 z-[100] bg-black/50 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) done(false); }}>
+        <div role="alertdialog" aria-modal="true" aria-labelledby="appdlg-t" className="animate-in slide-in-from-bottom-4 sm:zoom-in-95 fade-in duration-200 w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 p-5">
           <div className="flex items-start gap-3">
             <span className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${cur.tone === "danger" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-600 dark:text-blue-400"}`}>
               {cur.tone === "danger" ? <AlertTriangle className="w-4 h-4" /> : <Info className="w-4 h-4" />}
@@ -59,7 +59,7 @@ export function DialogHost() {
     )}
     <div className="fixed z-[101] bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 flex flex-col gap-2 w-[calc(100%-2rem)] sm:w-auto sm:max-w-sm pointer-events-none" aria-live="polite">
       {toasts.map(t => (
-        <div key={t.id} className={`pointer-events-auto flex items-start gap-2 px-3.5 py-2.5 rounded-xl shadow-lg text-sm border ${t.tone === "error" ? "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-900 text-red-700 dark:text-red-300" : t.tone === "success" ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300" : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200"}`}>
+        <div key={t.id} className={`animate-in slide-in-from-bottom-3 fade-in duration-300 pointer-events-auto flex items-start gap-2 px-3.5 py-2.5 rounded-xl shadow-lg text-sm border ${t.tone === "error" ? "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-900 text-red-700 dark:text-red-300" : t.tone === "success" ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300" : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200"}`}>
           {t.tone === "error" ? <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : t.tone === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />}
           <span className="flex-1">{t.text}</span>
           <button onClick={() => setToasts(x => x.filter(y => y.id !== t.id))} aria-label="Dismiss" className="opacity-60 hover:opacity-100"><X className="w-3.5 h-3.5" /></button>

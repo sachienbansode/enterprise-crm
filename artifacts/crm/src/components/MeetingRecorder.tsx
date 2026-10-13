@@ -172,7 +172,7 @@ export function MeetingRecorder({ open, onClose, defaults, currentUser }: {
   const inputCls = "w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500";
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center justify-center sm:p-4">
+    <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/70 flex items-end sm:items-center justify-center sm:p-4">
       <div className="w-full sm:max-w-xl h-full sm:h-auto sm:max-h-[94vh] bg-white dark:bg-gray-950 sm:rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === "recording" && !paused ? "bg-red-600 animate-pulse" : "bg-red-600/15"}`}><Mic size={16} className={step === "recording" && !paused ? "text-white" : "text-red-500"} /></div>
