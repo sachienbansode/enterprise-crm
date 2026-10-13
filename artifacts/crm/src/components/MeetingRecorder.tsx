@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { appConfirm } from "../lib/dialog";
 import { X, Mic, Pause, Play, Square, CheckCircle2, AlertTriangle, RefreshCw, Plus, Users, ShieldCheck } from "lucide-react";
 import { ClientPicker } from "./LeadDealModals";
 
@@ -160,7 +161,7 @@ export function MeetingRecorder({ open, onClose, defaults, currentUser }: {
 
   const toggle = (a: Att) => setChosen(c => { const n = { ...c }; if (n[a.key]) delete n[a.key]; else n[a.key] = a; return n; });
   const addOther = () => { const n = other.trim(); if (!n) return; const a: Att = { key: `other:${n}`, kind: "other", name: n }; setChosen(c => ({ ...c, [a.key]: a })); setOther(""); };
-  const close = () => { if (step === "recording" && !window.confirm("Stop and discard nothing? The recording keeps uploading only while this window is open. Close anyway?")) return; onClose(); };
+  const close = async () => { if (step === "recording" && !(await appConfirm({ title: "Close while recording?", message: "The recording keeps uploading only while this window is open. Stop the recording first to save it.", confirmLabel: "Close anyway", cancelLabel: "Keep recording", tone: "danger" }))) return; onClose(); };
 
   if (!open) return null;
   const chip = (a: Att) => (

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { appConfirm, appToast, DialogHost } from "./lib/dialog";
 import CalendarPage from "./pages/CalendarPage";
 import { ServiceRequestModule, SR_CATEGORIES } from "./pages/ServiceRequests";
 import ClientForm from "./components/ClientForm";
@@ -33,7 +34,7 @@ import {
   Bot, Sparkles, Cpu, Key, Sliders, TestTube, ThumbsUp, ThumbsDown,
   CornerDownLeft, Loader2, ClipboardList, Activity,
   Video, UserCheck, ExternalLink, UserCog, CalendarPlus, Trash2, Check,
-  ListFilter, LayoutGrid, List, Edit2, Maximize2, Printer, ArrowUpDown,
+  ListFilter, LayoutGrid, List, Edit2, Maximize2, Minimize2, Printer, ArrowUpDown,
   KeyRound, Mic,
 } from "lucide-react";
 
@@ -3218,7 +3219,10 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const [stagePrompt, setStagePrompt] = useState<{ stageId: string; code: string; carry?: Record<string, any>; skip?: { stage_id: string; label: string }[]; stage?: string; msg?: string } | null>(null);
   const [promptVals, setPromptVals] = useState<{ next_action: string; next_action_date: string; lost_reason: string; lost_comment: string }>({ next_action: "", next_action_date: "", lost_reason: "", lost_comment: "" });
   const [stageDone, setStageDone] = useState("");
-  useEffect(() => { setStageDone(""); setStagePrompt(null); setStageError(""); }, [selected?.id]);
+  // Records open read-only; Edit switches on stage changes and other edits. Expand shows the record full screen.
+  const [panelEdit, setPanelEdit] = useState(false);
+  const [panelWide, setPanelWide] = useState(false);
+  useEffect(() => { setStageDone(""); setStagePrompt(null); setStageError(""); setPanelEdit(false); }, [selected?.id]);
   const [lostReasons, setLostReasons] = useState<string[]>([]);
   useEffect(() => {
     if (vId !== "ib") return;
@@ -3232,7 +3236,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
         // Stage workflow: the user confirms skipping, or is sent to the mandatory stage — never types anything here
-        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") {
+        if (e.code === "CONFIRM_SKIP" || e.code === "NEED_SKIP_COMMENT") {
           setStagePrompt({ stageId, code: e.code, carry: extra, skip: e.skip, stage: e.stage, msg: e.error }); setMovingStage(false); return;
         }
         if (e.code === "NEED_NEXT_ACTION" || e.code === "NEED_LOST_REASON") {
@@ -3265,15 +3269,15 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const isWonStage = (stageId: string) => wonStages.some((s: any) => s.id === stageId);
 
   const convertToDeal = async (lead: any) => {
-    if (!confirm(`Convert "${lead.name}" to a Deal?`)) return;
+    if (!(await appConfirm({ title: "Convert to a deal?", message: `"${lead.name}" will be added to Deals. The opportunity stays as it is.`, confirmLabel: "Convert" }))) return;
     try {
       await fetch(`${API_BASE}/api/deals`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: lead.name, vertical: vName, type: "Converted Lead", value: lead.value_estimate || "TBD", stage: "Active", notes: `Converted from lead ${lead.lead_code}` }),
       });
-      alert("Lead converted to Deal successfully!");
+      appToast(`"${lead.name}" converted to a deal`, "success");
       load();
-    } catch { alert("Failed to convert lead"); }
+    } catch { appToast("Could not convert to a deal", "error"); }
   };
 
   return (
@@ -3451,15 +3455,26 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Opportunity" : "Lead Detail"}</div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setEditingLead(selected)} title="Edit lead"
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
-                <Edit2 className="w-3 h-3" /> Edit
+        <div className={`fixed inset-0 z-40 ${panelWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+          <div className={panelWide ? "max-w-4xl mx-auto" : ""}>
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <div className="min-w-0">
+              <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Opportunity" : "Lead Detail"}</div>
+              <div className={`text-[10px] ${panelEdit ? "text-amber-500 font-semibold" : t.textMuted}`}>{panelEdit ? "Editing — changes are saved as you make them" : "View only"}</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {panelEdit ? (<>
+                <button onClick={() => setEditingLead(selected)} title="Edit all details"
+                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border ${t.border} ${t.textSub}`}><Edit2 className="w-3 h-3" /> Details</button>
+                <button onClick={() => { setPanelEdit(false); setStagePrompt(null); }} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><CheckCircle2 className="w-3 h-3" /> Done</button>
+              </>) : (
+                <button onClick={() => setPanelEdit(true)} title="Edit this record"
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Edit2 className="w-3 h-3" /> Edit</button>
+              )}
+              <button onClick={() => setPanelWide(w => !w)} title={panelWide ? "Exit full screen" : "Expand to full screen"} aria-label={panelWide ? "Exit full screen" : "Expand"} className={`hidden sm:inline-flex p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}>
+                {panelWide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
-              <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+              <button onClick={() => { setSelected(null); setPanelWide(false); }} aria-label="Close" className={`p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}><X className="w-4 h-4" /></button>
             </div>
           </div>
           <div className="space-y-3">
@@ -3470,9 +3485,10 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               <PriorityBadge p={selected.priority} />
             </div>
             {/* Stage path — click a stage then "Mark as Current Stage", or "Mark Stage as Complete" */}
-            <StagePath compact stages={stages as any} current={selected.stage} path={selected.stage_path} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} />
-            {stagePrompt && (stagePrompt.code === "CONFIRM_SKIP" || stagePrompt.code === "STAGE_MANDATORY") && (
-              <StageFlowPrompt prompt={stagePrompt} stages={stages as any} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} onCancel={() => setStagePrompt(null)} />
+            <StagePath compact={!panelWide} readOnly={!panelEdit} askNextAction={vId === "ib"} nextAction={selected.next_action} nextActionDate={selected.next_action_date}
+              stages={stages as any} current={selected.stage} path={selected.stage_path} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} />
+            {stagePrompt && (stagePrompt.code === "CONFIRM_SKIP" || stagePrompt.code === "NEED_SKIP_COMMENT") && (
+              <StageFlowPrompt prompt={{ ...stagePrompt, from: stages.find((s: any) => s.id === selected.stage)?.label }} stages={stages as any} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} onCancel={() => setStagePrompt(null)} />
             )}
             {stageError && !stagePrompt && <div className="text-[11px] text-red-500">{stageError}</div>}
             {stageDone && !stagePrompt && <div className="text-[11px] text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{stageDone}</div>}
@@ -3482,11 +3498,11 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               const isLost = lostStage && selected.stage === lostStage.id;
               return (
                 <div className="space-y-2">
-                  {lostStage && !isLost && (
+                  {panelEdit && lostStage && !isLost && (
                     <button disabled={movingStage} onClick={() => {
                         // IB: ask for reason + comment straight away; other verticals keep the simple confirm
                         if (vId === "ib") { setPromptVals(p => ({ ...p, lost_reason: "", lost_comment: "" })); setStageError(""); setStagePrompt({ stageId: lostStage.id, code: "NEED_LOST_REASON" }); }
-                        else if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id);
+                        else appConfirm({ title: `Mark as ${lostStage.label}?`, message: `"${selected.name}" moves to ${lostStage.label}.`, confirmLabel: `Mark as ${lostStage.label}`, tone: "danger" }).then(ok => { if (ok) moveStage(lostStage.id); });
                       }}
                       className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
                   )}
@@ -3558,7 +3574,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 <span className={`font-medium ${t.text}`}>{row.value}</span>
               </div>
             ))}
-            {isWonStage(selected.stage) && (
+            {panelEdit && isWonStage(selected.stage) && (
               <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Convert to Deal →
               </button>
@@ -3575,6 +3591,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
             {detailTab === "activity"
               ? <RecordActivity type="lead" id={selected.id} t={t} refreshKey={activityKey} />
               : <RecordDocuments type="lead" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setActivityKey(k => k + 1)} />}
+          </div>
           </div>
         </div>
       )}
@@ -3717,7 +3734,9 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
   const [dealMoving, setDealMoving] = useState(false);
   const [dealPrompt, setDealPrompt] = useState<any>(null);
   const [dealStageMsg, setDealStageMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  useEffect(() => { setDealPrompt(null); setDealStageMsg(null); }, [selected?.id]);
+  const [dealEdit, setDealEdit] = useState(false);
+  const [dealWide, setDealWide] = useState(false);
+  useEffect(() => { setDealPrompt(null); setDealStageMsg(null); setDealEdit(false); }, [selected?.id]);
   const moveDeal = async (stageId: string, extra: Record<string, any> = {}) => {
     if (!selected) return;
     setDealMoving(true); setDealStageMsg(null);
@@ -3725,7 +3744,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
       const r = await fetch(`${API_BASE}/api/deals/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId, ...extra }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
-        if (d.code === "CONFIRM_SKIP" || d.code === "STAGE_MANDATORY") { setDealPrompt({ stageId, code: d.code, carry: extra, skip: d.skip, stage: d.stage }); return; }
+        if (d.code === "CONFIRM_SKIP" || d.code === "NEED_SKIP_COMMENT") { setDealPrompt({ stageId, code: d.code, carry: extra, skip: d.skip, stage: d.stage }); return; }
         throw new Error(d.error || "Could not change stage");
       }
       setDealPrompt(null); setSelected({ ...selected, ...d, rm_name: selected.rm_name, client_name: selected.client_name });
@@ -3865,12 +3884,24 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
 
       {/* Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
-          <div className="flex items-center justify-between mb-4">
-            <span className={`text-sm font-bold ${t.text}`}>Deal Details</span>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setEditingDeal(selected)} className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Edit2 className="w-3 h-3" /> Edit</button>
-              <button onClick={() => setSelected(null)} className={t.textMuted}><X className="w-4 h-4" /></button>
+        <div className={`fixed inset-0 z-40 ${dealWide ? "sm:z-50" : "sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l"} ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+          <div className={dealWide ? "max-w-4xl mx-auto" : ""}>
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <div className="min-w-0">
+              <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Mandate / Deal" : "Deal Details"}</div>
+              <div className={`text-[10px] ${dealEdit ? "text-amber-500 font-semibold" : t.textMuted}`}>{dealEdit ? "Editing — changes are saved as you make them" : "View only"}</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {dealEdit ? (<>
+                <button onClick={() => setEditingDeal(selected)} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border ${t.border} ${t.textSub}`}><Edit2 className="w-3 h-3" /> Details</button>
+                <button onClick={() => { setDealEdit(false); setDealPrompt(null); }} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><CheckCircle2 className="w-3 h-3" /> Done</button>
+              </>) : (
+                <button onClick={() => setDealEdit(true)} className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Edit2 className="w-3 h-3" /> Edit</button>
+              )}
+              <button onClick={() => setDealWide(w => !w)} title={dealWide ? "Exit full screen" : "Expand to full screen"} aria-label={dealWide ? "Exit full screen" : "Expand"} className={`hidden sm:inline-flex p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}>
+                {dealWide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+              <button onClick={() => { setSelected(null); setDealWide(false); }} aria-label="Close" className={`p-1.5 rounded-lg ${t.textMuted} hover:bg-gray-500/10`}><X className="w-4 h-4" /></button>
             </div>
           </div>
           <div className={`${t.bgCard2} rounded-xl p-3 mb-3`}>
@@ -3881,8 +3912,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
           </div>
           {/* Stage path — same workflow as opportunities (Mandatory / Skip allowed) */}
           <div className="mb-3 space-y-2">
-            <StagePath compact stages={dealPathStages} current={selected.stage} path={selected.stage_path} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} />
-            {dealPrompt && <StageFlowPrompt prompt={dealPrompt} stages={dealPathStages} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} onCancel={() => setDealPrompt(null)} />}
+            <StagePath compact={!dealWide} readOnly={!dealEdit} stages={dealPathStages} current={selected.stage} path={selected.stage_path} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} />
+            {dealPrompt && <StageFlowPrompt prompt={{ ...dealPrompt, from: dealPathStages.find(s => s.id === selected.stage)?.label }} stages={dealPathStages} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} onCancel={() => setDealPrompt(null)} />}
             {dealStageMsg && !dealPrompt && <div className={`text-[11px] ${dealStageMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{dealStageMsg.text}</div>}
           </div>
           {[
@@ -3911,6 +3942,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
           {dealTab === "activity"
             ? <RecordActivity type="deal" id={selected.id} t={t} refreshKey={dealActivityKey} />
             : <RecordDocuments type="deal" id={selected.id} vertical={vName} clientId={selected.client_id} t={t} onChange={() => setDealActivityKey(k => k + 1)} />}
+          </div>
         </div>
       )}
     </div>
@@ -4151,8 +4183,8 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                   </button>
                   <button onClick={async () => {
                     const r = await fetch(`${API_BASE}/api/documents/${doc.id}/download`);
-                    if (r.status === 422) { const j = await r.json(); alert(j.message || "Document not available for download."); return; }
-                    if (!r.ok) { alert("Download failed."); return; }
+                    if (r.status === 422) { const j = await r.json(); appToast(j.message || "Document not available for download.", "error"); return; }
+                    if (!r.ok) { appToast("Download failed.", "error"); return; }
                     const blob = await r.blob();
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a"); a.href = url; a.download = doc.name; a.click();
@@ -4177,8 +4209,8 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                             <td className={`pr-4 py-1.5 ${t.textSub}`}>{ver.change_note || "—"}</td>
                             <td><button onClick={async () => {
                               const r = await fetch(`${API_BASE}/api/documents/${doc.id}/download`);
-                              if (r.status === 422) { const j = await r.json(); alert(j.message || "Document not available."); return; }
-                              if (!r.ok) { alert("Download failed."); return; }
+                              if (r.status === 422) { const j = await r.json(); appToast(j.message || "Document not available.", "error"); return; }
+                              if (!r.ok) { appToast("Download failed.", "error"); return; }
                               const blob = await r.blob(); const url = URL.createObjectURL(blob);
                               const a2 = document.createElement("a"); a2.href = url; a2.download = doc.name; a2.click();
                               setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -7112,7 +7144,7 @@ function AdminPIIMasking({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark
   };
 
   const deleteField = async (field: any) => {
-    if (!confirm(`Delete custom field "${field.field_label}"?`)) return;
+    if (!(await appConfirm({ title: "Delete custom field?", message: `"${field.field_label}" will be removed.`, confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const r = await fetch(`${API_BASE}/api/pii-masking/fields/${field.id}`, { method: "DELETE" });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
@@ -7471,7 +7503,7 @@ function AdminDropdownConfig({ t, isDark }: { t: ReturnType<typeof useTheme>; is
   };
 
   const remove = async (id: number) => {
-    if (!confirm("Delete this dropdown option?")) return;
+    if (!(await appConfirm({ title: "Delete this dropdown option?", confirmLabel: "Delete", tone: "danger" }))) return;
     await fetch(`${API_BASE}/api/config/dropdowns/${id}`, { method: "DELETE" });
     load();
   };
@@ -7669,7 +7701,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
   };
 
   const remove = async (rowId: string) => {
-    if (!confirm("Delete this pipeline stage?")) return;
+    if (!(await appConfirm({ title: "Delete this pipeline stage?", confirmLabel: "Delete", tone: "danger" }))) return;
     await fetch(`${API_BASE}/api/config/pipeline-stages/${rowId}`, { method: "DELETE" });
     load();
   };
@@ -8169,6 +8201,7 @@ export function CRMApp() {
       <MeetingRecorder open={!!recorderDefaults} defaults={recorderDefaults || undefined} currentUser={loggedUser} onClose={() => setRecorderDefaults(null)} />
       {openMeetingId && <MeetingView id={openMeetingId} onClose={() => setOpenMeetingId(null)} />}
       {openPersonId && <PersonView id={openPersonId} onClose={() => setOpenPersonId(null)} />}
+      <DialogHost />
       <CardScanner open={!!scanDefaults} defaults={scanDefaults || undefined} onClose={() => setScanDefaults(null)} />
       {teamsFor && <TeamsMeetingModal client={teamsFor} organizerEmail={loggedUser?.email || ""} t={t} isDark={isDark} onClose={() => setTeamsFor(null)} />}
       <QuickLog open={!!quickLogDefaults} defaults={quickLogDefaults || undefined} currentUser={loggedUser}

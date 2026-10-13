@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
-import { checkStageMove, noteSkipped } from "../lib/stageFlow";
+import { checkStageMove, noteStageChange, stageLabelOf } from "../lib/stageFlow";
 import { visibleNames, visibleIds } from "../lib/visibility";
 
 
@@ -124,7 +124,7 @@ router.patch("/:id", async (req, res) => {
     // Stage workflow (Mandatory / Skip allowed) first — then the IB next-action / lost-reason rules
     let flow: any = { ok: true, path: prev.stage_path || {}, skipped: [] };
     if (stageChanged) {
-      flow = await checkStageMove("lead", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System");
+      flow = await checkStageMove("lead", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System", req.body.stage_comment);
       if (!flow.ok) return res.status(flow.status).json(flow.body);
     }
     const enteringLost = stageChanged && await isLostStage(stage);
@@ -169,7 +169,7 @@ router.patch("/:id", async (req, res) => {
       [null, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id,
        opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), leavingLost, lost_comment || null, JSON.stringify(flow.path || {})],
     );
-    if (stageChanged) await noteSkipped("lead", req.params.id, req.user, flow.skipped, flow.target || stage);
+    if (stageChanged) await noteStageChange("lead", req.params.id, req.user, { from: await stageLabelOf("lead", prev.vertical, prev.stage), to: flow.target || await stageLabelOf("lead", prev.vertical, stage), skipped: flow.skipped, comment: req.body.stage_comment });
     if (enteringLost && lost_comment) await postLostComment(req.params.id, req.user, await stageLabel(stage), lost_reason || result.rows[0].lost_reason, lost_comment);
 
     await logAudit({
@@ -206,7 +206,7 @@ router.post("/", async (req, res) => {
             opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability } = req.body;
     const lost_comment = String(req.body.lost_comment || "").trim();
     const createdLost = await isLostStage(stage);
-    const flow = await checkStageMove("lead", vertical, null, stage || "", {}, !!req.body.skip_confirmed, req.user?.name || "System");
+    const flow = await checkStageMove("lead", vertical, null, stage || "", {}, !!req.body.skip_confirmed, req.user?.name || "System", req.body.stage_comment);
     if (!flow.ok) return res.status(flow.status).json(flow.body);
     const ruleErr = await ibRuleError(vertical, stage, next_action, lost_reason, lost_comment, createdLost);
     if (ruleErr) return res.status(400).json(ruleErr);
@@ -225,7 +225,7 @@ router.post("/", async (req, res) => {
       [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null,
        opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), createdLost ? lost_comment || null : null, JSON.stringify(flow.path)],
     );
-    await noteSkipped("lead", result.rows[0].id, req.user, flow.skipped, flow.target || stage);
+    await noteStageChange("lead", result.rows[0].id, req.user, { from: "New", to: flow.target || stage, skipped: flow.skipped, comment: req.body.stage_comment });
     if (createdLost && lost_comment) await postLostComment(result.rows[0].id, req.user, await stageLabel(stage), lost_reason, lost_comment);
 
     await logAudit({

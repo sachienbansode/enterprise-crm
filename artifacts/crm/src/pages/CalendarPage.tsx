@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { appConfirm } from "../lib/dialog";
 import {
   ChevronLeft, ChevronRight, RefreshCw, Video, Calendar,
   Clock, Users, Edit2, Trash2, X, Check, AlertCircle, CheckCircle2,
@@ -128,7 +129,7 @@ function EventDetail({ event, userEmail, isDark, t, onClose, onRefresh }: EventD
   };
 
   const cancel = async () => {
-    if (!confirm("Cancel this meeting? All attendees will receive a cancellation notice.")) return;
+    if (!(await appConfirm({ title: "Cancel this meeting?", message: "All attendees will receive a cancellation notice.", confirmLabel: "Cancel meeting", cancelLabel: "Keep", tone: "danger" }))) return;
     setDeleting(true); setResult(null);
     try {
       const r = await fetch(`${API_BASE}/api/teams/calendar/${event.id}?email=${encodeURIComponent(userEmail)}`, {

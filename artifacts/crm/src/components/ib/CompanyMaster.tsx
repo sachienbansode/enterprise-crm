@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { appConfirm } from "../../lib/dialog";
 import {
   Building2, Search, Plus, RefreshCw, X, Edit2, Mic, CheckCircle2, AlertTriangle, Users, TrendingUp,
-  Phone, FileText, CheckSquare, Trash2, Globe, Clock, Star, ScanLine, ChevronRight,
+  Phone, FileText, CheckSquare, Trash2, Globe, Clock, Star, ScanLine, ChevronRight, Maximize2, Minimize2,
 } from "lucide-react";
 import { LeadModal } from "../LeadDealModals";
 import { RecordDocuments } from "../RecordActivity";
@@ -291,6 +292,10 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   const [users, setUsers] = useState<any[]>([]);
 
   const [meetings, setMeetings] = useState<any[]>([]);
+  // Opens read-only; Edit allows changes to the company and its people. Expand = full screen.
+  const [editMode, setEditMode] = useState(false);
+  const [wide, setWide] = useState(false);
+  useEffect(() => { setEditMode(false); }, [id]);
   const load = useCallback(() => {
     fetch(`/api/ib/companies/${id}`).then(r => r.json()).then(setData).catch(() => {});
     fetch(`/api/meetings?client_id=${id}`).then(r => r.json()).then(d => setMeetings(Array.isArray(d) ? d : [])).catch(() => {});
@@ -323,7 +328,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
     if (r.ok) { setPerson(null); load(); onChanged(); }
   };
   const delPerson = async (p: any) => {
-    if (!window.confirm(`Remove ${p.name}?`)) return;
+    if (!(await appConfirm({ title: `Remove ${p.name}?`, message: "They will be removed from this company.", confirmLabel: "Remove", tone: "danger" }))) return;
     await fetch(`/api/ib/people/${p.id}`, { method: "DELETE" }); load(); onChanged();
   };
 
@@ -335,7 +340,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   ];
 
   return (
-    <div className={`fixed inset-0 z-[46] md:static md:z-auto md:w-[600px] lg:w-[680px] flex-shrink-0 border-l ${t.border} ${t.bgCard} flex flex-col overflow-hidden`}>
+    <div className={`fixed inset-0 z-[46] ${wide ? "md:z-50" : "md:static md:z-auto md:w-[600px] lg:w-[680px] border-l"} flex-shrink-0 ${t.border} ${t.bgCard} flex flex-col overflow-hidden`}>
       {!c ? <div className={`p-6 text-xs ${t.textMuted} flex items-center`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading company…</div> : (<>
         <div className={`px-4 py-3 border-b ${t.border} flex-shrink-0`}>
           <div className="flex items-start gap-2">
@@ -351,14 +356,20 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                 <span className={`text-[11px] ${t.textMuted}`}>Owner: <b className={t.text}>{c.relationship_owner || "—"}</b></span>
               </div>
             </div>
-            <button onClick={() => onEdit(c)} className="text-xs px-2 py-1 rounded-lg bg-amber-600 text-white flex items-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
-            <button onClick={onClose} aria-label="Close" className={`p-1 ${t.textMuted}`}><X className="w-4 h-4" /></button>
+            {editMode ? (<>
+              <button onClick={() => onEdit(c)} className={`text-xs px-2 py-1 rounded-lg border ${t.border} ${t.textSub} flex items-center gap-1`}><Edit2 className="w-3 h-3" /> Details</button>
+              <button onClick={() => setEditMode(false)} className="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Done</button>
+            </>) : (
+              <button onClick={() => setEditMode(true)} className="text-xs px-2 py-1 rounded-lg bg-amber-600 text-white flex items-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
+            )}
+            <button onClick={() => setWide(w => !w)} aria-label={wide ? "Exit full screen" : "Expand"} title={wide ? "Exit full screen" : "Expand to full screen"} className={`hidden md:inline-flex p-1 ${t.textMuted}`}>{wide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}</button>
+            <button onClick={() => { setWide(false); onClose(); }} aria-label="Close" className={`p-1 ${t.textMuted}`}><X className="w-4 h-4" /></button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
             <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: { client_id: c.id, client_name: c.name, title: `Meeting with ${c.name}` } }))} className="text-xs py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center justify-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-white" /> Record</button>
             <button onClick={() => quickLog({ client_id: c.id, client_name: c.name })} className="text-xs py-2 rounded-lg bg-violet-600 text-white flex items-center justify-center gap-1.5"><Mic className="w-3.5 h-3.5" /> Quick Log</button>
             <button onClick={() => setOppOpen(true)} className={`text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5`}><TrendingUp className="w-3.5 h-3.5" /> Opportunity</button>
-            <button onClick={() => setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" })} className={`text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5`}><Users className="w-3.5 h-3.5" /> Person</button>
+            <button onClick={() => { setEditMode(true); setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" }); }} className={`text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5`}><Users className="w-3.5 h-3.5" /> Person</button>
           </div>
         </div>
         <div className={`flex gap-1 px-3 border-b ${t.border} overflow-x-auto flex-shrink-0`}>
@@ -442,15 +453,16 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                   </div>
                   <ChevronRight className={`w-4 h-4 mt-2 flex-shrink-0 ${t.textMuted}`} />
                   </button>
-                  <button onClick={() => setPerson(p)} aria-label="Edit person" className={`p-1 ${t.textMuted}`}><Edit2 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => delPerson(p)} aria-label="Remove person" className="p-1 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                  {editMode && <button onClick={() => setPerson(p)} aria-label="Edit person" className={`p-1 ${t.textMuted}`}><Edit2 className="w-3.5 h-3.5" /></button>}
+                  {editMode && <button onClick={() => delPerson(p)} aria-label="Remove person" className="p-1 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               ))}
               {!data.people.length && <div className={`text-xs ${t.textMuted}`}>No promoters or management added yet.</div>}
-              <div className="flex gap-4">
+              {editMode && <div className="flex gap-4">
                 <button onClick={() => setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" })} className="text-xs text-amber-600 flex items-center gap-1"><Plus className="w-3 h-3" /> Add person</button>
                 <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { client_id: c.id, client_name: c.name } }))} className="text-xs text-sky-600 flex items-center gap-1"><ScanLine className="w-3 h-3" /> Scan a card</button>
-              </div>
+              </div>}
+              {!editMode && <div className={`text-[11px] ${t.textMuted}`}>Click <b>Edit</b> to add, change or remove people.</div>}
             </div>
           )}
 

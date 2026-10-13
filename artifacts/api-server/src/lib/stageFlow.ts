@@ -1,8 +1,9 @@
 import { query } from "./db";
 
 // Stage workflow for leads and deals, driven by Admin → Pipeline Stages:
-//   skip_allowed = false → Mandatory: a record can't move past this stage without going through it.
-//   skip_allowed = true  → Skip allowed: the user may skip it, but only by confirming (never silently).
+//   skip_allowed = false → Mandatory: it can still be skipped, but only with a comment saying why (min 10 characters).
+//   skip_allowed = true  → Skip allowed: it can be skipped on confirmation.
+// Every stage change is confirmed in the app (Submit), optionally with a comment that goes to the record's History.
 // What happened at each stage is kept on the record in stage_path: { <stage_id>: { s: "done" | "skipped", at, by } },
 // so the stage summary shows skipped steps as "Skipped".
 
@@ -26,7 +27,7 @@ async function flowFor(entity: "lead" | "deal", verticalName: string): Promise<{
 
 /** Check a stage change and work out the new stage_path. prevStage = null when the record is being created. */
 export async function checkStageMove(entity: "lead" | "deal", verticalName: string, prevStage: string | null, newStage: string,
-  path: Record<string, any> | null, skipConfirmed: boolean, by: string): Promise<FlowResult> {
+  path: Record<string, any> | null, skipConfirmed: boolean, by: string, comment = ""): Promise<FlowResult> {
   const p: Record<string, any> = { ...(path || {}) };
   const f = await flowFor(entity, verticalName);
   if (!f || !newStage || newStage === prevStage) return { ok: true, path: p, skipped: [] };
@@ -50,21 +51,32 @@ export async function checkStageMove(entity: "lead" | "deal", verticalName: stri
     return { ok: true, path: p, skipped: [] };
   }
   const between = flow.slice(iPrev + 1, iNew).filter(x => !p[x.stage_id]);
-  const mandatory = between.find(x => !x.skip_allowed);
-  if (mandatory) {
-    return { ok: false, status: 400, body: { error: `"${mandatory.label}" is a mandatory stage — move to it first.`, code: "STAGE_MANDATORY", stage: mandatory.stage_id } };
+  const skipList = between.map(x => ({ stage_id: x.stage_id, label: x.label, mandatory: !x.skip_allowed }));
+  const mandatory = between.filter(x => !x.skip_allowed);
+  const why = String(comment || "").trim();
+  if (mandatory.length && why.length < 10) {
+    return { ok: false, status: 400, body: { error: `Skipping ${mandatory.map(x => x.label).join(", ")} needs a comment (at least 10 characters).`, code: "NEED_SKIP_COMMENT", stage: mandatory[0].stage_id, skip: skipList } };
   }
   if (between.length && !skipConfirmed) {
-    return { ok: false, status: 409, body: { error: `This skips ${between.map(x => x.label).join(", ")}.`, code: "CONFIRM_SKIP", skip: between.map(x => ({ stage_id: x.stage_id, label: x.label })) } };
+    return { ok: false, status: 409, body: { error: `This skips ${between.map(x => x.label).join(", ")}.`, code: "CONFIRM_SKIP", skip: skipList } };
   }
   if (prevStage && iPrev >= 0 && flow[iPrev].stage_id === prevStage && !p[prevStage]) p[prevStage] = { s: "done", at, by };
-  for (const x of between) p[x.stage_id] = { s: "skipped", at, by };
-  return { ok: true, path: p, skipped: between.map(x => x.label), target: flow[iNew].label };
+  for (const x of between) p[x.stage_id] = { s: "skipped", at, by, ...(x.skip_allowed ? {} : { mandatory: true, why: why.slice(0, 500) }) };
+  return { ok: true, path: p, skipped: between.map(x => x.label + (x.skip_allowed ? "" : " (mandatory)")), target: flow[iNew].label };
 }
 
-/** Optional record-history line so the timeline shows what was skipped and by whom. */
-export async function noteSkipped(entity: "lead" | "deal", id: string, user: any, skipped: string[], target: string) {
-  if (!skipped.length) return;
+/** History line for a stage change: what was skipped and the user's comment. */
+export async function noteStageChange(entity: "lead" | "deal", id: string, user: any, info: { from?: string; to: string; skipped: string[]; comment?: string }) {
+  const c = String(info.comment || "").trim();
+  if (!info.skipped.length && !c) return;
+  const lines = [`Stage: ${info.from || "—"} → ${info.to}`];
+  if (info.skipped.length) lines.push(`Skipped: ${info.skipped.join(", ")}`);
+  if (c) lines.push(c);
   await query("INSERT INTO entity_comments (entity_type, entity_id, user_id, user_name, body) VALUES ($1,$2,$3,$4,$5)",
-    [entity, id, user?.id || null, user?.name || "System", `Skipped ${skipped.join(", ")} → moved to ${target}`]).catch(() => {});
+    [entity, id, user?.id || null, user?.name || "System", lines.join("\n")]).catch(() => {});
+}
+export async function stageLabelOf(entity: "lead" | "deal", verticalName: string, stage: string | null) {
+  if (!stage) return "";
+  const r = await query("SELECT label FROM pipeline_stages WHERE entity=$1 AND vertical=$2 AND stage_id=$3 LIMIT 1", [entity, VERTICAL_ID[verticalName] || verticalName, stage]);
+  return r.rows[0]?.label || stage;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { appConfirm } from "../lib/dialog";
 import { TrendingUp, Plus, RefreshCw, Pencil, Trash2, ArrowUp, ArrowDown, Check, Trophy, XCircle, Lock, ChevronsRight } from "lucide-react";
 import { StagePath } from "./StagePath";
 
@@ -61,7 +62,7 @@ export default function AdminPipelineStages() {
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const remove = async (row: any) => {
-    if (!window.confirm(`Remove the stage "${row.label}"? Records already in it keep their stage.`)) return;
+    if (!(await appConfirm({ title: `Remove the stage "${row.label}"?`, message: "Records already in it keep their stage.", confirmLabel: "Remove", tone: "danger" }))) return;
     await API(`/${row.id}`, { method: "DELETE" }); load();
   };
   const addTo = (v: string, list: any[]) => {
@@ -131,8 +132,8 @@ export default function AdminPipelineStages() {
       </div>
 
       <div className="px-4 sm:px-6 pt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400">
-        <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 text-red-500" /><b className="text-gray-700 dark:text-gray-300">Mandatory</b> — can't be skipped; users must move through it</span>
-        <span className="flex items-center gap-1.5"><ChevronsRight className="w-3 h-3 text-sky-500" /><b className="text-gray-700 dark:text-gray-300">Skip allowed</b> — users can skip it with one tap; it shows as Skipped</span>
+        <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 text-red-500" /><b className="text-gray-700 dark:text-gray-300">Mandatory</b> — can be skipped only with a comment</span>
+        <span className="flex items-center gap-1.5"><ChevronsRight className="w-3 h-3 text-sky-500" /><b className="text-gray-700 dark:text-gray-300">Skip allowed</b> — can be skipped on confirmation; shows as Skipped</span>
         <span>Click a flag to switch it.</span>
       </div>
 
@@ -156,7 +157,7 @@ export default function AdminPipelineStages() {
               {pathStages.length > 0 && (
                 <div className="px-4 py-3 bg-gray-50 dark:bg-gray-950/40 border-b border-gray-100 dark:border-gray-800">
                   <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-400 mb-1.5">Preview — what users see on the record</div>
-                  <StagePath compact stages={pathStages} current={cur} path={{}} onMove={id => setPreview(p => ({ ...p, [v]: id }))} />
+                  <StagePath compact readOnly readOnlyHint="Preview — red dot = mandatory (skipping it needs a comment)" stages={pathStages} current={cur} path={{}} onMove={id => setPreview(p => ({ ...p, [v]: id }))} />
                 </div>
               )}
 

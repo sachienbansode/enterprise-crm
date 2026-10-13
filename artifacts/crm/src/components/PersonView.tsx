@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { appConfirm } from "../lib/dialog";
 import {
   ArrowLeft, Phone, Mail, Calendar, CheckSquare, Edit2, Eye, EyeOff, ChevronRight, MessageCircle, Linkedin, MapPin,
   Building2, UserCircle2, Star, CreditCard, Video, Mic, FileText, Download, Trash2, X, RefreshCw, CheckCircle2, Copy,
@@ -260,7 +261,7 @@ function EditSheet({ p, onDone }: { p: any; onDone: (msg: string, deleted?: bool
     if (r.ok) onDone("Saved"); else setErr((await r.json().catch(() => ({}))).error || "Could not save");
   };
   const del = async () => {
-    if (!window.confirm(`Remove ${p.name} from ${p.company_name}?`)) return;
+    if (!(await appConfirm({ title: `Remove ${p.name}?`, message: `They will be removed from ${p.company_name}.`, confirmLabel: "Remove", tone: "danger" }))) return;
     const r = await fetch(`/api/ib/people/${p.id}`, { method: "DELETE" });
     if (r.ok) onDone("Removed", true);
   };

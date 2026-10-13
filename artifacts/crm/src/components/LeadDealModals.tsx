@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User, ArrowLeft, ChevronRight, Layers, FileText } from "lucide-react";
+import { X, Maximize2, Minimize2, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User, ArrowLeft, ChevronRight, Layers, FileText } from "lucide-react";
 import { DEAL_KINDS, kindOf, type DealKind, type KindField } from "./dealKinds";
 import { StageFlowPrompt } from "./StagePath";
 
@@ -75,13 +75,14 @@ function MoneyInput({ value, onChange, placeholder }: { value: string; onChange:
 
 /** Shell shared by both forms: full-screen on phones, wide dialog on desktop, sticky header & footer. */
 function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer, onBack }: { icon: any; title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; onBack?: () => void }) {
+  const [wide, setWide] = useState(false);
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-full sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800">
+      <div className={`bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full h-full flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 ${wide ? "sm:max-w-6xl sm:h-[96vh]" : "sm:max-w-3xl sm:h-auto sm:max-h-[92vh]"}`}>
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-3 min-w-0">
             {onBack ? <button onClick={onBack} aria-label="Back" className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 flex items-center justify-center flex-shrink-0"><ArrowLeft size={18} /></button>
@@ -91,7 +92,10 @@ function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer, on
               {subtitle && <div className="text-[11px] text-gray-500 truncate">{subtitle}</div>}
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
+          <div className="flex items-center">
+            <button onClick={() => setWide(w => !w)} aria-label={wide ? "Exit full screen" : "Expand"} title={wide ? "Exit full screen" : "Expand"} className="hidden sm:inline-flex p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">{wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+            <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-5">{children}</div>
         {footer && <div className="px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">{footer}</div>}
@@ -305,7 +309,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
   // Stage workflow answer from the server: confirm a skip, or go to a mandatory stage first
   const [skipAsk, setSkipAsk] = useState<any>(null);
   useEffect(() => { if (!open) setSkipAsk(null); }, [open]);
-  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string } = {}) => {
+  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string; stage_comment?: string } = {}) => {
     setBad(null); setSkipAsk(null);
     if (!form.name.trim()) { setBad("name"); setError(isIB ? "Opportunity name is required." : "Lead name is required."); return; }
     const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
@@ -317,7 +321,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
     setSaving(true); setError("");
     try {
       const body = {
-        name: form.name, vertical, stage: opts.stage || form.stage || stages[0]?.stage_id || "new", skip_confirmed: !!opts.skip_confirmed,
+        name: form.name, vertical, stage: opts.stage || form.stage || stages[0]?.stage_id || "new", skip_confirmed: !!opts.skip_confirmed, stage_comment: opts.stage_comment,
         priority: form.priority, value_estimate: form.value_estimate ? Number(form.value_estimate) : null,
         // source / sub-source are fixed once the lead exists
         ...(isEdit ? {} : { source: form.source || null, sub_source: form.sub_source || null }),
@@ -339,7 +343,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage }); return; }
+        if (e.code === "CONFIRM_SKIP" || e.code === "NEED_SKIP_COMMENT") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage, from: editLead ? (stages.find((x: any) => x.stage_id === editLead.stage)?.label || editLead.stage) : "New" }); return; }
         throw new Error(e.error || "Failed to save");
       }
       const saved = await res.json().catch(() => null);
@@ -357,7 +361,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
       title={`${isEdit ? "Edit" : "New"} ${noun}`}
       subtitle={isEdit ? `${editLead.lead_code || ""} · ${editLead.vertical || vertical} · opened ${fmtDate(editLead.opened_at || editLead.created_at)} · by ${editLead.created_by_name || "—"}` : vertical}
       footer={<>{skipAsk && <div className="mb-3"><StageFlowPrompt prompt={skipAsk} stages={stages.map((x: any) => ({ id: x.stage_id, label: x.label }))} busy={saving}
-        onMove={(id, extra) => { if (id === skipAsk.stageId) handleSave({ skip_confirmed: !!extra?.skip_confirmed }); else { set("stage", id); handleSave({ stage: id }); } }} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={TrendingUp} label={isEdit ? "Save changes" : `Create ${noun.toLowerCase()}`} /></>}>
+        onMove={(_id, extra) => handleSave({ skip_confirmed: true, stage_comment: extra?.stage_comment })} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={TrendingUp} label={isEdit ? "Save changes" : `Create ${noun.toLowerCase()}`} /></>}>
 
       <Section title={isIB ? "Opportunity" : "Lead"}>
         <F label={`${noun} name`} req span2 bad={bad === "name"} hint={lockedHint}>
@@ -575,14 +579,14 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
   // Stage workflow answer from the server: confirm a skip, or go to a mandatory stage first
   const [skipAsk, setSkipAsk] = useState<any>(null);
   useEffect(() => { if (!open) setSkipAsk(null); }, [open]);
-  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string } = {}) => {
+  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string; stage_comment?: string } = {}) => {
     setBad(null); setSkipAsk(null);
     if (!form.name.trim()) { setBad("name"); setError(isIB ? "Mandate name is required." : "Deal name is required."); return; }
     setSaving(true); setError("");
     try {
       const body = {
         name: form.name, vertical,
-        stage: opts.stage || form.stage || stages[0]?.stage_id || "Active", skip_confirmed: !!opts.skip_confirmed,
+        stage: opts.stage || form.stage || stages[0]?.stage_id || "Active", skip_confirmed: !!opts.skip_confirmed, stage_comment: opts.stage_comment,
         type: form.type || kind?.label || null, deal_type: form.deal_type || kind?.dealType || null,
         value: form.value ? Number(form.value) : null,
         details: { ...details, ...(kind ? { kind: kind.id } : {}) },
@@ -598,7 +602,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage }); return; }
+        if (e.code === "CONFIRM_SKIP" || e.code === "NEED_SKIP_COMMENT") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage, from: editDeal ? (stages.find((x: any) => x.stage_id === editDeal.stage)?.label || editDeal.stage) : "New" }); return; }
         throw new Error(e.error || "Failed to save");
       }
       onSaved(); onClose();
@@ -644,7 +648,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
       title={`${isEdit ? "Edit" : "New"} ${kind ? kind.label : noun}`}
       subtitle={isEdit ? `${editDeal.deal_code || ""} · ${editDeal.vertical || vertical}` : `${vertical}${kind ? ` · ${kind.sub}` : isIB ? " · signed or near-signed work being executed" : ""}`}
       footer={<>{skipAsk && <div className="mb-3"><StageFlowPrompt prompt={skipAsk} stages={stages.map((x: any) => ({ id: x.stage_id, label: x.label }))} busy={saving}
-        onMove={(id, extra) => { if (id === skipAsk.stageId) handleSave({ skip_confirmed: !!extra?.skip_confirmed }); else { set("stage", id); handleSave({ stage: id }); } }} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={Briefcase} label={isEdit ? "Save changes" : `Create ${isIB ? "mandate" : "deal"}`} /></>}>
+        onMove={(_id, extra) => handleSave({ skip_confirmed: true, stage_comment: extra?.stage_comment })} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={Briefcase} label={isEdit ? "Save changes" : `Create ${isIB ? "mandate" : "deal"}`} /></>}>
 
       <Section title={isIB ? "Mandate" : "Deal"}>
         <F label={isIB ? "Mandate name" : "Deal name"} req span2 bad={bad === "name"}>

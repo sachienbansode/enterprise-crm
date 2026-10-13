@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
-import { checkStageMove, noteSkipped } from "../lib/stageFlow";
+import { checkStageMove, noteStageChange, stageLabelOf } from "../lib/stageFlow";
 import { visibleNames, visibleIds } from "../lib/visibility";
 
 
@@ -105,7 +105,7 @@ router.patch("/:id", async (req, res) => {
     const stageChanged = !!stage && stage !== prev.stage;
     let flow: any = { ok: true, path: prev.stage_path || {}, skipped: [] };
     if (stageChanged) {
-      flow = await checkStageMove("deal", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System");
+      flow = await checkStageMove("deal", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System", req.body.stage_comment);
       if (!flow.ok) return res.status(flow.status).json(flow.body);
     }
 
@@ -127,7 +127,7 @@ router.patch("/:id", async (req, res) => {
         WHERE id = $11 RETURNING *`,
       [name, stage, notes, rm_id, value, type, deal_type, client_id, expected_close || null, deal_date || null, req.params.id, detailsJson(req.body.details), JSON.stringify(flow.path || {})],
     );
-    if (stageChanged) await noteSkipped("deal", req.params.id, req.user, flow.skipped, flow.target || stage);
+    if (stageChanged) await noteStageChange("deal", req.params.id, req.user, { from: await stageLabelOf("deal", prev.vertical, prev.stage), to: flow.target || await stageLabelOf("deal", prev.vertical, stage), skipped: flow.skipped, comment: req.body.stage_comment });
 
     await logAudit({
       entityType: "deal",
@@ -161,7 +161,7 @@ router.post("/", async (req, res) => {
     const { name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close } = req.body;
     if (isFutureDate(deal_date)) return res.status(400).json({ error: "Deal date cannot be in the future." });
 
-    const flow = await checkStageMove("deal", vertical, null, stage || "Active", {}, !!req.body.skip_confirmed, req.user?.name || "System");
+    const flow = await checkStageMove("deal", vertical, null, stage || "Active", {}, !!req.body.skip_confirmed, req.user?.name || "System", req.body.stage_comment);
     if (!flow.ok) return res.status(flow.status).json(flow.body);
     const countResult = await query("SELECT COUNT(*) FROM deals WHERE vertical=$1", [vertical]);
     const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : "IE-D";
@@ -173,7 +173,7 @@ router.post("/", async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11,$12,$13,COALESCE($14::jsonb,'{}'::jsonb),$15::jsonb) RETURNING *`,
       [deal_code, name, vertical, type || null, deal_type || null, value || null, stage || "Active", client_id || null, rm_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null, detailsJson(req.body.details), JSON.stringify(flow.path)],
     );
-    await noteSkipped("deal", result.rows[0].id, req.user, flow.skipped, flow.target || stage || "Active");
+    await noteStageChange("deal", result.rows[0].id, req.user, { from: "New", to: flow.target || stage || "Active", skipped: flow.skipped, comment: req.body.stage_comment });
 
     await logAudit({
       entityType: "deal",
