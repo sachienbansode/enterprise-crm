@@ -502,6 +502,12 @@ meetingsRouter.get("/", async (req, res) => {
   const params: any[] = []; const where: string[] = [];
   for (const k of ["client_id", "lead_id"]) { const v = String(req.query[k] || ""); if (UUID.test(v)) { params.push(v); where.push(`m.${k}=$${params.length}`); } }
   if (req.query.mine === "1") { params.push(req.user!.id); where.push(`(m.created_by=$${params.length} OR m.organizer_id=$${params.length})`); }
+  // Same visibility as opening a meeting: admins see all; others their own, plus their vertical's
+  const u: any = req.user || {};
+  if (!/admin|business head/i.test(u.role || "") && u.vertical && u.vertical !== "All") {
+    params.push(u.id); const a = params.length; params.push(u.vertical); const b = params.length;
+    where.push(`(m.created_by=$${a} OR m.organizer_id=$${a} OR m.vertical IS NULL OR m.vertical=$${b})`);
+  }
   try {
     const r = await query(
       `SELECT m.id, m.source, m.title, m.client_id, c.name AS company, m.lead_id, m.start_at, m.end_at, m.duration_sec, m.status, m.error,
@@ -510,6 +516,41 @@ meetingsRouter.get("/", async (req, res) => {
          FROM meetings m LEFT JOIN clients c ON c.id=m.client_id ${where.length ? "WHERE " + where.join(" AND ") : ""}
         ORDER BY COALESCE(m.start_at, m.created_at) DESC LIMIT 100`, params);
     res.json(r.rows);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin / Super Admin: every recording and Teams meeting, with filters and totals
+meetingsRouter.get("/admin/all", requireAdmin, async (req, res) => {
+  const params: any[] = []; const where: string[] = [];
+  const q = String(req.query.q || "").trim();
+  // Search: meeting title, company, opportunity (name / code), who recorded, and attendee names
+  if (q) { params.push(`%${q}%`); const n = params.length; where.push(`(m.title ILIKE $${n} OR c.name ILIKE $${n} OR l.name ILIKE $${n} OR l.lead_code ILIKE $${n} OR m.created_by_name ILIKE $${n} OR m.organizer_name ILIKE $${n} OR m.attendees::text ILIKE $${n})`); }
+  const opp = String(req.query.lead_id || ""); if (UUID.test(opp)) { params.push(opp); where.push(`m.lead_id=$${params.length}`); }
+  const st = String(req.query.status || "");
+  if (st === "processing") where.push("m.status IN ('recording','transcribing','scheduled')");
+  else if (["transcribed", "failed", "no_transcript"].includes(st)) { params.push(st); where.push(`m.status=$${params.length}`); }
+  const src = String(req.query.source || "");
+  if (["recording", "teams"].includes(src)) { params.push(src); where.push(`m.source=$${params.length}`); }
+  for (const [k, op] of [["from", ">="], ["to", "<"]] as const) {
+    const v = String(req.query[k] || ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
+    params.push(k === "to" ? new Date(new Date(v).getTime() + 86400000).toISOString().slice(0, 10) : v);
+    where.push(`COALESCE(m.start_at, m.created_at) ${op} $${params.length}::date`);
+  }
+  const w = where.length ? "WHERE " + where.join(" AND ") : "";
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200), offset = Math.max(Number(req.query.offset) || 0, 0);
+  try {
+    const [rows, stats] = await Promise.all([
+      query(`SELECT m.id, m.source, m.title, m.client_id, c.name AS company, m.lead_id, l.name AS opportunity, l.lead_code, m.start_at, m.created_at, m.duration_sec, m.status, m.error,
+                    COALESCE(m.created_by_name, m.organizer_name) AS recorded_by, m.audio_bytes, (m.audio_path IS NOT NULL OR m.recording_id IS NOT NULL) AS has_audio,
+                    m.transcript_source, jsonb_array_length(COALESCE(m.segments,'[]'::jsonb)) AS turns, m.vertical
+               FROM meetings m LEFT JOIN clients c ON c.id=m.client_id LEFT JOIN leads l ON l.id=m.lead_id ${w}
+              ORDER BY COALESCE(m.start_at, m.created_at) DESC LIMIT ${limit} OFFSET ${offset}`, params),
+      query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE m.status='transcribed')::int AS transcribed, COUNT(*) FILTER (WHERE m.status='failed')::int AS failed,
+                    COUNT(*) FILTER (WHERE m.status IN ('recording','transcribing','scheduled'))::int AS processing,
+                    COALESCE(SUM(CASE WHEN m.audio_path IS NOT NULL THEN m.audio_bytes END),0)::bigint AS bytes, COALESCE(SUM(m.duration_sec),0)::int AS seconds
+               FROM meetings m LEFT JOIN clients c ON c.id=m.client_id LEFT JOIN leads l ON l.id=m.lead_id ${w}`, params),
+    ]);
+    res.json({ rows: rows.rows, ...stats.rows[0], bytes: Number(stats.rows[0].bytes) });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

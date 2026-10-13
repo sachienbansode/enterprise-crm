@@ -47,7 +47,8 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center"><Mic className="w-4 h-4 text-white" /></div>
         <div>
-          <h2 className={`text-lg font-bold ${t.text}`}>Meeting Recording</h2>
+          <h2 className={`text-lg font-bold ${t.text} flex items-center gap-3`}>Meeting Recording
+            <a href="#/admin/admin-recordings" className="text-xs font-medium text-blue-500 hover:underline">View all recordings →</a></h2>
           <p className={`text-xs ${t.textMuted}`}>In-person meetings are recorded in the CRM and transcribed with each speaker separated and named. Teams meetings booked from the CRM bring in their own transcript and recording.</p>
         </div>
       </div>

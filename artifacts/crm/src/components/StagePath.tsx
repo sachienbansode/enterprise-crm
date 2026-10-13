@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsRight, Flag, Lock, ArrowRight } from "lucide-react";
+import { Check, ChevronsRight, ChevronLeft, ChevronRight, Flag, Lock, ArrowRight } from "lucide-react";
 
 // Stage path for opportunities and deals: chevrons across the top of the record, one action button.
 // Click a chevron to select it, then "Mark as Current Stage"; or "Mark Stage as Complete" to move to the next one.
@@ -29,7 +29,35 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   const [confirmFor, setConfirmFor] = useState<string | null>(null);   // stage the user is about to move to
   useEffect(() => { setSel(current); setConfirmFor(null); }, [current]);
   useEffect(() => { if (readOnly) { setSel(current); setConfirmFor(null); } }, [readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  // One row of chevrons with full names. If they don't fit: swipe / drag the row (or use ‹ ›) to see earlier and later stages.
   const boxRef = useRef<HTMLDivElement>(null);
+  const curRef = useRef<HTMLButtonElement>(null);
+  const [edge, setEdge] = useState({ l: false, r: false });
+  const measure = () => { const el = boxRef.current; if (el) setEdge({ l: el.scrollLeft > 2, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 }); };
+  const centre = (smooth = true) => {
+    const el = boxRef.current, c = curRef.current; if (!el) return;
+    if (!c) { if (isLost) el.scrollTo({ left: el.scrollWidth, behavior: smooth ? "smooth" : "auto" }); return; }
+    el.scrollTo({ left: Math.max(0, c.offsetLeft - (el.clientWidth - c.offsetWidth) / 2), behavior: smooth ? "smooth" : "auto" });
+  };
+  useEffect(() => { centre(false); measure(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { centre(); const h = setTimeout(measure, 400); return () => clearTimeout(h); }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    const wheel = (e: WheelEvent) => { if (el.scrollWidth > el.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { el.scrollLeft += e.deltaY; e.preventDefault(); } };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => { ro.disconnect(); el.removeEventListener("wheel", wheel); };
+  }, []);
+  // Mouse drag to scroll (touch swipes natively); a drag doesn't count as a click on a stage
+  const dragRef = useRef<{ x: number; left: number; moved: boolean } | null>(null);
+  const onPD = (e: React.PointerEvent) => { if (e.pointerType !== "mouse" || !boxRef.current) return; dragRef.current = { x: e.clientX, left: boxRef.current.scrollLeft, moved: false }; };
+  const onPM = (e: React.PointerEvent) => {
+    const d = dragRef.current; if (!d || !boxRef.current) return;
+    const dx = e.clientX - d.x; if (Math.abs(dx) > 4) d.moved = true;
+    if (d.moved) boxRef.current.scrollLeft = d.left - dx;
+  };
+  const onPU = () => { setTimeout(() => { dragRef.current = null; }, 0); };
+  const nudge = (dir: -1 | 1) => boxRef.current?.scrollBy({ left: dir * Math.max(140, (boxRef.current?.clientWidth || 300) * 0.6), behavior: "smooth" });
 
   const state = (s: PathStage, i: number) => {
     const m = path?.[s.id];
@@ -50,32 +78,41 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   return (
     <div className="flex flex-col gap-2">
       <div className="flex-1 min-w-0">
-        {/* Full stage names always; when they don't fit on one line the path wraps onto more rows (no sideways scroll) */}
-        <div ref={boxRef} className={`flex flex-wrap w-full gap-[3px] ${isLost ? "opacity-60" : ""}`} role="list" aria-label="Stages">
+        <div className="relative">
+          {edge.l && <button type="button" onClick={() => nudge(-1)} aria-label="Earlier stages" className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 dark:bg-gray-800/95 shadow-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 flex items-center justify-center hover:scale-110 transition-transform animate-in fade-in zoom-in-90 duration-150"><ChevronLeft className="w-4 h-4" /></button>}
+          {edge.r && <button type="button" onClick={() => nudge(1)} aria-label="Later stages" className="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 dark:bg-gray-800/95 shadow-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 flex items-center justify-center hover:scale-110 transition-transform animate-in fade-in zoom-in-90 duration-150"><ChevronRight className="w-4 h-4" /></button>}
+          <div ref={boxRef} onScroll={measure} onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU} onPointerLeave={onPU}
+            onClickCapture={e => { if (dragRef.current?.moved) { e.stopPropagation(); e.preventDefault(); } }}
+            className={`overflow-x-auto overscroll-x-contain rounded-full select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${edge.l || edge.r ? "cursor-grab active:cursor-grabbing" : ""} ${isLost ? "opacity-60" : ""}`}
+            style={{ WebkitMaskImage: edge.l || edge.r ? `linear-gradient(to right, ${edge.l ? "transparent 0, #000 36px" : "#000 0"}, ${edge.r ? "#000 calc(100% - 36px), transparent 100%" : "#000 100%"})` : undefined,
+                     maskImage: edge.l || edge.r ? `linear-gradient(to right, ${edge.l ? "transparent 0, #000 36px" : "#000 0"}, ${edge.r ? "#000 calc(100% - 36px), transparent 100%" : "#000 100%"})` : undefined }}>
+          <div className="flex min-w-full w-max" role="list" aria-label="Stages">
           {flow.map((s, i) => {
             const st = state(s, i);
             const selected = s.id === sel && sel !== current;
             const m = path?.[s.id];
-            const tone = st === "current" ? "bg-[#0b2a5b] text-white dark:bg-blue-700"
-              : st === "done" ? "bg-emerald-600/90 text-white hover:bg-emerald-600"
-              : st === "skipped" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200 hover:bg-amber-200/70"
-              : "bg-slate-200 text-slate-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-slate-300 dark:hover:bg-gray-700";
+            const tone = st === "current" ? "bg-blue-600 text-white shadow-[inset_0_-2px_0_rgba(0,0,0,0.15)]"
+              : st === "done" ? "bg-emerald-600 text-white hover:bg-emerald-500"
+              : st === "skipped" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-200 hover:bg-amber-200/80"
+              : "bg-slate-200/80 text-slate-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-slate-300 dark:hover:bg-gray-700";
             const tip = [s.label, st === "skipped" ? `Skipped${m?.by ? ` by ${m.by}` : ""}${m?.at ? ` on ${fmt(m.at)}` : ""}` : st === "done" && m?.at ? `Completed ${fmt(m.at)}${m.by ? ` by ${m.by}` : ""}` : "",
               st === "todo" && s.skip_allowed === false ? "Mandatory — skipping it needs a comment" : ""].filter(Boolean).join(" · ");
+            const last = i === flow.length - 1 && !isLost;
             return (
-              <button key={s.id} role="listitem" disabled={busy || readOnly} onClick={() => { setSel(s.id); setConfirmFor(null); }} title={tip}
+              <button key={s.id} ref={s.id === current ? curRef : undefined} role="listitem" aria-disabled={busy || readOnly || undefined} onClick={() => { if (busy || readOnly) return; setSel(s.id); setConfirmFor(null); }} title={tip}
                 aria-current={st === "current" ? "step" : undefined}
-                style={{ clipPath: i === 0 ? CLIP_FIRST : i === flow.length - 1 && !isLost ? CLIP_LAST : CLIP_MID }}
-                className={`relative h-9 min-w-0 flex items-center justify-center gap-1 text-xs font-medium whitespace-nowrap transition-all duration-300 disabled:cursor-default ${tone} ${selected ? "ring-2 ring-inset ring-[#0b2a5b] dark:ring-blue-400" : ""}
-                  grow shrink-0 basis-auto pl-5 pr-4 ${i === 0 ? "pl-4" : ""}`}>
+                style={{ clipPath: i === 0 ? CLIP_FIRST : last ? CLIP_LAST : CLIP_MID, marginLeft: i === 0 ? 0 : -6 }}
+                className={`relative h-10 flex-1 shrink-0 flex items-center justify-center gap-1.5 ${i === 0 ? "pl-4" : "pl-6"} ${last ? "pr-5" : "pr-5"} text-[13px] font-medium whitespace-nowrap transition-colors duration-300 aria-disabled:cursor-[inherit] ${tone} ${selected ? "brightness-110 ring-2 ring-inset ring-white/70" : ""}`}>
                 {st === "done" && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
                 <span className={st === "skipped" ? "line-through decoration-1" : ""}>{s.label}</span>
-                {st === "skipped" && <ChevronsRight className="w-3 h-3 flex-shrink-0" aria-label="skipped" />}
+                {st === "skipped" && <ChevronsRight className="w-3.5 h-3.5 flex-shrink-0" aria-label="skipped" />}
                 {st === "todo" && s.skip_allowed === false && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" aria-label="mandatory" />}
               </button>
             );
           })}
-          {isLost && <div className="h-9 pl-5 pr-4 grow flex items-center justify-center rounded-r-full bg-red-600 text-white text-xs font-semibold" style={{ clipPath: CLIP_LAST }}>{lostStage!.label}</div>}
+          {isLost && <div className="h-10 pl-6 pr-5 flex-1 shrink-0 flex items-center justify-center bg-red-600 text-white text-[13px] font-semibold" style={{ clipPath: CLIP_LAST, marginLeft: -6 }}>{lostStage!.label}</div>}
+          </div>
+          </div>
         </div>
         {/* Summary line — always lists skipped steps, so they're visible even when scrolled out of view */}
         {(() => {

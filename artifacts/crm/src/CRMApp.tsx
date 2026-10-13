@@ -19,6 +19,7 @@ import { MeetingView } from "./components/MeetingView";
 import PersonView from "./components/PersonView";
 import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
+import AdminRecordings from "./components/AdminRecordings";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
 import { ScanLine as ScanIcon } from "lucide-react";
@@ -49,7 +50,7 @@ type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clien
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
-  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking" | "admin-fireflies" | "admin-meetings";
+  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking" | "admin-fireflies" | "admin-meetings" | "admin-recordings";
 type AuthMethod = "app" | "m365";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -2386,6 +2387,7 @@ const ADMIN_MENU = [
   { section: "Integrations", items: [
     { id: "admin-m365",    label: "M365 Integration",   icon: Globe },
     { id: "admin-meetings", label: "Meeting Recording", icon: Mic },
+    { id: "admin-recordings", label: "All Recordings", icon: Video },
     { id: "admin-fireflies", label: "Fireflies (add-on)", icon: Mic },
   ]},
   { section: "Logs & Audit", items: [
@@ -2571,6 +2573,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-m365":     "M365 Integration",
     "admin-fireflies": "Fireflies (add-on)",
     "admin-meetings": "Meeting Recording",
+    "admin-recordings": "All Recordings",
     "admin-theme":    "Theme & Display",
     "admin-system":   "System Config",
     "admin-audit":             "Audit Log",
@@ -8238,6 +8241,7 @@ export function CRMApp() {
       if (activePage === "admin-m365")     return <AdminM365Config t={t} isDark={darkMode} />;
       if (activePage === "admin-fireflies") return <AdminFireflies t={t} />;
       if (activePage === "admin-meetings")  return <AdminMeetingRecording t={t} />;
+      if (activePage === "admin-recordings") return <AdminRecordings t={t} />;
       if (activePage === "admin-audit")    return <AdminAuditLog t={t} />;
       if (activePage === "admin-ai-logs")  return <AdminAILogs t={t} />;
       if (activePage === "admin-theme")    return <AdminTheme t={t} isDark={darkMode} setIsDark={setDarkMode} />;
