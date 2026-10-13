@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User } from "lucide-react";
+import { X, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User, ArrowLeft, ChevronRight, Layers, FileText } from "lucide-react";
+import { DEAL_KINDS, kindOf, type DealKind, type KindField } from "./dealKinds";
+import { StageFlowPrompt } from "./StagePath";
 
 
 
@@ -72,7 +74,7 @@ function MoneyInput({ value, onChange, placeholder }: { value: string; onChange:
 }
 
 /** Shell shared by both forms: full-screen on phones, wide dialog on desktop, sticky header & footer. */
-function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer }: { icon: any; title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer: React.ReactNode }) {
+function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer, onBack }: { icon: any; title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; onBack?: () => void }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
@@ -82,7 +84,8 @@ function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer }: 
       <div className="bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-full sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800">
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-violet-600/15 text-violet-500 flex items-center justify-center flex-shrink-0"><Icon size={16} /></div>
+            {onBack ? <button onClick={onBack} aria-label="Back" className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 flex items-center justify-center flex-shrink-0"><ArrowLeft size={18} /></button>
+              : <div className="w-8 h-8 rounded-lg bg-violet-600/15 text-violet-500 flex items-center justify-center flex-shrink-0"><Icon size={16} /></div>}
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white truncate">{title}</h2>
               {subtitle && <div className="text-[11px] text-gray-500 truncate">{subtitle}</div>}
@@ -91,7 +94,7 @@ function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer }: 
           <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-5">{children}</div>
-        <div className="px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">{footer}</div>
+        {footer && <div className="px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">{footer}</div>}
       </div>
     </div>
   );
@@ -299,8 +302,11 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
   // New records start on the first stage (instead of an empty "Select stage")
   useEffect(() => { if (open && !editLead && !form.stage && stages[0]) set("stage", stages[0].stage_id); }, [open, editLead, stages, form.stage, set]);
 
-  const handleSave = async () => {
-    setBad(null);
+  // Stage workflow answer from the server: confirm a skip, or go to a mandatory stage first
+  const [skipAsk, setSkipAsk] = useState<any>(null);
+  useEffect(() => { if (!open) setSkipAsk(null); }, [open]);
+  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string } = {}) => {
+    setBad(null); setSkipAsk(null);
     if (!form.name.trim()) { setBad("name"); setError(isIB ? "Opportunity name is required." : "Lead name is required."); return; }
     const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
     if (isIB && st?.is_lost && !form.lost_reason) { setBad("lost_reason"); setError("Choose why this opportunity was lost."); return; }
@@ -311,7 +317,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
     setSaving(true); setError("");
     try {
       const body = {
-        name: form.name, vertical, stage: form.stage || stages[0]?.stage_id || "new",
+        name: form.name, vertical, stage: opts.stage || form.stage || stages[0]?.stage_id || "new", skip_confirmed: !!opts.skip_confirmed,
         priority: form.priority, value_estimate: form.value_estimate ? Number(form.value_estimate) : null,
         // source / sub-source are fixed once the lead exists
         ...(isEdit ? {} : { source: form.source || null, sub_source: form.sub_source || null }),
@@ -331,7 +337,11 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         method, headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to save"); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage }); return; }
+        throw new Error(e.error || "Failed to save");
+      }
       const saved = await res.json().catch(() => null);
       onSaved(saved); onClose();
     } catch (err: any) { setError(err.message); } finally { setSaving(false); }
@@ -346,7 +356,8 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
     <ModalShell icon={TrendingUp} onClose={onClose}
       title={`${isEdit ? "Edit" : "New"} ${noun}`}
       subtitle={isEdit ? `${editLead.lead_code || ""} · ${editLead.vertical || vertical} · opened ${fmtDate(editLead.opened_at || editLead.created_at)} · by ${editLead.created_by_name || "—"}` : vertical}
-      footer={<Footer error={error} saving={saving} onClose={onClose} onSave={handleSave} icon={TrendingUp} label={isEdit ? "Save changes" : `Create ${noun.toLowerCase()}`} />}>
+      footer={<>{skipAsk && <div className="mb-3"><StageFlowPrompt prompt={skipAsk} stages={stages.map((x: any) => ({ id: x.stage_id, label: x.label }))} busy={saving}
+        onMove={(id, extra) => { if (id === skipAsk.stageId) handleSave({ skip_confirmed: !!extra?.skip_confirmed }); else { set("stage", id); handleSave({ stage: id }); } }} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={TrendingUp} label={isEdit ? "Save changes" : `Create ${noun.toLowerCase()}`} /></>}>
 
       <Section title={isIB ? "Opportunity" : "Lead"}>
         <F label={`${noun} name`} req span2 bad={bad === "name"} hint={lockedHint}>
@@ -469,6 +480,20 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
 }
 
 // ─── DEAL FORM MODAL ─────────────────────────────────────────────────────────
+// One input for a kind-specific detail (stored on deals.details)
+function KindInput({ fd, value, onChange }: { fd: KindField; value: any; onChange: (v: any) => void }) {
+  return (
+    <F label={fd.label} span2={fd.span2 || fd.type === "pills"}>
+      {fd.type === "pills" ? <Pills value={String(value)} onChange={v => onChange(v === value ? "" : v)} options={fd.options.map(o => ({ id: o, label: o }))} />
+        : fd.type === "select" ? <select value={value} onChange={e => onChange(e.target.value)} className={selectCls}><option value="">— Select —</option>{fd.options.map(o => <option key={o}>{o}</option>)}</select>
+        : fd.type === "money" ? <MoneyInput value={String(value)} onChange={onChange} />
+        : fd.type === "date" ? <input type="date" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
+        : fd.type === "pct" ? <div className="relative"><input type="number" inputMode="decimal" step="0.01" min={0} max={100} value={value} onChange={e => onChange(e.target.value)} className={`${inputCls} pr-8`} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span></div>
+        : fd.type === "number" ? <input type="number" inputMode="decimal" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
+        : <input value={value} onChange={e => onChange(e.target.value)} className={inputCls} placeholder={(fd as any).placeholder} />}
+    </F>
+  );
+}
 interface DealModalProps {
   open: boolean;
   onClose: () => void;
@@ -492,8 +517,19 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
   const [users, setUsers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Step 1 for a new deal: what kind of deal? → the form then asks only what matters for that kind
+  const kinds = DEAL_KINDS[verticalId] || [];
+  const [step, setStep] = useState<"kind" | "form">("form");
+  const [kind, setKind] = useState<DealKind | null>(null);
+  const [details, setDetails] = useState<Record<string, any>>({});
 
   const isEdit = !!editDeal;
+
+  useEffect(() => {
+    if (!open) return;
+    if (editDeal) { setKind(kindOf(verticalId, editDeal) || null); setDetails(editDeal.details || {}); setStep("form"); }
+    else { setKind(null); setDetails({}); setStep(kinds.length ? "kind" : "form"); }
+  }, [open, editDeal, verticalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
@@ -536,16 +572,20 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
   useEffect(() => { if (open && !editDeal && !form.stage && stages[0]) set("stage", stages[0].stage_id); }, [open, editDeal, stages, form.stage, set]);
   const isIB = verticalId === "ib";
 
-  const handleSave = async () => {
-    setBad(null);
+  // Stage workflow answer from the server: confirm a skip, or go to a mandatory stage first
+  const [skipAsk, setSkipAsk] = useState<any>(null);
+  useEffect(() => { if (!open) setSkipAsk(null); }, [open]);
+  const handleSave = async (opts: { skip_confirmed?: boolean; stage?: string } = {}) => {
+    setBad(null); setSkipAsk(null);
     if (!form.name.trim()) { setBad("name"); setError(isIB ? "Mandate name is required." : "Deal name is required."); return; }
     setSaving(true); setError("");
     try {
       const body = {
         name: form.name, vertical,
-        stage: form.stage || stages[0]?.stage_id || "Active",
-        type: form.type || null, deal_type: form.deal_type || null,
+        stage: opts.stage || form.stage || stages[0]?.stage_id || "Active", skip_confirmed: !!opts.skip_confirmed,
+        type: form.type || kind?.label || null, deal_type: form.deal_type || kind?.dealType || null,
         value: form.value ? Number(form.value) : null,
+        details: { ...details, ...(kind ? { kind: kind.id } : {}) },
         client_id: form.client_id || null, rm_id: form.rm_id || null,
         expected_close: form.expected_close || null, notes: form.notes || null,
         updated_by: currentUser?.name || "System",
@@ -556,19 +596,55 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
         method, headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to save"); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") { setSkipAsk({ stageId: opts.stage || form.stage, code: e.code, skip: e.skip, stage: e.stage }); return; }
+        throw new Error(e.error || "Failed to save");
+      }
       onSaved(); onClose();
     } catch (err: any) { setError(err.message); } finally { setSaving(false); }
   };
 
   if (!open) return null;
   const noun = isIB ? "Mandate / Deal" : "Deal";
+  const chooseKind = (k: DealKind | null) => {
+    setKind(k); setStep("form");
+    if (k) setForm(f => ({ ...f, deal_type: f.deal_type || k.dealType }));
+  };
+
+  if (step === "kind") return (
+    <ModalShell icon={Briefcase} onClose={onClose} title={`New ${isIB ? "mandate" : "deal"}`} subtitle={vertical}>
+      <div>
+        <h3 className="text-base font-bold text-gray-900 dark:text-white">What kind of {isIB ? "mandate" : "deal"}?</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Each kind asks only for the details that matter for it.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 -mt-2">
+        {kinds.map(k => (
+          <button key={k.id} onClick={() => chooseKind(k)} className="group flex items-center gap-3 p-3 rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 hover:border-violet-500 hover:bg-violet-500/5 text-left transition-colors">
+            <span className="w-10 h-10 rounded-xl bg-violet-600/10 text-violet-600 dark:text-violet-300 flex items-center justify-center flex-shrink-0"><Layers size={18} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-gray-900 dark:text-white">{k.label}</span>
+              <span className="block text-[11px] text-gray-500 dark:text-gray-400 leading-snug">{k.sub}</span>
+            </span>
+            <ChevronRight size={16} className="text-gray-400 group-hover:text-violet-500 flex-shrink-0" />
+          </button>
+        ))}
+        <button onClick={() => chooseKind(null)} className="flex items-center gap-3 p-3 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 text-left hover:border-violet-500">
+          <span className="w-10 h-10 rounded-xl bg-gray-500/10 text-gray-500 flex items-center justify-center flex-shrink-0"><FileText size={18} /></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-gray-900 dark:text-white">Something else</span><span className="block text-[11px] text-gray-500">General form</span></span>
+          <ChevronRight size={16} className="text-gray-400 flex-shrink-0" />
+        </button>
+      </div>
+      <div className="text-center"><button onClick={onClose} className="text-sm text-violet-600 dark:text-violet-400 font-medium px-4 py-2">Cancel</button></div>
+    </ModalShell>
+  );
 
   return (
-    <ModalShell icon={Briefcase} onClose={onClose}
-      title={`${isEdit ? "Edit" : "New"} ${noun}`}
-      subtitle={isEdit ? `${editDeal.deal_code || ""} · ${editDeal.vertical || vertical}` : `${vertical}${isIB ? " · signed or near-signed work being executed" : ""}`}
-      footer={<Footer error={error} saving={saving} onClose={onClose} onSave={handleSave} icon={Briefcase} label={isEdit ? "Save changes" : `Create ${isIB ? "mandate" : "deal"}`} />}>
+    <ModalShell icon={Briefcase} onClose={onClose} onBack={!isEdit && kinds.length ? () => setStep("kind") : undefined}
+      title={`${isEdit ? "Edit" : "New"} ${kind ? kind.label : noun}`}
+      subtitle={isEdit ? `${editDeal.deal_code || ""} · ${editDeal.vertical || vertical}` : `${vertical}${kind ? ` · ${kind.sub}` : isIB ? " · signed or near-signed work being executed" : ""}`}
+      footer={<>{skipAsk && <div className="mb-3"><StageFlowPrompt prompt={skipAsk} stages={stages.map((x: any) => ({ id: x.stage_id, label: x.label }))} busy={saving}
+        onMove={(id, extra) => { if (id === skipAsk.stageId) handleSave({ skip_confirmed: !!extra?.skip_confirmed }); else { set("stage", id); handleSave({ stage: id }); } }} onCancel={() => setSkipAsk(null)} /></div>}<Footer error={error} saving={saving} onClose={onClose} onSave={() => handleSave()} icon={Briefcase} label={isEdit ? "Save changes" : `Create ${isIB ? "mandate" : "deal"}`} /></>}>
 
       <Section title={isIB ? "Mandate" : "Deal"}>
         <F label={isIB ? "Mandate name" : "Deal name"} req span2 bad={bad === "name"}>
@@ -577,6 +653,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
         <F label={isIB ? "Company" : "Linked client"} span2>
           <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
         </F>
+        {!kind && (<>
         <F label="Deal type">
           <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
             <option value="">— Select —</option>
@@ -586,7 +663,14 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
         <F label="Sub-type / product (optional)">
           <input value={form.type} onChange={e => set("type", e.target.value)} className={inputCls} placeholder="e.g. Fresh issue + OFS, Block, QIP" />
         </F>
+        </>)}
       </Section>
+
+      {kind && kind.fields.length > 0 && (
+        <Section title={`${kind.label} details`} icon={Layers}>
+          {kind.fields.map(fd => <KindInput key={fd.k} fd={fd} value={details[fd.k] ?? ""} onChange={v => setDetails(d => ({ ...d, [fd.k]: v }))} />)}
+        </Section>
+      )}
 
       <Section title="Stage" icon={Flag}>
         <F label="Current stage" span2>
@@ -595,7 +679,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
       </Section>
 
       <Section title="Value & timing" icon={IndianRupee}>
-        <F label={isIB ? "Transaction size / fee base" : "Deal value"} hint={form.value ? `= ${inWords(form.value)}` : undefined}>
+        <F label={kind?.valueLabel || (isIB ? "Transaction size / fee base" : "Deal value")} hint={form.value ? `= ${inWords(form.value)}` : undefined}>
           <MoneyInput value={form.value} onChange={v => set("value", v)} />
         </F>
         <F label="Expected close">

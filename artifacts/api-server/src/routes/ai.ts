@@ -426,3 +426,56 @@ export async function aiComplete(system: string, user: string): Promise<string |
   try { key = decrypt(config.api_key); } catch { return null; }
   return callLLM({ ...config, temperature: 0.1 }, key, system, [{ role: "user", content: user }]);
 }
+
+/** Vision call (business-card reading etc.). images = [{ mime, b64 }].
+ *  Uses the configured LLM (Anthropic / Gemini / OpenAI / Azure OpenAI — all vision-capable models), with the fallback LLM on failure.
+ *  Returns null when the AI Assistant is disabled or has no key. */
+export async function aiVision(system: string, prompt: string, images: { mime: string; b64: string }[]): Promise<string | null> {
+  const r = await query("SELECT * FROM ai_config LIMIT 1");
+  const config = r.rows[0];
+  if (!config?.enabled || !config?.api_key) return null;
+  const one = async (cfg: any, apiKey: string): Promise<string> => {
+    if (cfg.provider === "anthropic") {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: cfg.model || "claude-3-5-sonnet-20241022", max_tokens: 2048, temperature: 0, system,
+          messages: [{ role: "user", content: [...images.map(i => ({ type: "image", source: { type: "base64", media_type: i.mime, data: i.b64 } })), { type: "text", text: prompt }] }] }),
+      });
+      const d: any = await resp.json().catch(() => ({}));
+      const text = (d.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+      if (!resp.ok || !text) throw new Error(`anthropic ${resp.status}: ${d.error?.message || "no content"}`);
+      return text;
+    }
+    if (cfg.provider === "gemini") {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cfg.model || "gemini-2.0-flash"}:generateContent?key=${apiKey}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, generationConfig: { temperature: 0, maxOutputTokens: 2048 },
+          contents: [{ role: "user", parts: [...images.map(i => ({ inline_data: { mime_type: i.mime, data: i.b64 } })), { text: prompt }] }] }),
+      });
+      const d: any = await resp.json().catch(() => ({}));
+      const text = (d.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("");
+      if (!resp.ok || !text) throw new Error(`gemini ${resp.status}: ${d.error?.message || "no content"}`);
+      return text;
+    }
+    const endpoint = cfg.endpoint_url || "https://api.openai.com/v1/chat/completions";
+    const model = cfg.model || "gpt-4o";
+    const reasoning = /^(o\d|gpt-5)/i.test(model);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (cfg.provider === "azure") headers["api-key"] = apiKey; else headers["Authorization"] = `Bearer ${apiKey}`;
+    const resp = await fetch(endpoint, {
+      method: "POST", headers,
+      body: JSON.stringify({ model, ...(reasoning ? { max_completion_tokens: 8000 } : { temperature: 0, max_tokens: 2048 }),
+        messages: [{ role: "system", content: system },
+          { role: "user", content: [...images.map(i => ({ type: "image_url", image_url: { url: `data:${i.mime};base64,${i.b64}`, detail: "high" } })), { type: "text", text: prompt }] }] }),
+    });
+    const d: any = await resp.json().catch(() => ({}));
+    const text = d.choices?.[0]?.message?.content;
+    if (!resp.ok || !text) throw new Error(`${cfg.provider || "openai"} ${resp.status}: ${d.error?.message || "no content"}`);
+    return text;
+  };
+  try { return await one(config, decrypt(config.api_key)); }
+  catch (e: any) {
+    if (!config.fallback_enabled || !config.fallback_provider || !config.fallback_api_key) throw e;
+    return one({ ...config, provider: config.fallback_provider, model: config.fallback_model, endpoint_url: config.fallback_endpoint_url || null }, decrypt(config.fallback_api_key));
+  }
+}

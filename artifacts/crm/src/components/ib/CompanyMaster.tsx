@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2, Search, Plus, RefreshCw, X, Edit2, Mic, CheckCircle2, AlertTriangle, Users, TrendingUp,
-  Phone, FileText, CheckSquare, Trash2, Globe, Clock, Star,
+  Phone, FileText, CheckSquare, Trash2, Globe, Clock, Star, ScanLine, ChevronRight,
 } from "lucide-react";
 import { LeadModal } from "../LeadDealModals";
 import { RecordDocuments } from "../RecordActivity";
@@ -56,6 +56,12 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
   }, [search, sector]);
   useEffect(() => { const h = setTimeout(load, 180); return () => clearTimeout(h); }, [load]);
   useEffect(() => { fetch("/api/config/dropdowns?entity=client&field=sector").then(r => r.json()).then(d => setSectors(Array.isArray(d) ? d.map((x: any) => x.value) : [])).catch(() => {}); }, []);
+  // "Open company" from a contact page / card scan while this screen is already showing
+  useEffect(() => {
+    const h = (e: any) => { if (e.detail?.id) { setOpenId(e.detail.id); load(); setTimeout(() => { try { sessionStorage.removeItem("ib_open_company"); } catch { /* ignore */ } }, 0); } };
+    window.addEventListener("company:open", h); return () => window.removeEventListener("company:open", h);
+  }, [load]);
+  useEffect(() => { const h = () => load(); window.addEventListener("company:changed", h); return () => window.removeEventListener("company:changed", h); }, [load]);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -76,6 +82,7 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
           </select>
           <div className="ml-auto flex gap-2">
             <button onClick={load} aria-label="Refresh" className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button>
+            <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanLine className="w-3.5 h-3.5" /> Scan card</button>
             <button onClick={() => setForm({})} className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Company</button>
           </div>
         </div>
@@ -416,7 +423,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
               <div>
                 <div className={`text-[11px] font-bold uppercase ${t.textMuted} mb-1.5`}>Key people</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {data.people.slice(0, 6).map((p: any) => <span key={p.id} className={`text-xs px-2 py-1 rounded-lg ${t.bgCard2} ${t.text}`}>{p.name} <span className={t.textMuted}>· {p.designation || p.role_type}</span></span>)}
+                  {data.people.slice(0, 6).map((p: any) => <button key={p.id} onClick={() => window.dispatchEvent(new CustomEvent("person:open", { detail: { id: p.id } }))} className={`text-xs px-2 py-1 rounded-lg ${t.bgCard2} ${t.text} hover:ring-1 hover:ring-amber-500`}>{p.name} <span className={t.textMuted}>· {p.designation || p.role_type}</span></button>)}
                 </div>
               </div>
             )}
@@ -426,18 +433,24 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
             <div className="space-y-2">
               {data.people.map((p: any) => (
                 <div key={p.id} className={`${card} flex items-start gap-3`}>
-                  <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-600 flex items-center justify-center text-xs font-bold flex-shrink-0">{p.name.split(" ").map((x: string) => x[0]).join("").slice(0, 2)}</div>
+                  <button onClick={() => window.dispatchEvent(new CustomEvent("person:open", { detail: { id: p.id } }))} className="flex items-start gap-3 flex-1 min-w-0 text-left" aria-label={`Open ${p.name}`}>
+                  <div className="w-8 h-8 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0">{p.name.split(" ").map((x: string) => x[0]).join("").slice(0, 2).toUpperCase()}</div>
                   <div className="flex-1 min-w-0 text-xs">
                     <div className={`font-semibold ${t.text}`}>{p.name} {p.is_key && <Star className="inline w-3 h-3 text-amber-500" />}</div>
                     <div className={t.textMuted}>{[p.designation, p.role_type].filter(Boolean).join(" · ")}</div>
                     <div className={`${t.textSub} mt-0.5 break-all`}>{[p.email, p.mobile].filter(Boolean).join(" · ") || "No contact details"}</div>
                   </div>
+                  <ChevronRight className={`w-4 h-4 mt-2 flex-shrink-0 ${t.textMuted}`} />
+                  </button>
                   <button onClick={() => setPerson(p)} aria-label="Edit person" className={`p-1 ${t.textMuted}`}><Edit2 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => delPerson(p)} aria-label="Remove person" className="p-1 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
               {!data.people.length && <div className={`text-xs ${t.textMuted}`}>No promoters or management added yet.</div>}
-              <button onClick={() => setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" })} className="text-xs text-amber-600 flex items-center gap-1"><Plus className="w-3 h-3" /> Add person</button>
+              <div className="flex gap-4">
+                <button onClick={() => setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" })} className="text-xs text-amber-600 flex items-center gap-1"><Plus className="w-3 h-3" /> Add person</button>
+                <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { client_id: c.id, client_name: c.name } }))} className="text-xs text-sky-600 flex items-center gap-1"><ScanLine className="w-3 h-3" /> Scan a card</button>
+              </div>
             </div>
           )}
 

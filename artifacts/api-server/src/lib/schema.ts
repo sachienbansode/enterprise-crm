@@ -22,6 +22,15 @@ export async function ensureAppSchema() {
      )`,
     "CREATE INDEX IF NOT EXISTS idx_company_people_client ON company_people (client_id)",
     "CREATE INDEX IF NOT EXISTS idx_company_people_email ON company_people (lower(email))",
+    // ── People: card scanning + contact page fields ──
+    ...["landline varchar(40)", "address text", "city varchar(80)", "source varchar(20) DEFAULT 'manual'", "card_path text", "card_back_path text", "created_by uuid"]
+      .map(c => `ALTER TABLE company_people ADD COLUMN IF NOT EXISTS ${c}`),
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS person_id uuid",
+    "ALTER TABLE deals ADD COLUMN IF NOT EXISTS details jsonb DEFAULT '{}'::jsonb",
+    // Stage workflow: Mandatory vs Skip allowed per stage; what was done / skipped kept on each record
+    "ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS skip_allowed boolean DEFAULT true",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_path jsonb DEFAULT '{}'::jsonb",
+    "ALTER TABLE deals ADD COLUMN IF NOT EXISTS stage_path jsonb DEFAULT '{}'::jsonb",
     // ── IB / ECM: opportunity fields ──
     ...["opportunity_type varchar(40)", "next_action varchar(300)", "next_action_date date", "lost_reason varchar(120)", "lost_comment text",
         "expected_fee numeric", "probability integer"]

@@ -3,6 +3,7 @@ import CalendarPage from "./pages/CalendarPage";
 import { ServiceRequestModule, SR_CATEGORIES } from "./pages/ServiceRequests";
 import ClientForm from "./components/ClientForm";
 import { LeadModal, DealModal } from "./components/LeadDealModals";
+import { kindOf } from "./components/dealKinds";
 import MeetingReminders from "./components/MeetingReminders";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import { serverLogout } from "./lib/authFetch";
@@ -14,6 +15,11 @@ import AdminFireflies from "./components/AdminFireflies";
 import AdminMeetingRecording from "./components/AdminMeetingRecording";
 import { MeetingRecorder } from "./components/MeetingRecorder";
 import { MeetingView } from "./components/MeetingView";
+import PersonView from "./components/PersonView";
+import CardScanner from "./components/CardScanner";
+import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
+import { StagePath, StageFlowPrompt } from "./components/StagePath";
+import { ScanLine as ScanIcon } from "lucide-react";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -1935,6 +1941,8 @@ const LEAD_STAGES: Record<string, { id: string; label: string }[]> = {
   aif: [{ id: "identified", label: "Investor Identified" }, { id: "suitability", label: "Suitability Check" }, { id: "kyc", label: "KYC / AML" }, { id: "subscription", label: "Subscription" }, { id: "commitment", label: "Commitment" }, { id: "called", label: "Capital Called" }],
   ie: [{ id: "identified", label: "Account Identified" }, { id: "regulatory", label: "Regulatory Setup" }, { id: "research", label: "Research Access" }, { id: "trade", label: "Trade Setup" }, { id: "active", label: "Active" }],
 };
+// Deal stages with their flags (won / lost / skip allowed), filled from Admin → Pipeline Stages at sign-in
+const DEAL_STAGE_META: Record<string, { id: string; label: string; is_won?: boolean; is_lost?: boolean; skip_allowed?: boolean }[]> = {};
 const DEAL_STAGES: Record<string, string[]> = {
   retail:    ["Active", "Applied", "Allotted", "Completed", "Executed"],
   corporate: ["Active", "In Progress", "Pending", "Executed", "Settled"],
@@ -2621,6 +2629,11 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             <span className="block w-4 h-4 rounded-full border-2 border-current p-[2px]"><span className="block w-full h-full rounded-full bg-current" /></span>
           </button>
         </Tip>
+        <Tip label="Scan a business card — creates the company and contact">
+          <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan business card" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
+            <ScanIcon className="w-4 h-4" />
+          </button>
+        </Tip>
         <Tip label="Quick Log — speak or type a call / meeting note">
           <button onClick={() => openQuickLog({})} aria-label="Quick Log" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-violet-300 hover:bg-gray-700" : "bg-slate-100 text-violet-700 hover:bg-slate-200"} transition-colors`}>
             <Mic className="w-4 h-4" />
@@ -3202,7 +3215,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const [stageError, setStageError] = useState("");
   // Move the selected lead to another pipeline stage (recorded in History with who/when)
   // IB: moving to an active stage needs a next action; to Lost needs a reason → ask inline, then retry
-  const [stagePrompt, setStagePrompt] = useState<{ stageId: string; code: string } | null>(null);
+  const [stagePrompt, setStagePrompt] = useState<{ stageId: string; code: string; carry?: Record<string, any>; skip?: { stage_id: string; label: string }[]; stage?: string; msg?: string } | null>(null);
   const [promptVals, setPromptVals] = useState<{ next_action: string; next_action_date: string; lost_reason: string; lost_comment: string }>({ next_action: "", next_action_date: "", lost_reason: "", lost_comment: "" });
   const [stageDone, setStageDone] = useState("");
   useEffect(() => { setStageDone(""); setStagePrompt(null); setStageError(""); }, [selected?.id]);
@@ -3218,9 +3231,13 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       const r = await fetch(`${API_BASE}/api/leads/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId, ...extra }) });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
+        // Stage workflow: the user confirms skipping, or is sent to the mandatory stage — never types anything here
+        if (e.code === "CONFIRM_SKIP" || e.code === "STAGE_MANDATORY") {
+          setStagePrompt({ stageId, code: e.code, carry: extra, skip: e.skip, stage: e.stage, msg: e.error }); setMovingStage(false); return;
+        }
         if (e.code === "NEED_NEXT_ACTION" || e.code === "NEED_LOST_REASON") {
           setPromptVals({ next_action: selected.next_action || "", next_action_date: selected.next_action_date ? String(selected.next_action_date).slice(0, 10) : "", lost_reason: "", lost_comment: "" });
-          setStagePrompt({ stageId, code: e.code }); setMovingStage(false);
+          setStagePrompt({ stageId, code: e.code, carry: extra }); setMovingStage(false);
           if (Object.keys(extra).length) setStageError(e.error || "");
           return;
         }
@@ -3434,9 +3451,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
       {/* Detail Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-96 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
-            <div className={`text-sm font-bold ${t.text}`}>Lead Detail</div>
+            <div className={`text-sm font-bold ${t.text}`}>{vId === "ib" ? "Opportunity" : "Lead Detail"}</div>
             <div className="flex items-center gap-2">
               <button onClick={() => setEditingLead(selected)} title="Edit lead"
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
@@ -3452,6 +3469,63 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               <div className={`text-lg font-bold ${t.text} mt-1`}>{selected.value_estimate ? fmtMoneyStr(selected.value_estimate) : "TBD"}</div>
               <PriorityBadge p={selected.priority} />
             </div>
+            {/* Stage path — click a stage then "Mark as Current Stage", or "Mark Stage as Complete" */}
+            <StagePath compact stages={stages as any} current={selected.stage} path={selected.stage_path} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} />
+            {stagePrompt && (stagePrompt.code === "CONFIRM_SKIP" || stagePrompt.code === "STAGE_MANDATORY") && (
+              <StageFlowPrompt prompt={stagePrompt} stages={stages as any} busy={movingStage} onMove={(id, extra) => moveStage(id, extra || {})} onCancel={() => setStagePrompt(null)} />
+            )}
+            {stageError && !stagePrompt && <div className="text-[11px] text-red-500">{stageError}</div>}
+            {stageDone && !stagePrompt && <div className="text-[11px] text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{stageDone}</div>}
+            {/* Mark as Lost + the next-action / lost-reason prompts that a stage move can ask for */}
+            {(() => {
+              const lostStage = stages.find((st: any) => st.is_lost || /lost/i.test(st.id));
+              const isLost = lostStage && selected.stage === lostStage.id;
+              return (
+                <div className="space-y-2">
+                  {lostStage && !isLost && (
+                    <button disabled={movingStage} onClick={() => {
+                        // IB: ask for reason + comment straight away; other verticals keep the simple confirm
+                        if (vId === "ib") { setPromptVals(p => ({ ...p, lost_reason: "", lost_comment: "" })); setStageError(""); setStagePrompt({ stageId: lostStage.id, code: "NEED_LOST_REASON" }); }
+                        else if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id);
+                      }}
+                      className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
+                  )}
+                  {stagePrompt && (stagePrompt.code === "NEED_LOST_REASON" || stagePrompt.code === "NEED_NEXT_ACTION") && (
+                    <div className={`rounded-xl border p-2.5 space-y-2 ${stagePrompt.code === "NEED_LOST_REASON" ? "border-red-500/50 bg-red-500/10" : t.alertYellow}`}>
+                      <div className={`text-[11px] font-semibold ${stagePrompt.code === "NEED_LOST_REASON" ? "text-red-500" : ""}`}>
+                        {stagePrompt.code === "NEED_LOST_REASON" ? `Mark as ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "Lost"} — why was this opportunity lost?` : `What's the next action? (needed for ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "this stage"})`}
+                      </div>
+                      {stagePrompt.code === "NEED_LOST_REASON" ? (
+                        <>
+                        <label className={`block text-[10px] ${t.textMuted}`}>Reason <span className="text-red-500">*</span></label>
+                        <select value={promptVals.lost_reason} onChange={e => setPromptVals(p => ({ ...p, lost_reason: e.target.value }))} className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`}>
+                          <option value="">— Choose a reason —</option>
+                          {lostReasons.map(r => <option key={r}>{r}</option>)}
+                        </select>
+                        <label className={`block text-[10px] ${t.textMuted}`}>Comment <span className="text-red-500">*</span> <span className="opacity-70">— what happened? (min 10 characters, saved to History)</span></label>
+                        <textarea value={promptVals.lost_comment} onChange={e => setPromptVals(p => ({ ...p, lost_comment: e.target.value }))} rows={3}
+                          placeholder={promptVals.lost_reason === "Lost to Competitor" ? "e.g. Client mandated Kotak at a lower fee; we were second" : "e.g. Promoter wants to wait for FY27 results before going ahead"}
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
+                        <div className={`text-[10px] text-right ${promptVals.lost_comment.trim().length >= 10 ? "text-emerald-500" : t.textMuted}`}>{promptVals.lost_comment.trim().length}/10</div>
+                        </>
+                      ) : (<>
+                        <input value={promptVals.next_action} onChange={e => setPromptVals(p => ({ ...p, next_action: e.target.value }))} placeholder="e.g. Share pitch deck with CFO"
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
+                        <input type="date" value={promptVals.next_action_date} onChange={e => setPromptVals(p => ({ ...p, next_action_date: e.target.value }))}
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Next action date" />
+                      </>)}
+                      <div className="flex gap-2">
+                        <button onClick={() => setStagePrompt(null)} className={`flex-1 text-xs py-1.5 rounded-lg border ${t.border}`}>Cancel</button>
+                        <button disabled={movingStage || (stagePrompt.code === "NEED_LOST_REASON" ? (!promptVals.lost_reason || promptVals.lost_comment.trim().length < 10) : !promptVals.next_action.trim())}
+                          onClick={() => moveStage(stagePrompt.stageId, { ...(stagePrompt.carry || {}), ...(stagePrompt.code === "NEED_LOST_REASON" ? { lost_reason: promptVals.lost_reason, lost_comment: promptVals.lost_comment.trim() } : { next_action: promptVals.next_action.trim(), next_action_date: promptVals.next_action_date || null }) })}
+                          className={`flex-1 text-xs py-1.5 rounded-lg text-white disabled:opacity-40 ${stagePrompt.code === "NEED_LOST_REASON" ? "bg-red-600" : "bg-blue-600"}`}>{stagePrompt.code === "NEED_LOST_REASON" ? "Mark as Lost" : "Save & move"}</button>
+                      </div>
+                    </div>
+                  )}
+                  {stageError && stagePrompt && <div className="text-[11px] text-red-500">{stageError}</div>}
+                </div>
+              );
+            })()}
             {selected.next_action && (
               <div className={`rounded-xl border p-2.5 text-xs ${selected.next_action_date && new Date(selected.next_action_date) < new Date(new Date().toDateString()) ? t.alertRed : t.alertYellow}`}>
                 <div className="text-[10px] uppercase font-semibold opacity-80">Next action{selected.next_action_date ? ` · ${new Date(selected.next_action_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}` : ""}</div>
@@ -3484,82 +3558,6 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 <span className={`font-medium ${t.text}`}>{row.value}</span>
               </div>
             ))}
-            {/* Stage progress — click a stage, or use Back / Next, to move the lead */}
-            {(() => {
-              const flow = stages.filter((st: any) => !st.is_lost && !/lost/i.test(st.id));
-              const lostStage = stages.find((st: any) => st.is_lost || /lost/i.test(st.id));
-              const cur = flow.findIndex((s: any) => s.id === selected.stage);
-              const isLost = lostStage && selected.stage === lostStage.id;
-              return (
-                <div className="space-y-2">
-                  <div className="space-y-0.5">
-                    {stages.map((st: any) => {
-                      const idx = flow.findIndex((s: any) => s.id === st.id);
-                      const done = !isLost && idx !== -1 && idx <= cur;
-                      const current = st.id === selected.stage;
-                      return (
-                        <button key={st.id} disabled={current || movingStage} onClick={() => moveStage(st.id)} title={current ? "Current stage" : `Move to ${st.label}`}
-                          className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left transition-colors ${current ? (isDark ? "bg-white/5" : "bg-slate-100") : "hover:bg-blue-500/10"} disabled:cursor-default`}>
-                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 ${current && isLost ? "bg-red-500" : done ? v.color : t.bgCard2}`}>
-                            {(done || (current && isLost)) && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
-                          </div>
-                          <span className={`text-xs ${current ? `font-semibold ${t.text}` : done ? t.text : t.textMuted}`}>{st.label}</span>
-                          {current && <span className={`ml-auto text-[10px] ${t.textMuted}`}>current</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="flex gap-2">
-                    <button disabled={movingStage || cur <= 0} onClick={() => moveStage(flow[cur - 1].id)}
-                      className={`flex-1 text-xs py-2 rounded-lg border ${t.border} ${t.textSub} disabled:opacity-40`}>← {cur > 0 ? flow[cur - 1].label : "Back"}</button>
-                    <button disabled={movingStage || cur === -1 || cur >= flow.length - 1} onClick={() => moveStage(flow[cur + 1].id)}
-                      className="flex-1 text-xs py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{cur >= 0 && cur < flow.length - 1 ? flow[cur + 1].label : "Next"} →</button>
-                  </div>
-                  {lostStage && !isLost && (
-                    <button disabled={movingStage} onClick={() => {
-                        // IB: ask for reason + comment straight away; other verticals keep the simple confirm
-                        if (vId === "ib") { setPromptVals(p => ({ ...p, lost_reason: "", lost_comment: "" })); setStageError(""); setStagePrompt({ stageId: lostStage.id, code: "NEED_LOST_REASON" }); }
-                        else if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id);
-                      }}
-                      className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
-                  )}
-                  {stagePrompt && (
-                    <div className={`rounded-xl border p-2.5 space-y-2 ${stagePrompt.code === "NEED_LOST_REASON" ? "border-red-500/50 bg-red-500/10" : t.alertYellow}`}>
-                      <div className={`text-[11px] font-semibold ${stagePrompt.code === "NEED_LOST_REASON" ? "text-red-500" : ""}`}>
-                        {stagePrompt.code === "NEED_LOST_REASON" ? `Mark as ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "Lost"} — why was this opportunity lost?` : `What's the next action? (needed for ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "this stage"})`}
-                      </div>
-                      {stagePrompt.code === "NEED_LOST_REASON" ? (
-                        <>
-                        <label className={`block text-[10px] ${t.textMuted}`}>Reason <span className="text-red-500">*</span></label>
-                        <select value={promptVals.lost_reason} onChange={e => setPromptVals(p => ({ ...p, lost_reason: e.target.value }))} className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`}>
-                          <option value="">— Choose a reason —</option>
-                          {lostReasons.map(r => <option key={r}>{r}</option>)}
-                        </select>
-                        <label className={`block text-[10px] ${t.textMuted}`}>Comment <span className="text-red-500">*</span> <span className="opacity-70">— what happened? (min 10 characters, saved to History)</span></label>
-                        <textarea value={promptVals.lost_comment} onChange={e => setPromptVals(p => ({ ...p, lost_comment: e.target.value }))} rows={3}
-                          placeholder={promptVals.lost_reason === "Lost to Competitor" ? "e.g. Client mandated Kotak at a lower fee; we were second" : "e.g. Promoter wants to wait for FY27 results before going ahead"}
-                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
-                        <div className={`text-[10px] text-right ${promptVals.lost_comment.trim().length >= 10 ? "text-emerald-500" : t.textMuted}`}>{promptVals.lost_comment.trim().length}/10</div>
-                        </>
-                      ) : (<>
-                        <input value={promptVals.next_action} onChange={e => setPromptVals(p => ({ ...p, next_action: e.target.value }))} placeholder="e.g. Share pitch deck with CFO"
-                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
-                        <input type="date" value={promptVals.next_action_date} onChange={e => setPromptVals(p => ({ ...p, next_action_date: e.target.value }))}
-                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Next action date" />
-                      </>)}
-                      <div className="flex gap-2">
-                        <button onClick={() => setStagePrompt(null)} className={`flex-1 text-xs py-1.5 rounded-lg border ${t.border}`}>Cancel</button>
-                        <button disabled={movingStage || (stagePrompt.code === "NEED_LOST_REASON" ? (!promptVals.lost_reason || promptVals.lost_comment.trim().length < 10) : !promptVals.next_action.trim())}
-                          onClick={() => moveStage(stagePrompt.stageId, stagePrompt.code === "NEED_LOST_REASON" ? { lost_reason: promptVals.lost_reason, lost_comment: promptVals.lost_comment.trim() } : { next_action: promptVals.next_action.trim(), next_action_date: promptVals.next_action_date || null })}
-                          className={`flex-1 text-xs py-1.5 rounded-lg text-white disabled:opacity-40 ${stagePrompt.code === "NEED_LOST_REASON" ? "bg-red-600" : "bg-blue-600"}`}>{stagePrompt.code === "NEED_LOST_REASON" ? "Mark as Lost" : "Save & move"}</button>
-                      </div>
-                    </div>
-                  )}
-                  {stageError && <div className="text-[11px] text-red-500">{stageError}</div>}
-                  {stageDone && !stagePrompt && <div className="text-[11px] text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{stageDone}</div>}
-                </div>
-              );
-            })()}
             {isWonStage(selected.stage) && (
               <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Convert to Deal →
@@ -3714,6 +3712,28 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
   const deals = allDeals;
   const paginated = deals.slice((page - 1) * DEAL_PAGE_SIZE, page * DEAL_PAGE_SIZE);
 
+  // Move a deal along its stage path (server enforces Mandatory / Skip allowed; asks to confirm skips)
+  const dealPathStages = DEAL_STAGE_META[vId] || dealBoardStages.map(l => ({ id: l, label: l }));
+  const [dealMoving, setDealMoving] = useState(false);
+  const [dealPrompt, setDealPrompt] = useState<any>(null);
+  const [dealStageMsg, setDealStageMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { setDealPrompt(null); setDealStageMsg(null); }, [selected?.id]);
+  const moveDeal = async (stageId: string, extra: Record<string, any> = {}) => {
+    if (!selected) return;
+    setDealMoving(true); setDealStageMsg(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/deals/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId, ...extra }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (d.code === "CONFIRM_SKIP" || d.code === "STAGE_MANDATORY") { setDealPrompt({ stageId, code: d.code, carry: extra, skip: d.skip, stage: d.stage }); return; }
+        throw new Error(d.error || "Could not change stage");
+      }
+      setDealPrompt(null); setSelected({ ...selected, ...d, rm_name: selected.rm_name, client_name: selected.client_name });
+      setDealStageMsg({ ok: true, text: `Moved to ${dealPathStages.find(s => s.id === stageId)?.label || stageId}` });
+      setDealActivityKey(k => k + 1); load();
+    } catch (e: any) { setDealStageMsg({ ok: false, text: e.message }); } finally { setDealMoving(false); }
+  };
+
   return (
     <div className="flex h-full overflow-hidden">
       <DealModal
@@ -3845,7 +3865,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
 
       {/* Side Panel */}
       {selected && (
-        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-96 border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
+        <div className={`fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0`}>
           <div className="flex items-center justify-between mb-4">
             <span className={`text-sm font-bold ${t.text}`}>Deal Details</span>
             <div className="flex items-center gap-2">
@@ -3859,11 +3879,20 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             <div className={`text-xl font-bold ${t.text} mt-1`}>{selected.value ? fmtMoneyStr(selected.value) : "—"}</div>
             <StatusBadge s={selected.stage} />
           </div>
+          {/* Stage path — same workflow as opportunities (Mandatory / Skip allowed) */}
+          <div className="mb-3 space-y-2">
+            <StagePath compact stages={dealPathStages} current={selected.stage} path={selected.stage_path} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} />
+            {dealPrompt && <StageFlowPrompt prompt={dealPrompt} stages={dealPathStages} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} onCancel={() => setDealPrompt(null)} />}
+            {dealStageMsg && !dealPrompt && <div className={`text-[11px] ${dealStageMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{dealStageMsg.text}</div>}
+          </div>
           {[
             { label: "Type", value: selected.type },
             { label: "RM", value: selected.rm_name || "—" },
             { label: "Date", value: fmtDateShort(selected.deal_date) },
             { label: "Created by", value: selected.created_by_name || "—" },
+            // Kind-specific details captured when the deal was created (IPO board, exchange, role, scheme…)
+            ...(() => { const k = kindOf(v.id, selected); return (k?.fields || []).filter(fd => selected.details?.[fd.k] !== undefined && selected.details?.[fd.k] !== "")
+              .map(fd => ({ label: fd.label, value: fd.type === "pct" ? `${selected.details[fd.k]}%` : fd.type === "money" ? fmtMoneyStr(selected.details[fd.k]) : fd.type === "date" ? fmtDateShort(selected.details[fd.k]) : String(selected.details[fd.k]) })); })(),
             { label: "Notes", value: selected.notes || "—" },
           ].map(r => (
             <div key={r.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
@@ -7580,7 +7609,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
   const [filterType, setFilterType] = useState("all");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<any>(null);
-  const [newRow, setNewRow] = useState({ vertical: "retail", entity: "lead", label: "", sort_order: 1, color: "#6366f1" });
+  const [newRow, setNewRow] = useState({ vertical: "retail", entity: "lead", label: "", sort_order: 1, color: "#6366f1", skip_allowed: true });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -7617,12 +7646,12 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
     if (!newRow.label) { setErr("Stage name is required."); return; }
     setSaving(true); setErr("");
     try {
-      const payload = { entity: newRow.entity, vertical: newRow.vertical, stage_id: slugify(newRow.label), label: newRow.label, sort_order: newRow.sort_order, color: newRow.color };
+      const payload = { entity: newRow.entity, vertical: newRow.vertical, stage_id: slugify(newRow.label), label: newRow.label, sort_order: newRow.sort_order, color: newRow.color, skip_allowed: newRow.skip_allowed };
       const r = await fetch(`${API_BASE}/api/config/pipeline-stages`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
-      setAdding(false); setNewRow({ vertical: "retail", entity: "lead", label: "", sort_order: 1, color: "#6366f1" }); load();
+      setAdding(false); setNewRow({ vertical: "retail", entity: "lead", label: "", sort_order: 1, color: "#6366f1", skip_allowed: true }); load();
     } catch (e: any) { setErr(e.message || "Save failed."); } finally { setSaving(false); }
   };
 
@@ -7632,7 +7661,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
     try {
       const r = await fetch(`${API_BASE}/api/config/pipeline-stages/${editing.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: editing.label, sort_order: editing.sort_order, color: editing.color, is_won: editing.is_won, is_lost: editing.is_lost }),
+        body: JSON.stringify({ label: editing.label, sort_order: editing.sort_order, color: editing.color, is_won: editing.is_won, is_lost: editing.is_lost, is_active: editing.is_active !== false, skip_allowed: editing.skip_allowed !== false }),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
       setEditing(null); load();
@@ -7645,7 +7674,23 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
     load();
   };
 
-  const VNAME2: Record<string, string> = { retail: "Retail Banking", corporate: "Corporate Banking", ib: "Investment Banking", aif: "AIF/PMS", ie: "Insurance & Estate" };
+  const VNAME2: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+  // One flag per stage: Mandatory (can't be skipped) or Skip allowed (user may skip it, and it shows as Skipped)
+  const toggleSkip = async (row: any) => {
+    setRows(rs => rs.map(r => r.id === row.id ? { ...r, skip_allowed: !(row.skip_allowed !== false) } : r));
+    const r = await fetch(`${API_BASE}/api/config/pipeline-stages/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skip_allowed: !(row.skip_allowed !== false) }) });
+    if (!r.ok) load();
+  };
+  const SkipPill = ({ row, onClick }: { row: any; onClick?: () => void }) => {
+    const allowed = row.skip_allowed !== false;
+    if (row.is_won || row.is_lost) return <span className={`text-[10px] ${t.textMuted}`} title="End stages are never skipped">—</span>;
+    return (
+      <button type="button" onClick={onClick} title={allowed ? "Users may skip this stage (it shows as Skipped). Click to make it mandatory." : "Users must go through this stage. Click to allow skipping."}
+        className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${allowed ? "border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-300" : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300"}`}>
+        {allowed ? "Skip allowed" : "Mandatory"}
+      </button>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -7653,7 +7698,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
         <div className={`w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center`}><TrendingUp className="w-3.5 h-3.5 text-white" /></div>
         <div>
           <div className={`text-sm font-bold ${t.text}`}>Pipeline Stages</div>
-          <div className={`text-[10px] ${t.textMuted}`}>Manage lead & deal stages per vertical</div>
+          <div className={`text-[10px] ${t.textMuted}`}>Lead & deal stages per vertical · <b>Mandatory</b> stages can't be skipped; <b>Skip allowed</b> stages can be skipped and show as Skipped</div>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <select value={filterVertical} onChange={e => setFilterVertical(e.target.value)} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg}`}>
@@ -7685,6 +7730,13 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
               <span className={`text-[10px] ${t.textMuted}`}>Color</span>
             </div>
           </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`text-[11px] ${t.textMuted}`}>Workflow:</span>
+            {[true, false].map(v => (
+              <button key={String(v)} type="button" onClick={() => setNewRow(p => ({ ...p, skip_allowed: v }))}
+                className={`text-[11px] px-2.5 py-1 rounded-full border ${newRow.skip_allowed === v ? (v ? "border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-300 font-semibold" : "border-red-500 bg-red-500/10 text-red-600 dark:text-red-300 font-semibold") : `${t.border} ${t.textMuted}`}`}>{v ? "Skip allowed" : "Mandatory"}</button>
+            ))}
+          </div>
           {err && <div className="text-xs text-red-500 mt-2">{err}</div>}
           <div className="flex gap-2 mt-3">
             <button onClick={() => setAdding(false)} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}>Cancel</button>
@@ -7710,7 +7762,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
                 <table className="w-full">
                   <thead className={t.tableHead}>
                     <tr className={`border-b ${t.border}`}>
-                      {["#", "Stage Name", "Color", "Won / Lost", "Active", ""].map(h => (
+                      {["#", "Stage Name", "Color", "Won / Lost", "Workflow", "Active", ""].map(h => (
                         <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2`}>{h}</th>
                       ))}
                     </tr>
@@ -7735,6 +7787,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
                                 <label className="flex items-center gap-1 text-[10px]"><input type="checkbox" checked={!!editing.is_lost} onChange={e => setEditing((p: any) => ({ ...p, is_lost: e.target.checked }))} /> Lost</label>
                               </div>
                             </td>
+                            <td className="px-4 py-2"><SkipPill row={editing} onClick={() => setEditing((p: any) => ({ ...p, skip_allowed: !(p.skip_allowed !== false) }))} /></td>
                             <td className="px-4 py-2">
                               <input type="checkbox" checked={editing.is_active !== false} onChange={e => setEditing((p: any) => ({ ...p, is_active: e.target.checked }))} />
                             </td>
@@ -7763,6 +7816,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
                                 {!row.is_won && !row.is_lost && <span className={`text-[10px] ${t.textMuted}`}>—</span>}
                               </div>
                             </td>
+                            <td className="px-4 py-2.5"><SkipPill row={row} onClick={() => toggleSkip(row)} /></td>
                             <td className="px-4 py-2.5">
                               <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${row.is_active !== false ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-500"}`}>
                                 {row.is_active !== false ? "Active" : "Inactive"}
@@ -7867,7 +7921,7 @@ export function CRMApp() {
         active.filter(r => r.entity === "lead").forEach(r => {
           const vKey = r.vertical;
           if (!leadMap[vKey]) leadMap[vKey] = [];
-          leadMap[vKey].push({ id: r.stage_id, label: r.label, is_won: !!r.is_won, is_lost: !!r.is_lost });
+          leadMap[vKey].push({ id: r.stage_id, label: r.label, is_won: !!r.is_won, is_lost: !!r.is_lost, skip_allowed: r.skip_allowed !== false } as any);
         });
         Object.assign(LEAD_STAGES, leadMap);
         // Rebuild DEAL_STAGES (string array of labels)
@@ -7878,6 +7932,9 @@ export function CRMApp() {
           dealMap[vKey].push(r.label);
         });
         Object.assign(DEAL_STAGES, dealMap);
+        const dealMeta: Record<string, any[]> = {};
+        active.filter(r => r.entity === "deal").forEach(r => { (dealMeta[r.vertical] ||= []).push({ id: r.stage_id, label: r.label, is_won: !!r.is_won, is_lost: !!r.is_lost, skip_allowed: r.skip_allowed !== false }); });
+        Object.assign(DEAL_STAGE_META, dealMeta);
         setVerticalsKey(k => k + 1); // re-render screens that read the stage lists
       })
       .catch(() => {});
@@ -7980,6 +8037,22 @@ export function CRMApp() {
     window.addEventListener("recorder:open", r); window.addEventListener("meeting:open", m);
     return () => { window.removeEventListener("recorder:open", r); window.removeEventListener("meeting:open", m); };
   }, []);
+  // Contact page, business-card scanner, Teams scheduling and "open company" — reachable from anywhere
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
+  const [scanDefaults, setScanDefaults] = useState<any | null>(null);
+  const [teamsFor, setTeamsFor] = useState<any | null>(null);
+  useEffect(() => {
+    const po = (e: any) => e.detail?.id && setOpenPersonId(e.detail.id);
+    const sc = (e: any) => setScanDefaults(e.detail || {});
+    const ts = (e: any) => setTeamsFor(e.detail?.client || {});
+    const co = (e: any) => {
+      if (!e.detail?.id || e.detail.handled) return;
+      try { sessionStorage.setItem("ib_open_company", e.detail.id); } catch { /* ignore */ }
+      if (window.location.hash !== "#/ib/customers") window.location.hash = "#/ib/customers";
+    };
+    window.addEventListener("person:open", po); window.addEventListener("cardscan:open", sc); window.addEventListener("teams:schedule", ts); window.addEventListener("company:open", co);
+    return () => { window.removeEventListener("person:open", po); window.removeEventListener("cardscan:open", sc); window.removeEventListener("teams:schedule", ts); window.removeEventListener("company:open", co); };
+  }, []);
   useEffect(() => {
     const h = (e: any) => setQuickLogDefaults(e.detail || {});
     window.addEventListener("quicklog:open", h);
@@ -8043,7 +8116,7 @@ export function CRMApp() {
       if (activePage === "admin-sla")              return <AdminSLAConfig t={t} />;
       if (activePage === "admin-verticals")        return <AdminVerticals t={t} onReload={() => setVisRev(k => k + 1)} />;
       if (activePage === "admin-dropdown-config")  return <AdminDropdownConfig t={t} isDark={darkMode} />;
-      if (activePage === "admin-pipeline-stages")  return <AdminPipelineStages t={t} isDark={darkMode} />;
+      if (activePage === "admin-pipeline-stages")  return <AdminPipelineStagesV2 />;
       if (activePage === "admin-pii-masking")      return <AdminPIIMasking t={t} isDark={darkMode} />;
       if (activePage === "admin-llm")      return <AdminLLMSettings t={t} isDark={darkMode} />;
       if (activePage === "admin-prompts")  return <AdminAIPrompts t={t} isDark={darkMode} />;
@@ -8095,6 +8168,9 @@ export function CRMApp() {
     <div className={`flex h-screen w-screen ${t.bg} overflow-hidden relative`}>
       <MeetingRecorder open={!!recorderDefaults} defaults={recorderDefaults || undefined} currentUser={loggedUser} onClose={() => setRecorderDefaults(null)} />
       {openMeetingId && <MeetingView id={openMeetingId} onClose={() => setOpenMeetingId(null)} />}
+      {openPersonId && <PersonView id={openPersonId} onClose={() => setOpenPersonId(null)} />}
+      <CardScanner open={!!scanDefaults} defaults={scanDefaults || undefined} onClose={() => setScanDefaults(null)} />
+      {teamsFor && <TeamsMeetingModal client={teamsFor} organizerEmail={loggedUser?.email || ""} t={t} isDark={isDark} onClose={() => setTeamsFor(null)} />}
       <QuickLog open={!!quickLogDefaults} defaults={quickLogDefaults || undefined} currentUser={loggedUser}
         onClose={() => setQuickLogDefaults(null)} onSaved={it => window.dispatchEvent(new CustomEvent("quicklog:saved", { detail: it }))} />
       {/* Mobile backdrop */}

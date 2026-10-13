@@ -115,13 +115,14 @@ router.get("/pipeline-stages/all", async (req, res) => {
 router.post("/pipeline-stages", async (req, res) => {
   try {
     const { entity, vertical, stage_id, label, sort_order = 0, color = "bg-gray-500", is_won = false, is_lost = false, created_by } = req.body;
+    const skip_allowed = req.body.skip_allowed === false ? false : true;
     if (!entity || !vertical || !stage_id || !label) return res.status(400).json({ error: "entity, vertical, stage_id, label required" });
     const result = await query(
-      `INSERT INTO pipeline_stages (entity, vertical, stage_id, label, sort_order, color, is_won, is_lost)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (entity, vertical, stage_id) DO UPDATE SET label=$4, sort_order=$5, color=$6, is_won=$7, is_lost=$8, is_active=true
+      `INSERT INTO pipeline_stages (entity, vertical, stage_id, label, sort_order, color, is_won, is_lost, skip_allowed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (entity, vertical, stage_id) DO UPDATE SET label=$4, sort_order=$5, color=$6, is_won=$7, is_lost=$8, skip_allowed=$9, is_active=true
        RETURNING *`,
-      [entity, vertical, stage_id, label, sort_order, color, is_won, is_lost],
+      [entity, vertical, stage_id, label, sort_order, color, is_won, is_lost, skip_allowed],
     );
     const row = result.rows[0];
     await audit("pipeline_stage", String(row.id), created_by || "admin", "Pipeline Stage Created",
@@ -133,15 +134,15 @@ router.post("/pipeline-stages", async (req, res) => {
 // ─── PUT /api/config/pipeline-stages/:id ─────────────────────────────────────
 router.put("/pipeline-stages/:id", async (req, res) => {
   try {
-    const { label, sort_order, color, is_won, is_lost, is_active, updated_by } = req.body;
+    const { label, sort_order, color, is_won, is_lost, is_active, updated_by, skip_allowed } = req.body;
     const old = await query(`SELECT * FROM pipeline_stages WHERE id=$1`, [req.params.id]);
     const result = await query(
       `UPDATE pipeline_stages SET
         label=COALESCE($1,label), sort_order=COALESCE($2,sort_order),
         color=COALESCE($3,color), is_won=COALESCE($4,is_won), is_lost=COALESCE($5,is_lost),
-        is_active=COALESCE($6,is_active)
+        is_active=COALESCE($6,is_active), skip_allowed=COALESCE($8,skip_allowed)
        WHERE id=$7 RETURNING *`,
-      [label, sort_order, color, is_won, is_lost, is_active, req.params.id],
+      [label, sort_order, color, is_won, is_lost, is_active, req.params.id, typeof skip_allowed === "boolean" ? skip_allowed : null],
     );
     if (!result.rows.length) return res.status(404).json({ error: "Not found" });
     const row = result.rows[0];

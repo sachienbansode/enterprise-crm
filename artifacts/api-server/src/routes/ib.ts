@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
 import { visibleIds } from "../lib/visibility";
+import { existsSync, createReadStream } from "fs";
 
 // Investment Banking / ECM: company & promoter master, Company 360 and the IB dashboard.
 const router = Router();
@@ -73,20 +74,21 @@ router.get("/companies", async (req, res) => {
 });
 
 // ── Create company ──
-router.post("/companies", async (req, res) => {
-  try {
-    const b = req.body || {};
+const httpErr = (status: number, error: string) => Object.assign(new Error(error), { status });
+/** Creates an IB company (+ optional people). Shared by New Company and business-card scanning. */
+export async function insertCompany(input: any, user: any, vertical = "ib") {
+    const b = input || {};
     const name = String(b.name || "").trim();
-    if (!name) return res.status(400).json({ error: "Company name is required" });
+    if (!name) throw httpErr(400, "Company name is required");
     const cin = cleanCin(b.cin);
-    if (cin && !CIN_RE.test(cin)) return res.status(400).json({ error: "CIN looks invalid (21 characters, e.g. L17110MH1973PLC019786)" });
+    if (cin && !CIN_RE.test(cin)) throw httpErr(400, "CIN looks invalid (21 characters, e.g. L17110MH1973PLC019786)");
     if (cin) {
       const dup = await query("SELECT name FROM clients WHERE upper(cin)=$1", [cin]);
-      if (dup.rows[0]) return res.status(409).json({ error: `A company with this CIN already exists: ${dup.rows[0].name}` });
+      if (dup.rows[0]) throw httpErr(409, `A company with this CIN already exists: ${dup.rows[0].name}`);
     }
     const cnt = await query("SELECT COUNT(*) FROM clients WHERE client_code LIKE 'NIYT-C%'");
     const code = `NIYT-C-${String(parseInt(cnt.rows[0].count, 10) + 1).padStart(6, "0")}`;
-    const by = req.user!.name;
+    const by = user.name;
     const hasFin = FIN_FIELDS.some(f => clean(b[f]) !== null);
     const r = await query(
       `INSERT INTO clients (client_code, name, type, category, status, kyc_status, cin, sector, industry, group_name, website, listed_status,
@@ -98,14 +100,14 @@ router.post("/companies", async (req, res) => {
           $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$31) RETURNING *`,
       [code, name, cin, clean(b.sector), clean(b.industry), clean(b.group_name), clean(b.website), clean(b.listed_status),
        clean(b.exchange_symbol), clean(b.hq_city), clean(b.address), clean(b.email), clean(b.mobile), clean(b.date_of_incorporation),
-       clean(b.relationship_owner_id) || req.user!.id, clean(b.relationship_strength) || "Warm", clean(b.notes),
+       clean(b.relationship_owner_id) || user.id, clean(b.relationship_strength) || "Warm", clean(b.notes),
        clean(b.info_source), clean(b.info_as_of), by,
        clean(b.revenue_cr), clean(b.ebitda_cr), clean(b.pat_cr), clean(b.net_worth_cr), clean(b.valuation_cr), clean(b.fin_year),
-       clean(b.fin_source), clean(b.fin_as_of), hasFin ? by : null, hasFin ? new Date() : null, req.user!.id],
+       clean(b.fin_source), clean(b.fin_as_of), hasFin ? by : null, hasFin ? new Date() : null, user.id],
     );
     const c = r.rows[0];
     if (hasFin) await query("UPDATE clients SET fin_updated_at=NOW() WHERE id=$1", [c.id]);
-    await query("INSERT INTO client_verticals (client_id, vertical) VALUES ($1,'ib') ON CONFLICT DO NOTHING", [c.id]);
+    await query("INSERT INTO client_verticals (client_id, vertical) VALUES ($1,$2) ON CONFLICT DO NOTHING", [c.id, vertical]);
     for (const p of Array.isArray(b.people) ? b.people : []) {
       if (String(p?.name || "").trim()) {
         await query(
@@ -114,9 +116,14 @@ router.post("/companies", async (req, res) => {
         );
       }
     }
-    await logAudit({ entityType: "client", entityId: c.id, entityCode: code, action: "CREATE", userId: req.user!.id, userName: by, userRole: req.user!.role, recordDisplay: `${name} (${code})`, after: c });
-    res.status(201).json(c);
+    await logAudit({ entityType: "client", entityId: c.id, entityCode: code, action: "CREATE", userId: user.id, userName: by, userRole: user.role, recordDisplay: `${name} (${code})`, after: c });
+  return c;
+}
+router.post("/companies", async (req, res) => {
+  try {
+    res.status(201).json(await insertCompany(req.body, req.user));
   } catch (e: any) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
     if (/uq_clients_cin/.test(e.message)) return res.status(409).json({ error: "A company with this CIN already exists" });
     res.status(500).json({ error: e.message });
   }
@@ -200,31 +207,79 @@ router.get("/companies/:id", async (req, res) => {
 });
 
 // ── Promoters / management ──
+const PERSON_FIELDS = ["name", "designation", "role_type", "email", "mobile", "landline", "linkedin", "address", "city", "notes", "is_key"] as const;
 router.post("/companies/:id/people", async (req, res) => {
   const b = req.body || {};
   if (!String(b.name || "").trim()) return res.status(400).json({ error: "Name is required" });
-  try {
-    const r = await query(
-      `INSERT INTO company_people (client_id, name, designation, role_type, email, mobile, linkedin, notes, is_key, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [req.params.id, b.name.trim(), clean(b.designation), clean(b.role_type) || "Promoter", clean(b.email), clean(b.mobile), clean(b.linkedin), clean(b.notes), !!b.is_key, req.user!.name],
-    );
-    await logAudit({ entityType: "company_person", entityId: req.params.id, action: "CREATE", userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, recordDisplay: b.name, after: r.rows[0] });
-    res.status(201).json(r.rows[0]);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  if (!UUID.test(req.params.id)) return res.status(400).json({ error: "Invalid id" });
+  try { res.status(201).json(await insertPerson(req.params.id, b, req.user, "manual")); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+export async function insertPerson(clientId: string, b: any, user: any, source = "manual") {
+  const r = await query(
+    `INSERT INTO company_people (client_id, name, designation, role_type, email, mobile, landline, linkedin, address, city, notes, is_key, source, created_by, created_by_name)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+    [clientId, String(b.name).trim(), clean(b.designation), clean(b.role_type) || "Management", clean(b.email), clean(b.mobile), clean(b.landline),
+     clean(b.linkedin), clean(b.address), clean(b.city), clean(b.notes), !!b.is_key, source, user.id, user.name],
+  );
+  await logAudit({ entityType: "company_person", entityId: clientId, action: "CREATE", userId: user.id, userName: user.name, userRole: user.role, recordDisplay: b.name, after: r.rows[0] });
+  return r.rows[0];
+}
+// Partial update: only the fields sent are changed
 router.patch("/people/:pid", async (req, res) => {
   const b = req.body || {};
+  if (!UUID.test(req.params.pid)) return res.status(400).json({ error: "Invalid id" });
+  if ("name" in b && !String(b.name || "").trim()) return res.status(400).json({ error: "Name is required" });
   try {
-    const r = await query(
-      `UPDATE company_people SET name=COALESCE($1,name), designation=$2, role_type=COALESCE($3,role_type), email=$4, mobile=$5,
-         linkedin=$6, notes=$7, is_key=COALESCE($8,is_key), updated_at=NOW() WHERE id=$9 RETURNING *`,
-      [clean(b.name), clean(b.designation), clean(b.role_type), clean(b.email), clean(b.mobile), clean(b.linkedin), clean(b.notes),
-       typeof b.is_key === "boolean" ? b.is_key : null, req.params.pid],
-    );
+    const sets: string[] = [], vals: any[] = [];
+    for (const f of PERSON_FIELDS) {
+      if (!(f in b)) continue;
+      vals.push(f === "is_key" ? !!b[f] : f === "name" ? String(b.name).trim() : clean(b[f])); sets.push(`${f}=$${vals.length}`);
+    }
+    if (!sets.length) return res.status(400).json({ error: "Nothing to update" });
+    vals.push(req.params.pid);
+    const r = await query(`UPDATE company_people SET ${sets.join(", ")}, updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals);
     if (!r.rows[0]) return res.status(404).json({ error: "Not found" });
+    await logAudit({ entityType: "company_person", entityId: r.rows[0].client_id, action: "UPDATE", userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, recordDisplay: r.rows[0].name, after: r.rows[0] });
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+// Contact page: person + company + owner + history (meetings, interactions and tasks involving this person)
+router.get("/people/:pid", async (req, res) => {
+  if (!UUID.test(req.params.pid)) return res.status(400).json({ error: "Invalid id" });
+  try {
+    const p = (await query(
+      `SELECT p.*, c.name AS company_name, c.client_code, c.website AS company_website, c.hq_city AS company_city, c.address AS company_address,
+              ro.name AS owner_name, ro.id AS owner_id
+         FROM company_people p JOIN clients c ON c.id=p.client_id LEFT JOIN users ro ON ro.id=c.relationship_owner_id WHERE p.id=$1`, [req.params.pid])).rows[0];
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const email = (p.email || "").toLowerCase(), name = p.name;
+    const [ints, meets, tasks] = await Promise.all([
+      query(`SELECT id, type, title, summary, occurred_at, source, created_by_name, meeting_id FROM interactions
+              WHERE client_id=$1 AND (attendees::text ILIKE $2 OR ($3 <> '' AND attendees::text ILIKE $3) OR title ILIKE $2 OR summary ILIKE $2)
+              ORDER BY occurred_at DESC LIMIT 50`, [p.client_id, `%${name}%`, email ? `%${email}%` : ""]),
+      query(`SELECT id, title, source, status, start_at, duration_sec FROM meetings
+              WHERE client_id=$1 AND interaction_id IS NULL AND (attendees::text ILIKE $2 OR ($3 <> '' AND attendees::text ILIKE $3))
+              ORDER BY start_at DESC NULLS LAST LIMIT 30`, [p.client_id, `%${name}%`, email ? `%${email}%` : ""]).catch(() => ({ rows: [] as any[] })),
+      query(`SELECT id, title, due_date, status, owner_name, created_at, completed_at FROM tasks WHERE person_id=$1 ORDER BY (status='Done'), due_date NULLS LAST LIMIT 50`, [p.id]),
+    ]);
+    const history = [
+      ...ints.rows.map(i => ({ kind: "interaction", at: i.occurred_at, by: i.created_by_name, title: i.title, summary: i.summary, type: i.type, source: i.source, id: i.id, meeting_id: i.meeting_id })),
+      ...meets.rows.map(m => ({ kind: "meeting", at: m.start_at, title: m.title, status: m.status, source: m.source, meeting_id: m.id })),
+      ...tasks.rows.map(t => ({ kind: "task", at: t.status === "Done" ? (t.completed_at || t.created_at) : t.created_at, by: t.owner_name, title: t.title, status: t.status, due_date: t.due_date, id: t.id })),
+      { kind: "created", at: p.created_at, by: p.created_by_name, title: p.source === "card_scan" ? "Added from a business card" : "Added to the CRM" },
+    ].sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+    const { card_path, card_back_path, ...rest } = p;
+    res.json({ ...rest, has_card: !!card_path, has_card_back: !!card_back_path, history, open_tasks: tasks.rows.filter(t => t.status !== "Done").length });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.get("/people/:pid/card", async (req, res) => {
+  if (!UUID.test(req.params.pid)) return res.status(400).end();
+  const r = (await query("SELECT card_path, card_back_path FROM company_people WHERE id=$1", [req.params.pid])).rows[0];
+  const f = req.query.side === "back" ? r?.card_back_path : r?.card_path;
+  if (!f || !existsSync(f)) return res.status(404).json({ error: "No card image" });
+  res.setHeader("Content-Type", "image/jpeg"); res.setHeader("Cache-Control", "private, max-age=3600");
+  createReadStream(f).pipe(res);
 });
 router.delete("/people/:pid", async (req, res) => {
   try {

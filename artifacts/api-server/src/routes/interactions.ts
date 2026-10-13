@@ -204,10 +204,10 @@ tasksRouter.post("/", async (req, res) => {
     const ownerId = uuidOrNull(b.owner_id) || req.user!.id;
     const ownerName = (await query("SELECT name FROM users WHERE id=$1", [ownerId])).rows[0]?.name || req.user!.name;
     const r = await query(
-      `INSERT INTO tasks (title, due_date, priority, owner_id, owner_name, client_id, lead_id, deal_id, vertical, created_by, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      `INSERT INTO tasks (title, due_date, priority, owner_id, owner_name, client_id, lead_id, deal_id, vertical, created_by, created_by_name, person_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [String(b.title).trim().slice(0, 400), clean(b.due_date), clean(b.priority) || "Medium", ownerId, ownerName,
-       uuidOrNull(b.client_id), uuidOrNull(b.lead_id), uuidOrNull(b.deal_id), clean(b.vertical), req.user!.id, req.user!.name]);
+       uuidOrNull(b.client_id), uuidOrNull(b.lead_id), uuidOrNull(b.deal_id), clean(b.vertical), req.user!.id, req.user!.name, uuidOrNull(b.person_id)]);
     if (ownerId !== req.user!.id) {
       await query("INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id) VALUES ($1,'task_assigned','New task assigned',$2,'task',$3)",
         [ownerId, `${req.user!.name}: ${String(b.title).slice(0, 180)}`, r.rows[0].id]).catch(() => {});

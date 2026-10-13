@@ -24,6 +24,7 @@ import ibRouter from "./ib";
 import { interactionsRouter, tasksRouter } from "./interactions";
 import { firefliesAdminRouter, firefliesWebhookRouter } from "./fireflies";
 import { meetingsRouter, speechAdminRouter } from "./meetings";
+import { cardsRouter } from "./cards";
 
 const router: IRouter = Router();
 
@@ -87,6 +88,7 @@ router.use("/ib", ibRouter);
 router.use("/interactions", interactionsRouter);
 router.use("/tasks", tasksRouter);
 router.use("/meetings", meetingsRouter);
+router.use("/cards", cardsRouter);
 router.use("/integrations/fireflies", firefliesWebhookRouter);
 
 export default router;

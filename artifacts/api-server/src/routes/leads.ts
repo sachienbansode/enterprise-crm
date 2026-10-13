@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
+import { checkStageMove, noteSkipped } from "../lib/stageFlow";
 import { visibleNames, visibleIds } from "../lib/visibility";
 
 
@@ -120,6 +121,12 @@ router.patch("/:id", async (req, res) => {
     if (!current.rows.length) return res.status(404).json({ error: "Lead not found" });
     const prev = current.rows[0];
     const stageChanged = !!stage && stage !== prev.stage;
+    // Stage workflow (Mandatory / Skip allowed) first — then the IB next-action / lost-reason rules
+    let flow: any = { ok: true, path: prev.stage_path || {}, skipped: [] };
+    if (stageChanged) {
+      flow = await checkStageMove("lead", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System");
+      if (!flow.ok) return res.status(flow.status).json(flow.body);
+    }
     const enteringLost = stageChanged && await isLostStage(stage);
     const leavingLost = stageChanged && !enteringLost && await isLostStage(prev.stage);
     if (stageChanged || "next_action" in req.body || "lost_reason" in req.body) {
@@ -150,6 +157,7 @@ router.patch("/:id", async (req, res) => {
         next_action_date = COALESCE($17::date, next_action_date),
         lost_reason = CASE WHEN $21::boolean THEN NULL ELSE COALESCE($18, lost_reason) END,
         lost_comment = CASE WHEN $21::boolean THEN NULL ELSE COALESCE($22, lost_comment) END,
+        stage_path = $23::jsonb,
         expected_fee = COALESCE($19, expected_fee),
         probability = COALESCE($20, probability),
         closed_at = CASE WHEN $2::text IS NOT NULL AND EXISTS (SELECT 1 FROM pipeline_stages ps WHERE ps.entity='lead' AND ps.stage_id=$2 AND (ps.is_won OR ps.is_lost))
@@ -159,8 +167,9 @@ router.patch("/:id", async (req, res) => {
       // source / sub_source are fixed after creation → never updated here
       // lead name is fixed after creation too
       [null, stage, priority, status, notes, assigned_rm_id, client_id, null, null, product, deal_type, value_estimate, expected_close || null, req.params.id,
-       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), leavingLost, lost_comment || null],
+       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), leavingLost, lost_comment || null, JSON.stringify(flow.path || {})],
     );
+    if (stageChanged) await noteSkipped("lead", req.params.id, req.user, flow.skipped, flow.target || stage);
     if (enteringLost && lost_comment) await postLostComment(req.params.id, req.user, await stageLabel(stage), lost_reason || result.rows[0].lost_reason, lost_comment);
 
     await logAudit({
@@ -197,6 +206,8 @@ router.post("/", async (req, res) => {
             opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability } = req.body;
     const lost_comment = String(req.body.lost_comment || "").trim();
     const createdLost = await isLostStage(stage);
+    const flow = await checkStageMove("lead", vertical, null, stage || "", {}, !!req.body.skip_confirmed, req.user?.name || "System");
+    if (!flow.ok) return res.status(flow.status).json(flow.body);
     const ruleErr = await ibRuleError(vertical, stage, next_action, lost_reason, lost_comment, createdLost);
     if (ruleErr) return res.status(400).json(ruleErr);
     if (isFutureDate(opened_at)) return res.status(400).json({ error: "Lead open date cannot be in the future." });
@@ -209,11 +220,12 @@ router.post("/", async (req, res) => {
 
     const result = await query(
       `INSERT INTO leads (lead_code, name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, expected_close, opened_at, created_by, created_by_name,
-                          opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability, lost_comment)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *`,
+                          opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability, lost_comment, stage_path)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb) RETURNING *`,
       [lead_code, name, vertical, stage || "new", priority || "Medium", value_estimate || null, source || null, sub_source || null, product || null, deal_type || null, assigned_rm_id || null, client_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null,
-       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), createdLost ? lost_comment || null : null],
+       opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), createdLost ? lost_comment || null : null, JSON.stringify(flow.path)],
     );
+    await noteSkipped("lead", result.rows[0].id, req.user, flow.skipped, flow.target || stage);
     if (createdLost && lost_comment) await postLostComment(result.rows[0].id, req.user, await stageLabel(stage), lost_reason, lost_comment);
 
     await logAudit({

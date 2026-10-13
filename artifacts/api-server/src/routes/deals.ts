@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
+import { checkStageMove, noteSkipped } from "../lib/stageFlow";
 import { visibleNames, visibleIds } from "../lib/visibility";
 
 
@@ -85,12 +86,28 @@ router.get("/:id", async (req, res) => {
 });
 
 // PATCH /api/deals/:id — full update
+// Kind-specific details (issue size, exchange, role, scheme…) as a flat object of short values
+function detailsJson(v: any): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, string | number | boolean> = {};
+  for (const [k, x] of Object.entries(v).slice(0, 40)) {
+    if (!/^[a-z0-9_]{1,40}$/.test(k) || x === "" || x === null || x === undefined) continue;
+    if (typeof x === "number" || typeof x === "boolean") out[k] = x; else out[k] = String(x).slice(0, 500);
+  }
+  return JSON.stringify(out);
+}
 router.patch("/:id", async (req, res) => {
   try {
     const { name, stage, notes, rm_id, value, type, deal_type, client_id, expected_close, deal_date, updated_by } = req.body;
     const current = await query("SELECT * FROM deals WHERE id=$1", [req.params.id]);
     if (!current.rows.length) return res.status(404).json({ error: "Deal not found" });
     const prev = current.rows[0];
+    const stageChanged = !!stage && stage !== prev.stage;
+    let flow: any = { ok: true, path: prev.stage_path || {}, skipped: [] };
+    if (stageChanged) {
+      flow = await checkStageMove("deal", prev.vertical, prev.stage, stage, prev.stage_path, !!req.body.skip_confirmed, req.user?.name || "System");
+      if (!flow.ok) return res.status(flow.status).json(flow.body);
+    }
 
     const result = await query(
       `UPDATE deals SET
@@ -104,10 +121,13 @@ router.patch("/:id", async (req, res) => {
         client_id = COALESCE($8, client_id),
         expected_close = COALESCE($9, expected_close),
         deal_date = COALESCE($10, deal_date),
+        details = CASE WHEN $12::jsonb IS NULL THEN details ELSE $12::jsonb END,
+        stage_path = $13::jsonb,
         updated_at = NOW()
         WHERE id = $11 RETURNING *`,
-      [name, stage, notes, rm_id, value, type, deal_type, client_id, expected_close || null, deal_date || null, req.params.id],
+      [name, stage, notes, rm_id, value, type, deal_type, client_id, expected_close || null, deal_date || null, req.params.id, detailsJson(req.body.details), JSON.stringify(flow.path || {})],
     );
+    if (stageChanged) await noteSkipped("deal", req.params.id, req.user, flow.skipped, flow.target || stage);
 
     await logAudit({
       entityType: "deal",
@@ -141,16 +161,19 @@ router.post("/", async (req, res) => {
     const { name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close } = req.body;
     if (isFutureDate(deal_date)) return res.status(400).json({ error: "Deal date cannot be in the future." });
 
+    const flow = await checkStageMove("deal", vertical, null, stage || "Active", {}, !!req.body.skip_confirmed, req.user?.name || "System");
+    if (!flow.ok) return res.status(flow.status).json(flow.body);
     const countResult = await query("SELECT COUNT(*) FROM deals WHERE vertical=$1", [vertical]);
     const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : "IE-D";
     const seq = String(parseInt(countResult.rows[0].count, 10) + 1).padStart(3, "0");
     const deal_code = `${prefix}${seq}`;
 
     const result = await query(
-      `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11,$12,$13) RETURNING *`,
-      [deal_code, name, vertical, type || null, deal_type || null, value || null, stage || "Active", client_id || null, rm_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null],
+      `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name, details, stage_path)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11,$12,$13,COALESCE($14::jsonb,'{}'::jsonb),$15::jsonb) RETURNING *`,
+      [deal_code, name, vertical, type || null, deal_type || null, value || null, stage || "Active", client_id || null, rm_id || null, notes || null, expected_close || null, req.user?.id || null, req.user?.name || null, detailsJson(req.body.details), JSON.stringify(flow.path)],
     );
+    await noteSkipped("deal", result.rows[0].id, req.user, flow.skipped, flow.target || stage || "Active");
 
     await logAudit({
       entityType: "deal",

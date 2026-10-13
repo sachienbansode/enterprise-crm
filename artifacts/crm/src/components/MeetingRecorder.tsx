@@ -15,7 +15,7 @@ const pickMime = () => {
 const mmss = (s: number) => `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ""}${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 export function MeetingRecorder({ open, onClose, defaults, currentUser }: {
-  open: boolean; onClose: () => void; defaults?: { client_id?: string; client_name?: string; lead_id?: string; title?: string }; currentUser?: any;
+  open: boolean; onClose: () => void; defaults?: { client_id?: string; client_name?: string; lead_id?: string; title?: string; person_id?: string }; currentUser?: any;
 }) {
   const [step, setStep] = useState<"setup" | "recording" | "finishing" | "done" | "error">("setup");
   const [title, setTitle] = useState("");
@@ -55,6 +55,9 @@ export function MeetingRecorder({ open, onClose, defaults, currentUser }: {
     if (!clientId) { setPeople([]); setOpps([]); return; }
     fetch(`/api/ib/companies/${clientId}`).then(r => r.json()).then(d => {
       setPeople((d.people || []).map((p: any) => ({ key: `person:${p.id}`, kind: "person", id: p.id, name: p.name, role: p.designation || p.role_type })));
+      // Opened from a contact page → that person is ticked as an attendee
+      const pre = (d.people || []).find((p: any) => p.id === defaults?.person_id);
+      if (pre) setChosen(c => ({ ...c, [`person:${pre.id}`]: { key: `person:${pre.id}`, kind: "person", id: pre.id, name: pre.name, role: pre.designation || pre.role_type } }));
       setOpps((d.opportunities || []).filter((o: any) => !["closed", "lost", "won"].includes(o.stage)));
     }).catch(() => {});
     if (!title && clientName) setTitle(`Meeting with ${clientName.replace(/\s*\(.*\)$/, "")}`);
