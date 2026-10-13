@@ -23,6 +23,7 @@ import activityRouter from "./activity";
 import ibRouter from "./ib";
 import { interactionsRouter, tasksRouter } from "./interactions";
 import { firefliesAdminRouter, firefliesWebhookRouter } from "./fireflies";
+import { meetingsRouter, speechAdminRouter } from "./meetings";
 
 const router: IRouter = Router();
 
@@ -69,6 +70,7 @@ router.use("/documents", documentsRouter);
 router.use("/users", adminForWrites, usersRouter);
 router.use("/ai", aiArea, aiRouter);
 router.use("/admin/fireflies", firefliesAdminRouter);
+router.use("/admin/speech", speechAdminRouter);
 router.use("/admin", adminArea, adminRouter);
 router.use("/leads", leadsRouter);
 router.use("/deals", dealsRouter);
@@ -84,6 +86,7 @@ router.use("/activity", activityRouter);
 router.use("/ib", ibRouter);
 router.use("/interactions", interactionsRouter);
 router.use("/tasks", tasksRouter);
+router.use("/meetings", meetingsRouter);
 router.use("/integrations/fireflies", firefliesWebhookRouter);
 
 export default router;

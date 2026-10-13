@@ -126,7 +126,7 @@ export function QuickLog({ open, onClose, onSaved, defaults, currentUser }: {
           <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center"><Mic className="w-4 h-4 text-white" /></div>
           <div className="flex-1">
             <div className="text-sm font-bold text-gray-900 dark:text-white">Quick Log</div>
-            <div className="text-[11px] text-gray-500">Speak or type what happened — the CRM fills in the rest</div>
+            <div className="text-[11px] text-gray-500">Speak or type what happened — the CRM fills in the rest · <button type="button" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("recorder:open", { detail: { client_id: clientId || undefined, client_name: clientName || undefined, lead_id: leadId || undefined } })); }} className="text-red-500 hover:underline">record the whole meeting instead</button></div>
           </div>
           <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"><X className="w-4 h-4" /></button>
         </div>

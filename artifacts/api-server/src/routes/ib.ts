@@ -190,7 +190,7 @@ router.get("/companies/:id", async (req, res) => {
     const label = (v: string, s: string) => stages.rows.find(x => x.stage_id === s)?.label || s;
     // Unified relationship timeline
     const timeline: any[] = [
-      ...interactions.rows.map(i => ({ kind: "interaction", at: i.occurred_at, by: i.created_by_name, type: i.type, title: i.title, summary: i.summary, source: i.source, id: i.id })),
+      ...interactions.rows.map(i => ({ kind: "interaction", at: i.occurred_at, by: i.created_by_name, type: i.type, title: i.title, summary: i.summary, source: i.source, id: i.id, meeting_id: i.meeting_id })),
       ...opps.rows.map(l => ({ kind: "opportunity", at: l.created_at, by: l.created_by_name, title: l.name, stage: label("", l.stage), id: l.id })),
       ...tasks.rows.filter(t => t.status === "Done").map(t => ({ kind: "task_done", at: t.completed_at || t.created_at, by: t.owner_name, title: t.title, id: t.id })),
       ...docs.rows.map(d => ({ kind: "document", at: d.created_at, by: d.uploaded_by, title: d.name, id: d.id })),

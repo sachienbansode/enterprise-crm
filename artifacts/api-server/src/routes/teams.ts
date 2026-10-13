@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { decrypt } from "../lib/crypto";
+import { recordTeamsMeeting } from "./meetings";
 
 const router = Router();
 
@@ -28,7 +29,7 @@ async function getM365Config() {
 }
 
 // ─── Get Graph access token via client credentials (app-only) ────────────────
-async function getGraphToken(): Promise<string | null> {
+export async function getGraphToken(): Promise<string | null> {
   const { tenantId, clientId, clientSecret } = await getM365Config();
   if (!tenantId || !clientId || !clientSecret) return null;
 
@@ -219,6 +220,15 @@ router.post("/create-meeting", async (req, res) => {
     }
 
     const joinUrl = data.onlineMeeting?.joinUrl || data.onlineMeeting?.joinWebUrl || data.joinWebUrl;
+    // Remember CRM-booked Teams meetings so their transcript + recording can be attached after the meeting
+    if (!usesFallback && joinUrl) {
+      await recordTeamsMeeting({
+        eventId: data.id, joinUrl, subject: data.subject || subject, start: new Date(startTime).toISOString(), end: new Date(endTime).toISOString(),
+        organizerEmail, clientId: clientId || null, leadId: req.body.leadId || null,
+        attendees: (attendees || []).map((a: any) => (typeof a === "string" ? a : a?.email || a?.emailAddress?.address)).filter(Boolean),
+        user: req.user,
+      });
+    }
 
     res.json({
       joinUrl,

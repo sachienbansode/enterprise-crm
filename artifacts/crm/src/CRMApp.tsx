@@ -11,6 +11,9 @@ import { QuickLog } from "./components/QuickLog";
 import CompanyMaster from "./components/ib/CompanyMaster";
 import IBDashboard from "./components/ib/IBDashboard";
 import AdminFireflies from "./components/AdminFireflies";
+import AdminMeetingRecording from "./components/AdminMeetingRecording";
+import { MeetingRecorder } from "./components/MeetingRecorder";
+import { MeetingView } from "./components/MeetingView";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -38,7 +41,7 @@ type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clien
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
-  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking" | "admin-fireflies";
+  | "admin-dropdown-config" | "admin-pipeline-stages" | "admin-pii-masking" | "admin-fireflies" | "admin-meetings";
 type AuthMethod = "app" | "m365";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -92,27 +95,26 @@ function parseCrStr(s: string | number | null | undefined): number {
   return 0;
 }
 
-/** Format a raw rupee number according to current currencyUnit */
+/** Format a raw rupee number according to current currencyUnit — Indian digit grouping, no trailing zeros:
+ *  ₹15,900 Cr · ₹4.5 Cr · ₹85 L · ₹12,500 */
+const grp = (v: number, maxFrac: number) => v.toLocaleString("en-IN", { maximumFractionDigits: maxFrac, minimumFractionDigits: 0 });
 function fmtMoney(amount: number | null | undefined): string {
   if (amount === null || amount === undefined || isNaN(amount as number)) return "—";
   const n = amount as number;
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
+  if (abs === 0) return "₹0";
+  const frac = (v: number) => (v >= 100 ? 0 : v >= 10 ? 1 : 2);
   switch (currencyUnit) {
-    case "lakh": {
-      const l = abs / 1e5;
-      return `${sign}₹${l < 0.01 ? l.toFixed(3) : l < 100 ? l.toFixed(2) : l.toFixed(0)}L`;
-    }
-    case "million": {
-      const m = abs / 1e6;
-      return `${sign}₹${m < 0.01 ? m.toFixed(3) : m < 100 ? m.toFixed(2) : m.toFixed(1)}M`;
-    }
+    case "lakh": { const l = abs / 1e5; return l < 0.01 ? `${sign}₹${grp(abs, 0)}` : `${sign}₹${grp(l, frac(l))} L`; }
+    case "million": { const m = abs / 1e6; return m < 0.01 ? `${sign}₹${grp(abs, 0)}` : `${sign}₹${grp(m, frac(m))} M`; }
     case "crore": {
       const c = abs / 1e7;
-      return `${sign}₹${c < 0.01 ? c.toFixed(3) : c >= 10000 ? c.toFixed(0) : c >= 100 ? c.toFixed(1) : c.toFixed(2)}Cr`;
+      if (c >= 0.1) return `${sign}₹${grp(c, frac(c))} Cr`;
+      const l = abs / 1e5;
+      return l >= 1 ? `${sign}₹${grp(l, frac(l))} L` : `${sign}₹${grp(abs, 0)}`;
     }
-    default: // rupee
-      return `${sign}₹${abs.toLocaleString("en-IN")}`;
+    default: return `${sign}₹${grp(abs, 0)}`;
   }
 }
 
@@ -2373,6 +2375,7 @@ const ADMIN_MENU = [
   ]},
   { section: "Integrations", items: [
     { id: "admin-m365",    label: "M365 Integration",   icon: Globe },
+    { id: "admin-meetings", label: "Meeting Recording", icon: Mic },
     { id: "admin-fireflies", label: "Fireflies (add-on)", icon: Mic },
   ]},
   { section: "Logs & Audit", items: [
@@ -2557,6 +2560,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-prompts":  "AI Prompts & Access",
     "admin-m365":     "M365 Integration",
     "admin-fireflies": "Fireflies (add-on)",
+    "admin-meetings": "Meeting Recording",
     "admin-theme":    "Theme & Display",
     "admin-system":   "System Config",
     "admin-audit":             "Audit Log",
@@ -2612,6 +2616,11 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             );
           })}
         </div>
+        <Tip label="Record a meeting — transcript with each person named">
+          <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: {} }))} aria-label="Record meeting" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-red-400 hover:bg-gray-700" : "bg-slate-100 text-red-600 hover:bg-slate-200"} transition-colors`}>
+            <span className="block w-4 h-4 rounded-full border-2 border-current p-[2px]"><span className="block w-full h-full rounded-full bg-current" /></span>
+          </button>
+        </Tip>
         <Tip label="Quick Log — speak or type a call / meeting note">
           <button onClick={() => openQuickLog({})} aria-label="Quick Log" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-violet-300 hover:bg-gray-700" : "bg-slate-100 text-violet-700 hover:bg-slate-200"} transition-colors`}>
             <Mic className="w-4 h-4" />
@@ -3194,7 +3203,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   // Move the selected lead to another pipeline stage (recorded in History with who/when)
   // IB: moving to an active stage needs a next action; to Lost needs a reason → ask inline, then retry
   const [stagePrompt, setStagePrompt] = useState<{ stageId: string; code: string } | null>(null);
-  const [promptVals, setPromptVals] = useState<{ next_action: string; next_action_date: string; lost_reason: string }>({ next_action: "", next_action_date: "", lost_reason: "" });
+  const [promptVals, setPromptVals] = useState<{ next_action: string; next_action_date: string; lost_reason: string; lost_comment: string }>({ next_action: "", next_action_date: "", lost_reason: "", lost_comment: "" });
+  const [stageDone, setStageDone] = useState("");
+  useEffect(() => { setStageDone(""); setStagePrompt(null); setStageError(""); }, [selected?.id]);
   const [lostReasons, setLostReasons] = useState<string[]>([]);
   useEffect(() => {
     if (vId !== "ib") return;
@@ -3202,19 +3213,24 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   }, [vId]);
   const moveStage = async (stageId: string, extra: Record<string, any> = {}) => {
     if (!selected) return;
-    setMovingStage(true); setStageError("");
+    setMovingStage(true); setStageError(""); setStageDone("");
     try {
       const r = await fetch(`${API_BASE}/api/leads/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: stageId, ...extra }) });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
         if (e.code === "NEED_NEXT_ACTION" || e.code === "NEED_LOST_REASON") {
-          setPromptVals({ next_action: selected.next_action || "", next_action_date: selected.next_action_date ? String(selected.next_action_date).slice(0, 10) : "", lost_reason: "" });
-          setStagePrompt({ stageId, code: e.code }); setMovingStage(false); return;
+          setPromptVals({ next_action: selected.next_action || "", next_action_date: selected.next_action_date ? String(selected.next_action_date).slice(0, 10) : "", lost_reason: "", lost_comment: "" });
+          setStagePrompt({ stageId, code: e.code }); setMovingStage(false);
+          if (Object.keys(extra).length) setStageError(e.error || "");
+          return;
         }
         throw new Error(e.error || "Could not change stage");
       }
+      const saved = await r.json().catch(() => null);
       setStagePrompt(null);
-      setSelected({ ...selected, stage: stageId, ...extra });
+      // Use the saved row from the server so the panel shows exactly what was stored (stage, lost reason, comment)
+      setSelected(saved && saved.id ? { ...selected, ...saved } : { ...selected, stage: stageId, ...extra });
+      setStageDone(`Moved to ${stages.find((s: any) => s.id === stageId)?.label || stageId}`);
       setActivityKey(k => k + 1);
       load();
     } catch (e: any) { setStageError(e.message); }
@@ -3460,6 +3476,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 { label: "Expected fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
                 { label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" },
                 ...(selected.lost_reason ? [{ label: "Lost reason", value: selected.lost_reason }] : []),
+                ...(selected.lost_comment ? [{ label: "Lost comment", value: selected.lost_comment }] : []),
               ] : []),
             ].map(row => (
               <div key={row.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
@@ -3499,19 +3516,31 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                       className="flex-1 text-xs py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{cur >= 0 && cur < flow.length - 1 ? flow[cur + 1].label : "Next"} →</button>
                   </div>
                   {lostStage && !isLost && (
-                    <button disabled={movingStage} onClick={() => { if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id); }}
+                    <button disabled={movingStage} onClick={() => {
+                        // IB: ask for reason + comment straight away; other verticals keep the simple confirm
+                        if (vId === "ib") { setPromptVals(p => ({ ...p, lost_reason: "", lost_comment: "" })); setStageError(""); setStagePrompt({ stageId: lostStage.id, code: "NEED_LOST_REASON" }); }
+                        else if (window.confirm(`Mark "${selected.name}" as ${lostStage.label}?`)) moveStage(lostStage.id);
+                      }}
                       className="w-full text-[11px] py-1.5 rounded-lg text-red-500 hover:bg-red-500/10">Mark as {lostStage.label}</button>
                   )}
                   {stagePrompt && (
-                    <div className={`rounded-xl border p-2.5 space-y-2 ${t.alertYellow}`}>
-                      <div className="text-[11px] font-semibold">
-                        {stagePrompt.code === "NEED_LOST_REASON" ? "Why was this opportunity lost?" : `What's the next action? (needed for ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "this stage"})`}
+                    <div className={`rounded-xl border p-2.5 space-y-2 ${stagePrompt.code === "NEED_LOST_REASON" ? "border-red-500/50 bg-red-500/10" : t.alertYellow}`}>
+                      <div className={`text-[11px] font-semibold ${stagePrompt.code === "NEED_LOST_REASON" ? "text-red-500" : ""}`}>
+                        {stagePrompt.code === "NEED_LOST_REASON" ? `Mark as ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "Lost"} — why was this opportunity lost?` : `What's the next action? (needed for ${stages.find((s: any) => s.id === stagePrompt.stageId)?.label || "this stage"})`}
                       </div>
                       {stagePrompt.code === "NEED_LOST_REASON" ? (
+                        <>
+                        <label className={`block text-[10px] ${t.textMuted}`}>Reason <span className="text-red-500">*</span></label>
                         <select value={promptVals.lost_reason} onChange={e => setPromptVals(p => ({ ...p, lost_reason: e.target.value }))} className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`}>
                           <option value="">— Choose a reason —</option>
                           {lostReasons.map(r => <option key={r}>{r}</option>)}
                         </select>
+                        <label className={`block text-[10px] ${t.textMuted}`}>Comment <span className="text-red-500">*</span> <span className="opacity-70">— what happened? (min 10 characters, saved to History)</span></label>
+                        <textarea value={promptVals.lost_comment} onChange={e => setPromptVals(p => ({ ...p, lost_comment: e.target.value }))} rows={3}
+                          placeholder={promptVals.lost_reason === "Lost to Competitor" ? "e.g. Client mandated Kotak at a lower fee; we were second" : "e.g. Promoter wants to wait for FY27 results before going ahead"}
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
+                        <div className={`text-[10px] text-right ${promptVals.lost_comment.trim().length >= 10 ? "text-emerald-500" : t.textMuted}`}>{promptVals.lost_comment.trim().length}/10</div>
+                        </>
                       ) : (<>
                         <input value={promptVals.next_action} onChange={e => setPromptVals(p => ({ ...p, next_action: e.target.value }))} placeholder="e.g. Share pitch deck with CFO"
                           className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
@@ -3520,13 +3549,14 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                       </>)}
                       <div className="flex gap-2">
                         <button onClick={() => setStagePrompt(null)} className={`flex-1 text-xs py-1.5 rounded-lg border ${t.border}`}>Cancel</button>
-                        <button disabled={movingStage || (stagePrompt.code === "NEED_LOST_REASON" ? !promptVals.lost_reason : !promptVals.next_action.trim())}
-                          onClick={() => moveStage(stagePrompt.stageId, stagePrompt.code === "NEED_LOST_REASON" ? { lost_reason: promptVals.lost_reason } : { next_action: promptVals.next_action.trim(), next_action_date: promptVals.next_action_date || null })}
-                          className="flex-1 text-xs py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-40">Save & move</button>
+                        <button disabled={movingStage || (stagePrompt.code === "NEED_LOST_REASON" ? (!promptVals.lost_reason || promptVals.lost_comment.trim().length < 10) : !promptVals.next_action.trim())}
+                          onClick={() => moveStage(stagePrompt.stageId, stagePrompt.code === "NEED_LOST_REASON" ? { lost_reason: promptVals.lost_reason, lost_comment: promptVals.lost_comment.trim() } : { next_action: promptVals.next_action.trim(), next_action_date: promptVals.next_action_date || null })}
+                          className={`flex-1 text-xs py-1.5 rounded-lg text-white disabled:opacity-40 ${stagePrompt.code === "NEED_LOST_REASON" ? "bg-red-600" : "bg-blue-600"}`}>{stagePrompt.code === "NEED_LOST_REASON" ? "Mark as Lost" : "Save & move"}</button>
                       </div>
                     </div>
                   )}
                   {stageError && <div className="text-[11px] text-red-500">{stageError}</div>}
+                  {stageDone && !stagePrompt && <div className="text-[11px] text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{stageDone}</div>}
                 </div>
               );
             })()}
@@ -7942,6 +7972,14 @@ export function CRMApp() {
 
   // Global Quick Log (opened from the header, Company 360, lead panels, IB dashboard)
   const [quickLogDefaults, setQuickLogDefaults] = useState<any | null>(null);
+  const [recorderDefaults, setRecorderDefaults] = useState<any | null>(null);
+  const [openMeetingId, setOpenMeetingId] = useState<string | null>(null);
+  useEffect(() => {
+    const r = (e: any) => setRecorderDefaults(e.detail || {});
+    const m = (e: any) => e.detail?.id && setOpenMeetingId(e.detail.id);
+    window.addEventListener("recorder:open", r); window.addEventListener("meeting:open", m);
+    return () => { window.removeEventListener("recorder:open", r); window.removeEventListener("meeting:open", m); };
+  }, []);
   useEffect(() => {
     const h = (e: any) => setQuickLogDefaults(e.detail || {});
     window.addEventListener("quicklog:open", h);
@@ -8011,6 +8049,7 @@ export function CRMApp() {
       if (activePage === "admin-prompts")  return <AdminAIPrompts t={t} isDark={darkMode} />;
       if (activePage === "admin-m365")     return <AdminM365Config t={t} isDark={darkMode} />;
       if (activePage === "admin-fireflies") return <AdminFireflies t={t} />;
+      if (activePage === "admin-meetings")  return <AdminMeetingRecording t={t} />;
       if (activePage === "admin-audit")    return <AdminAuditLog t={t} />;
       if (activePage === "admin-ai-logs")  return <AdminAILogs t={t} />;
       if (activePage === "admin-theme")    return <AdminTheme t={t} isDark={darkMode} setIsDark={setDarkMode} />;
@@ -8054,6 +8093,8 @@ export function CRMApp() {
 
   return (
     <div className={`flex h-screen w-screen ${t.bg} overflow-hidden relative`}>
+      <MeetingRecorder open={!!recorderDefaults} defaults={recorderDefaults || undefined} currentUser={loggedUser} onClose={() => setRecorderDefaults(null)} />
+      {openMeetingId && <MeetingView id={openMeetingId} onClose={() => setOpenMeetingId(null)} />}
       <QuickLog open={!!quickLogDefaults} defaults={quickLogDefaults || undefined} currentUser={loggedUser}
         onClose={() => setQuickLogDefaults(null)} onSaved={it => window.dispatchEvent(new CustomEvent("quicklog:saved", { detail: it }))} />
       {/* Mobile backdrop */}

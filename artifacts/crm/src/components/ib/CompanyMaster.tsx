@@ -272,7 +272,7 @@ function CompanyForm({ t, edit, sectors, loggedUser, onClose, onSaved }: { t: an
 }
 
 // ─── Company 360 ──────────────────────────────────────────────────────────────
-type Tab = "overview" | "people" | "opportunities" | "timeline" | "tasks" | "documents";
+type Tab = "overview" | "people" | "opportunities" | "meetings" | "timeline" | "tasks" | "documents";
 
 function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: { id: string; t: any; isDark: boolean; loggedUser?: any; onClose: () => void; onEdit: (c: any) => void; onChanged: () => void }) {
   const [data, setData] = useState<any>(null);
@@ -283,7 +283,11 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   const [newTask, setNewTask] = useState({ title: "", due_date: "", owner_id: "" });
   const [users, setUsers] = useState<any[]>([]);
 
-  const load = useCallback(() => { fetch(`/api/ib/companies/${id}`).then(r => r.json()).then(setData).catch(() => {}); }, [id]);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const load = useCallback(() => {
+    fetch(`/api/ib/companies/${id}`).then(r => r.json()).then(setData).catch(() => {});
+    fetch(`/api/meetings?client_id=${id}`).then(r => r.json()).then(d => setMeetings(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [id]);
   useEffect(() => { setData(null); setTab("overview"); load(); }, [load]);
   useEffect(() => {
     const h = () => load();
@@ -319,7 +323,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   const card = `${t.bgCard2} rounded-xl p-3`;
   const tabs: { id: Tab; label: string; n?: number }[] = [
     { id: "overview", label: "Overview" }, { id: "people", label: "People", n: data?.people?.length },
-    { id: "opportunities", label: "Opportunities", n: data?.opportunities?.length }, { id: "timeline", label: "Timeline", n: data?.timeline?.length },
+    { id: "opportunities", label: "Opportunities", n: data?.opportunities?.length }, { id: "meetings", label: "Meetings", n: meetings.length }, { id: "timeline", label: "Timeline", n: data?.timeline?.length },
     { id: "tasks", label: "Tasks", n: openTasks.length }, { id: "documents", label: "Documents", n: data?.documents?.length },
   ];
 
@@ -343,7 +347,8 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
             <button onClick={() => onEdit(c)} className="text-xs px-2 py-1 rounded-lg bg-amber-600 text-white flex items-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
             <button onClick={onClose} aria-label="Close" className={`p-1 ${t.textMuted}`}><X className="w-4 h-4" /></button>
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+            <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: { client_id: c.id, client_name: c.name, title: `Meeting with ${c.name}` } }))} className="text-xs py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center justify-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-white" /> Record</button>
             <button onClick={() => quickLog({ client_id: c.id, client_name: c.name })} className="text-xs py-2 rounded-lg bg-violet-600 text-white flex items-center justify-center gap-1.5"><Mic className="w-3.5 h-3.5" /> Quick Log</button>
             <button onClick={() => setOppOpen(true)} className={`text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5`}><TrendingUp className="w-3.5 h-3.5" /> Opportunity</button>
             <button onClick={() => setPerson({ name: "", designation: "", role_type: "Promoter", email: "", mobile: "" })} className={`text-xs py-2 rounded-lg border ${t.border} ${t.textSub} flex items-center justify-center gap-1.5`}><Users className="w-3.5 h-3.5" /> Person</button>
@@ -457,6 +462,26 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
             </div>
           )}
 
+          {tab === "meetings" && (
+            <div className="space-y-2">
+              <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: { client_id: c.id, client_name: c.name, title: `Meeting with ${c.name}` } }))} className="text-xs text-red-500 flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Record a meeting</button>
+              {meetings.map(mt => {
+                const names = Object.values<any>(mt.speakers || {}).map(s => s.name).filter((n: string) => !/^Speaker \d+$/.test(n));
+                const st: any = ({ scheduled: ["Teams · waiting for transcript", "text-sky-500"], recording: ["Recording", "text-red-500"], transcribing: ["Transcribing…", "text-amber-500"], transcribed: ["Transcript ready", "text-emerald-500"], no_transcript: ["No transcript", t.textMuted], failed: ["Failed", "text-red-500"] } as Record<string, string[]>)[mt.status] || [mt.status, t.textMuted];
+                return (
+                  <button key={mt.id} onClick={() => window.dispatchEvent(new CustomEvent("meeting:open", { detail: { id: mt.id } }))} className={`${card} w-full text-left`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`text-xs font-semibold ${t.text} flex-1 min-w-0 truncate`}>{mt.source === "teams" ? "🎥 " : "🎙 "}{mt.title}</div>
+                      <span className={`text-[10px] ${st[1]}`}>{st[0]}</span>
+                    </div>
+                    <div className={`text-[11px] ${t.textMuted} mt-0.5`}>{d(mt.start_at)}{mt.duration_sec ? ` · ${Math.round(mt.duration_sec / 60)} min` : ""}{names.length ? ` · ${names.slice(0, 4).join(", ")}` : ""}</div>
+                  </button>
+                );
+              })}
+              {!meetings.length && <div className={`text-xs ${t.textMuted}`}>No meetings yet. Record one, or book a Teams meeting from the CRM and its transcript is added after the call.</div>}
+            </div>
+          )}
+
           {tab === "timeline" && (
             <ol className="space-y-3">
               {data.timeline.map((it: any, i: number) => (
@@ -466,10 +491,11 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                   </div>
                   <div className="min-w-0 flex-1 text-xs">
                     <div><b className={t.text}>{it.by || "—"}</b> <span className={t.textMuted}>
-                      {it.kind === "interaction" ? `logged a ${String(it.type).toLowerCase()}${it.source === "fireflies" ? " (Fireflies)" : it.source === "voice" ? " (voice)" : ""}` : it.kind === "opportunity" ? "opened an opportunity" : it.kind === "document" ? "added a document" : "completed a task"}
+                      {it.kind === "interaction" ? `logged a ${String(it.type).toLowerCase()}${it.source === "fireflies" ? " (Fireflies)" : it.source === "voice" ? " (voice)" : it.source === "recording" ? " (recorded)" : it.source === "teams" ? " (Teams)" : ""}` : it.kind === "opportunity" ? "opened an opportunity" : it.kind === "document" ? "added a document" : "completed a task"}
                       {" · "}{d(it.at)}</span></div>
                     <div className={`${t.text} font-medium mt-0.5`}>{it.title}{it.stage ? <span className={t.textMuted}> · {it.stage}</span> : null}</div>
                     {it.summary && <div className={`mt-1 rounded-lg px-2.5 py-1.5 ${t.bgCard2} ${t.textSub} whitespace-pre-wrap`}>{it.summary}</div>}
+                    {it.meeting_id && <button onClick={() => window.dispatchEvent(new CustomEvent("meeting:open", { detail: { id: it.meeting_id } }))} className="mt-1 text-[11px] text-violet-500 hover:underline">Open transcript →</button>}
                   </div>
                 </li>
               ))}

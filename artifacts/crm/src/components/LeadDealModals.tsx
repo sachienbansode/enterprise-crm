@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, TrendingUp, Briefcase, Search, AlertCircle } from "lucide-react";
+import { X, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User } from "lucide-react";
 
 
 
@@ -7,12 +7,109 @@ import { X, TrendingUp, Briefcase, Search, AlertCircle } from "lucide-react";
 const inputCls = "w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent";
 const selectCls = inputCls;
 
-const F = ({ label, children, span2 }: { label: string; children: React.ReactNode; span2?: boolean }) => (
+const F = ({ label, children, span2, hint, req, bad }: { label: string; children: React.ReactNode; span2?: boolean; hint?: React.ReactNode; req?: boolean; bad?: boolean }) => (
   <div className={span2 ? "sm:col-span-2" : ""}>
-    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-    {children}
+    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}{req && <span className="text-red-500"> *</span>}</label>
+    <div className={bad ? "rounded-lg ring-2 ring-red-500/70" : ""}>{children}</div>
+    {hint && <div className="text-[11px] text-gray-500 mt-1">{hint}</div>}
   </div>
 );
+
+// ─── Form building blocks ─────────────────────────────────────────────────────
+const Section = ({ title, icon: Icon, children, tone }: { title: string; icon?: any; children: React.ReactNode; tone?: "amber" | "red" }) => (
+  <section className={tone ? `rounded-xl border p-3 sm:p-4 ${tone === "red" ? "border-red-500/40 bg-red-500/5" : "border-amber-500/40 bg-amber-500/5"}` : ""}>
+    <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider mb-2.5 ${tone === "red" ? "text-red-500" : tone === "amber" ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"}`}>
+      {Icon && <Icon size={13} />} {title}
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{children}</div>
+  </section>
+);
+
+const PRIORITY_TONE: Record<string, string> = {
+  Low: "border-gray-400 text-gray-600 dark:text-gray-300 bg-gray-500/10",
+  Medium: "border-sky-500 text-sky-600 dark:text-sky-300 bg-sky-500/10",
+  High: "border-orange-500 text-orange-600 dark:text-orange-300 bg-orange-500/10",
+  Critical: "border-red-500 text-red-600 dark:text-red-300 bg-red-500/10",
+};
+
+/** Pill buttons for short choice lists (stage, priority). */
+function Pills({ options, value, onChange, tone }: { options: { id: string; label: string; won?: boolean; lost?: boolean }[]; value: string; onChange: (v: string) => void; tone?: (id: string) => string | undefined }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(o => {
+        const on = o.id === value;
+        const toneCls = tone?.(o.id) || (o.lost ? "border-red-500 text-red-600 dark:text-red-300 bg-red-500/10" : o.won ? "border-emerald-500 text-emerald-600 dark:text-emerald-300 bg-emerald-500/10" : "border-violet-500 text-violet-700 dark:text-violet-200 bg-violet-500/15");
+        return (
+          <button key={o.id} type="button" onClick={() => onChange(o.id)} aria-pressed={on}
+            className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${on ? `${toneCls} font-semibold` : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400"}`}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const UNITS = [{ id: "cr", label: "Cr", mult: 1e7 }, { id: "l", label: "L", mult: 1e5 }, { id: "r", label: "₹", mult: 1 }];
+/** Amount + unit (Cr / L / ₹). The form keeps plain rupees; users type "4,800 Cr" naturally. */
+function MoneyInput({ value, onChange, placeholder }: { value: string; onChange: (rupees: string) => void; placeholder?: string }) {
+  const pick = (r: number) => (r >= 1e7 ? "cr" : r >= 1e5 ? "l" : r > 0 ? "r" : "cr");
+  const [unit, setUnit] = useState(() => pick(Number(value) || 0));
+  const mult = UNITS.find(u => u.id === unit)!.mult;
+  const shown = value === "" ? "" : String(Math.round((Number(value) / mult) * 100) / 100);
+  return (
+    <div className="flex">
+      <span className="inline-flex items-center px-2.5 rounded-l-lg border border-r-0 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500"><IndianRupee size={13} /></span>
+      <input type="number" inputMode="decimal" min={0} step="any" value={shown} placeholder={placeholder || "0"}
+        onChange={e => onChange(e.target.value === "" ? "" : String(Math.round(Number(e.target.value) * mult)))}
+        className={`${inputCls} rounded-none min-w-0`} />
+      <select value={unit} onChange={e => setUnit(e.target.value)} aria-label="Unit"
+        className="px-2 text-sm rounded-r-lg border border-l-0 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none">
+        {UNITS.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/** Shell shared by both forms: full-screen on phones, wide dialog on desktop, sticky header & footer. */
+function ModalShell({ icon: Icon, title, subtitle, onClose, children, footer }: { icon: any; title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer: React.ReactNode }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white dark:bg-gray-950 sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-full sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-violet-600/15 text-violet-500 flex items-center justify-center flex-shrink-0"><Icon size={16} /></div>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white truncate">{title}</h2>
+              {subtitle && <div className="text-[11px] text-gray-500 truncate">{subtitle}</div>}
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-5">{children}</div>
+        <div className="px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+function Footer({ error, saving, onClose, onSave, icon: Icon, label }: { error: string; saving: boolean; onClose: () => void; onSave: () => void; icon: any; label: string }) {
+  return (
+    <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-2">
+      {error ? <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm"><AlertCircle size={14} className="flex-shrink-0" /> {error}</div> : <div className="text-[11px] text-gray-400 hidden sm:block">Fields marked * are required · Esc to close</div>}
+      <div className="flex gap-2 sm:gap-3">
+        <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+        <button onClick={onSave} disabled={saving} className="flex-1 sm:flex-none px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium flex items-center justify-center gap-2">
+          {saving ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</> : <><Icon size={14} /> {label}</>}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Client picker (searchable) ───────────────────────────────────────────────
 export function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string }) {
@@ -126,7 +223,7 @@ const BLANK_LEAD = {
   name: "", stage: "", priority: "Medium", value_estimate: "", source: "",
   sub_source: "", product: "", deal_type: "", assigned_rm_id: "", client_id: "",
   client_name: "", expected_close: "", notes: "",
-  opportunity_type: "", next_action: "", next_action_date: "", lost_reason: "", expected_fee: "", probability: "",
+  opportunity_type: "", next_action: "", next_action_date: "", lost_reason: "", lost_comment: "", expected_fee: "", probability: "",
 };
 
 export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLead, currentUser, apiBase = "", defaultClientId, defaultClientName }: LeadModalProps) {
@@ -185,7 +282,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         opportunity_type: editLead.opportunity_type || "",
         next_action: editLead.next_action || "",
         next_action_date: editLead.next_action_date ? String(editLead.next_action_date).split("T")[0] : "",
-        lost_reason: editLead.lost_reason || "",
+        lost_reason: editLead.lost_reason || "", lost_comment: "",
         expected_fee: editLead.expected_fee != null ? String(Math.round(Number(editLead.expected_fee))) : "",
         probability: editLead.probability != null ? String(editLead.probability) : "",
       });
@@ -197,11 +294,20 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
 
   const set = useCallback((k: string, v: any) => setForm(f => ({ ...f, [k]: v })), []);
 
+  const [bad, setBad] = useState<string | null>(null); // field to highlight after a failed save
+  useEffect(() => { if (bad && String((form as any)[bad] || "").trim()) { setBad(null); setError(""); } }, [form, bad]);
+  // New records start on the first stage (instead of an empty "Select stage")
+  useEffect(() => { if (open && !editLead && !form.stage && stages[0]) set("stage", stages[0].stage_id); }, [open, editLead, stages, form.stage, set]);
+
   const handleSave = async () => {
-    if (!form.name.trim()) { setError(isIB ? "Opportunity name is required." : "Lead name is required."); return; }
+    setBad(null);
+    if (!form.name.trim()) { setBad("name"); setError(isIB ? "Opportunity name is required." : "Lead name is required."); return; }
     const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
-    if (isIB && st?.is_lost && !form.lost_reason) { setError("Choose why this opportunity was lost."); return; }
-    if (isIB && st && !st.is_won && !st.is_lost && !form.next_action.trim()) { setError("Add the next action — every active opportunity needs one."); return; }
+    if (isIB && st?.is_lost && !form.lost_reason) { setBad("lost_reason"); setError("Choose why this opportunity was lost."); return; }
+    // A comment is needed whenever the opportunity is being put into Lost (new, or moved there in this edit)
+    const enteringLost = isIB && st?.is_lost && (!isEdit || editLead.stage !== st.stage_id);
+    if (enteringLost && form.lost_comment.trim().length < 10) { setBad("lost_comment"); setError("Add a comment on why it was lost (at least 10 characters)."); return; }
+    if (isIB && st && !st.is_won && !st.is_lost && !form.next_action.trim()) { setBad("next_action"); setError("Add the next action — every active opportunity needs one."); return; }
     setSaving(true); setError("");
     try {
       const body = {
@@ -215,7 +321,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         updated_by: currentUser?.name || "System",
         ...(isIB ? {
           opportunity_type: form.opportunity_type || null, next_action: form.next_action || null, next_action_date: form.next_action_date || null,
-          lost_reason: form.lost_reason || null, expected_fee: form.expected_fee ? Number(form.expected_fee) : null,
+          lost_reason: form.lost_reason || null, lost_comment: form.lost_comment.trim() || null, expected_fee: form.expected_fee ? Number(form.expected_fee) : null,
           probability: form.probability !== "" ? Math.max(0, Math.min(100, Number(form.probability))) : null,
         } : {}),
       };
@@ -232,153 +338,133 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
   };
 
   if (!open) return null;
+  const curStage = stages.find(s => s.stage_id === form.stage);
+  const noun = isIB ? "Opportunity" : "Lead";
+  const lockedHint = isEdit ? "Fixed once created" : undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-950 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-violet-500" />
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              {isIB ? (isEdit ? "Edit Opportunity" : "New Opportunity") : (isEdit ? "Edit Lead" : "New Lead")} — {vertical}
-            </h2>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
-            <X size={16} />
-          </button>
-        </div>
+    <ModalShell icon={TrendingUp} onClose={onClose}
+      title={`${isEdit ? "Edit" : "New"} ${noun}`}
+      subtitle={isEdit ? `${editLead.lead_code || ""} · ${editLead.vertical || vertical} · opened ${fmtDate(editLead.opened_at || editLead.created_at)} · by ${editLead.created_by_name || "—"}` : vertical}
+      footer={<Footer error={error} saving={saving} onClose={onClose} onSave={handleSave} icon={TrendingUp} label={isEdit ? "Save changes" : `Create ${noun.toLowerCase()}`} />}>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {isEdit && (
-            <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 text-xs">
-              <div><div className="text-gray-500">Lead ID</div><div className="font-mono font-semibold text-gray-900 dark:text-gray-100">{editLead.lead_code || "—"}</div></div>
-              <div><div className="text-gray-500">Vertical</div><div className="font-semibold text-gray-900 dark:text-gray-100">{editLead.vertical || vertical}</div></div>
-              <div><div className="text-gray-500">Opened on</div><div className="font-semibold text-gray-900 dark:text-gray-100">{fmtDate(editLead.opened_at || editLead.created_at)}</div></div>
-              <div><div className="text-gray-500">Created by</div><div className="font-semibold text-gray-900 dark:text-gray-100">{editLead.created_by_name || "—"}</div></div>
-            </div>
-          )}
-          {/* Name */}
-          <F label={isIB ? "Opportunity Name *" : "Lead Name *"} span2>
-            <input value={form.name} onChange={e => set("name", e.target.value)} disabled={isEdit} title={isEdit ? "Lead name can't be changed after creation" : undefined} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isIB ? "e.g. ABC Ltd — IPO" : "e.g. Mr. Rahul Sharma - Equity A/c Opening"} />
-          </F>
-          {/* Stage */}
-          <F label="Stage">
-            <select value={form.stage} onChange={e => set("stage", e.target.value)} className={selectCls}>
-              <option value="">— Select stage —</option>
-              {stages.map(s => <option key={s.stage_id} value={s.stage_id}>{s.label}</option>)}
-            </select>
-          </F>
-          {/* Priority */}
-          <F label="Priority">
-            <select value={form.priority} onChange={e => set("priority", e.target.value)} className={selectCls}>
-              {PRIORITIES.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </F>
-          {/* Source */}
-          <F label="Lead Source">
-            <select value={form.source} onChange={e => set("source", e.target.value)} disabled={isEdit} title={isEdit ? "Source can't be changed after the lead is created" : undefined} className={`${selectCls} disabled:opacity-60 disabled:cursor-not-allowed`}>
-              <option value="">— Select source —</option>
-              {withCurrent(sources, form.source).map(s => <option key={s}>{s}</option>)}
-            </select>
-          </F>
-          {/* Sub-source */}
-          <F label="Sub-Source">
-            <input value={form.sub_source} onChange={e => set("sub_source", e.target.value)} disabled={isEdit} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isEdit ? "—" : "e.g. LinkedIn, Friend referral…"} />
-          </F>
-          {isIB ? (<>
-          <F label="Opportunity Type">
+      <Section title={isIB ? "Opportunity" : "Lead"}>
+        <F label={`${noun} name`} req span2 bad={bad === "name"} hint={lockedHint}>
+          <input value={form.name} onChange={e => set("name", e.target.value)} disabled={isEdit} autoFocus={!isEdit}
+            className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isIB ? "e.g. ABC Ltd — IPO" : "e.g. Mr. Rahul Sharma - Equity A/c Opening"} />
+        </F>
+        <F label={isIB ? "Company" : "Linked client"} span2>
+          <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
+        </F>
+        {isIB ? (
+          <F label="Opportunity type">
             <select value={form.opportunity_type} onChange={e => set("opportunity_type", e.target.value)} className={selectCls}>
-              <option value="">— Select type —</option>
+              <option value="">— Select —</option>
               {withCurrent(oppTypes, form.opportunity_type).map(t => <option key={t}>{t}</option>)}
             </select>
           </F>
-          <F label="Probability (%)">
-            <input type="number" min={0} max={100} value={form.probability} onChange={e => set("probability", e.target.value)} className={inputCls} placeholder="Auto from stage" />
-          </F>
-          </>) : (<>
-          {/* Product */}
-          <F label="Product / Segment">
+        ) : (<>
+          <F label="Product / segment">
             <select value={form.product} onChange={e => set("product", e.target.value)} className={selectCls}>
-              <option value="">— Select product —</option>
+              <option value="">— Select —</option>
               {withCurrent(products, form.product).map(p => <option key={p}>{p}</option>)}
             </select>
           </F>
-          {/* Deal Type */}
-          <F label="Deal Type">
+          <F label="Deal type">
             <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
-              <option value="">— Select type —</option>
+              <option value="">— Select —</option>
               {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
             </select>
           </F>
-          </>)}
-          {/* Value estimate */}
-          <F label={isIB ? "Transaction Size (₹)" : "Estimated Value (₹)"}>
-            <input type="number" value={form.value_estimate} onChange={e => set("value_estimate", e.target.value)} className={inputCls} placeholder="0" />
-            {form.value_estimate && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.value_estimate)}</div>}
-          </F>
-          {isIB && (
-            <F label="Expected Fee (₹)">
-              <input type="number" value={form.expected_fee} onChange={e => set("expected_fee", e.target.value)} className={inputCls} placeholder="0" />
-              {form.expected_fee && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.expected_fee)}</div>}
-            </F>
-          )}
-          {/* Expected Close */}
-          <F label="Expected Close Date">
-            <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
-          </F>
-          {isIB && (() => {
-            const st = stages.find(s => s.stage_id === (form.stage || stages[0]?.stage_id));
-            return st?.is_lost ? (
-              <F label="Lost Reason *" span2>
-                <select value={form.lost_reason} onChange={e => set("lost_reason", e.target.value)} className={selectCls}>
-                  <option value="">— Why was it lost? —</option>
-                  {withCurrent(lostReasons, form.lost_reason).map(r => <option key={r}>{r}</option>)}
-                </select>
-              </F>
-            ) : st?.is_won ? null : (<>
-              <F label="Next Action *">
-                <input value={form.next_action} onChange={e => set("next_action", e.target.value)} className={inputCls} placeholder="e.g. Send pitch deck to CFO" />
-              </F>
-              <F label="Next Action Date">
-                <input type="date" value={form.next_action_date} onChange={e => set("next_action_date", e.target.value)} className={inputCls} />
-              </F>
-            </>);
-          })()}
-          {/* RM */}
-          <F label="Assigned RM" span2>
-            <select value={form.assigned_rm_id} onChange={e => set("assigned_rm_id", e.target.value)} className={selectCls}>
-              <option value="">— None —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+        </>)}
+        <F label="Source" hint={lockedHint}>
+          <select value={form.source} onChange={e => set("source", e.target.value)} disabled={isEdit} className={`${selectCls} disabled:opacity-60 disabled:cursor-not-allowed`}>
+            <option value="">— Select —</option>
+            {withCurrent(sources, form.source).map(x => <option key={x}>{x}</option>)}
+          </select>
+        </F>
+        <F label="Sub-source" span2={!isIB ? false : undefined}>
+          <input value={form.sub_source} onChange={e => set("sub_source", e.target.value)} disabled={isEdit} className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isEdit ? "—" : "e.g. referred by CA firm, LinkedIn"} />
+        </F>
+      </Section>
+
+      <Section title="Stage & priority" icon={Flag}>
+        <F label="Stage" span2>
+          <Pills value={form.stage} onChange={v => set("stage", v)} options={stages.map(x => ({ id: x.stage_id, label: x.label, won: x.is_won, lost: x.is_lost }))} />
+        </F>
+        <F label="Priority" span2>
+          <Pills value={form.priority} onChange={v => set("priority", v)} options={PRIORITIES.map(p => ({ id: p, label: p }))} tone={id => PRIORITY_TONE[id]} />
+        </F>
+      </Section>
+
+      {isIB && curStage?.is_lost ? (
+        <Section title="Why was it lost?" tone="red">
+          <F label="Lost reason" req span2 bad={bad === "lost_reason"}>
+            <select value={form.lost_reason} onChange={e => set("lost_reason", e.target.value)} className={selectCls}>
+              <option value="">— Choose a reason —</option>
+              {withCurrent(lostReasons, form.lost_reason).map(r => <option key={r}>{r}</option>)}
             </select>
           </F>
-          {/* Client */}
-          <F label={isIB ? "Company" : "Linked Client"} span2>
-            <ClientPicker
-              value={form.client_id}
-              onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))}
-              apiBase={apiBase}
-              initialName={form.client_name}
-            />
+          {(!isEdit || editLead?.stage !== form.stage) ? (
+            <F label="Comment" req span2 bad={bad === "lost_comment"} hint="What happened? Saved to the opportunity's History (min 10 characters)">
+              <textarea value={form.lost_comment} onChange={e => set("lost_comment", e.target.value)} rows={3} className={inputCls} placeholder="e.g. Promoter wants to wait for FY27 results before going ahead" />
+            </F>
+          ) : editLead?.lost_comment ? (
+            <F label="Comment" span2><div className="text-xs opacity-80 whitespace-pre-wrap">{editLead.lost_comment}</div></F>
+          ) : null}
+        </Section>
+      ) : isIB && !curStage?.is_won ? (
+        <Section title="Next step" icon={ArrowRight} tone="amber">
+          <F label="Next action" req bad={bad === "next_action"} hint="Every active opportunity needs one — it drives My Day and reminders">
+            <input value={form.next_action} onChange={e => set("next_action", e.target.value)} className={inputCls} placeholder="e.g. Send pitch deck to CFO" />
           </F>
-          {/* Notes */}
-          <F label="Notes" span2>
-            <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3} className={inputCls} placeholder="Notes about this lead…" />
+          <F label="By when">
+            <input type="date" value={form.next_action_date} onChange={e => set("next_action_date", e.target.value)} className={inputCls} />
           </F>
-        </div>
+        </Section>
+      ) : null}
 
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50 dark:bg-gray-900/50">
-          {error ? (
-            <div className="flex items-center gap-2 text-red-600 text-sm"><AlertCircle size={14} /> {error}</div>
-          ) : <div />}
-          <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2">
-              {saving ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</> : <><TrendingUp size={14} /> {isEdit ? "Save Changes" : isIB ? "Create Opportunity" : "Create Lead"}</>}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      <Section title="Value" icon={IndianRupee}>
+        <F label={isIB ? "Transaction size" : "Estimated value"} hint={form.value_estimate ? `= ${inWords(form.value_estimate)}` : undefined}>
+          <MoneyInput value={form.value_estimate} onChange={v => set("value_estimate", v)} />
+        </F>
+        {isIB ? (
+          <F label="Expected fee" hint={form.expected_fee ? `= ${inWords(form.expected_fee)}${form.value_estimate && Number(form.value_estimate) ? ` · ${(Number(form.expected_fee) / Number(form.value_estimate) * 100).toFixed(2)}% of size` : ""}` : undefined}>
+            <MoneyInput value={form.expected_fee} onChange={v => set("expected_fee", v)} />
+          </F>
+        ) : (
+          <F label="Expected close">
+            <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
+          </F>
+        )}
+        {isIB && (
+          <F label={`Probability — ${form.probability === "" ? "auto from stage" : `${form.probability}%`}`} span2>
+            <div className="flex items-center gap-3">
+              <input type="range" min={0} max={100} step={5} value={form.probability === "" ? 0 : Number(form.probability)}
+                onChange={e => set("probability", e.target.value)} className="flex-1 accent-violet-600" aria-label="Probability" />
+              {form.probability !== "" && <button type="button" onClick={() => set("probability", "")} className="text-[11px] text-violet-600 hover:underline whitespace-nowrap">Use auto</button>}
+            </div>
+          </F>
+        )}
+      </Section>
+
+      <Section title="Ownership & timing" icon={User}>
+        <F label="Assigned RM">
+          <select value={form.assigned_rm_id} onChange={e => set("assigned_rm_id", e.target.value)} className={selectCls}>
+            <option value="">— None —</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+          </select>
+        </F>
+        {isIB && (
+          <F label="Expected close">
+            <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
+          </F>
+        )}
+        <F label="Notes" span2>
+          <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3} className={inputCls} placeholder={`Anything the team should know about this ${noun.toLowerCase()}…`} />
+        </F>
+      </Section>
+    </ModalShell>
   );
 }
 
@@ -445,8 +531,14 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
 
   const set = useCallback((k: string, v: any) => setForm(f => ({ ...f, [k]: v })), []);
 
+  const [bad, setBad] = useState<string | null>(null);
+  useEffect(() => { if (bad && String((form as any)[bad] || "").trim()) { setBad(null); setError(""); } }, [form, bad]);
+  useEffect(() => { if (open && !editDeal && !form.stage && stages[0]) set("stage", stages[0].stage_id); }, [open, editDeal, stages, form.stage, set]);
+  const isIB = verticalId === "ib";
+
   const handleSave = async () => {
-    if (!form.name.trim()) { setError("Deal name is required."); return; }
+    setBad(null);
+    if (!form.name.trim()) { setBad("name"); setError(isIB ? "Mandate name is required." : "Deal name is required."); return; }
     setSaving(true); setError("");
     try {
       const body = {
@@ -470,79 +562,59 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
   };
 
   if (!open) return null;
+  const noun = isIB ? "Mandate / Deal" : "Deal";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-950 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-2">
-            <Briefcase size={16} className="text-violet-500" />
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              {isEdit ? "Edit Deal" : "New Deal"} — {vertical}
-            </h2>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
-            <X size={16} />
-          </button>
-        </div>
+    <ModalShell icon={Briefcase} onClose={onClose}
+      title={`${isEdit ? "Edit" : "New"} ${noun}`}
+      subtitle={isEdit ? `${editDeal.deal_code || ""} · ${editDeal.vertical || vertical}` : `${vertical}${isIB ? " · signed or near-signed work being executed" : ""}`}
+      footer={<Footer error={error} saving={saving} onClose={onClose} onSave={handleSave} icon={Briefcase} label={isEdit ? "Save changes" : `Create ${isIB ? "mandate" : "deal"}`} />}>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <F label="Deal Name *" span2>
-            <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} placeholder="e.g. ABC Corp - IPO Subscription ₹50L" />
-          </F>
-          <F label="Stage">
-            <select value={form.stage} onChange={e => set("stage", e.target.value)} className={selectCls}>
-              <option value="">— Select stage —</option>
-              {stages.map(s => <option key={s.stage_id} value={s.stage_id}>{s.label}</option>)}
-            </select>
-          </F>
-          <F label="Deal Type">
-            <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
-              <option value="">— Select type —</option>
-              {dealTypes.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </F>
-          <F label="Type / Category">
-            <input value={form.type} onChange={e => set("type", e.target.value)} className={inputCls} placeholder="e.g. IPO, Block, QIP" />
-          </F>
-          <F label="Deal Value (₹)">
-            <input type="number" value={form.value} onChange={e => set("value", e.target.value)} className={inputCls} placeholder="0" />
-            {form.value && <div className="text-[11px] text-gray-500 mt-1">= {inWords(form.value)}</div>}
-          </F>
-          <F label="Expected Close Date">
-            <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
-          </F>
-          <F label="Assigned RM">
-            <select value={form.rm_id} onChange={e => set("rm_id", e.target.value)} className={selectCls}>
-              <option value="">— None —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-            </select>
-          </F>
-          <F label="Linked Client" span2>
-            <ClientPicker
-              value={form.client_id}
-              onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))}
-              apiBase={apiBase}
-              initialName={form.client_name}
-            />
-          </F>
-          <F label="Notes" span2>
-            <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3} className={inputCls} placeholder="Notes about this deal…" />
-          </F>
-        </div>
+      <Section title={isIB ? "Mandate" : "Deal"}>
+        <F label={isIB ? "Mandate name" : "Deal name"} req span2 bad={bad === "name"}>
+          <input value={form.name} onChange={e => set("name", e.target.value)} autoFocus={!isEdit} className={inputCls} placeholder={isIB ? "e.g. ABC Ltd — IPO (BRLM)" : "e.g. ABC Corp - IPO Subscription ₹50L"} />
+        </F>
+        <F label={isIB ? "Company" : "Linked client"} span2>
+          <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
+        </F>
+        <F label="Deal type">
+          <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
+            <option value="">— Select —</option>
+            {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
+          </select>
+        </F>
+        <F label="Sub-type / product (optional)">
+          <input value={form.type} onChange={e => set("type", e.target.value)} className={inputCls} placeholder="e.g. Fresh issue + OFS, Block, QIP" />
+        </F>
+      </Section>
 
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50 dark:bg-gray-900/50">
-          {error ? (
-            <div className="flex items-center gap-2 text-red-600 text-sm"><AlertCircle size={14} /> {error}</div>
-          ) : <div />}
-          <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2">
-              {saving ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</> : <><Briefcase size={14} /> {isEdit ? "Save Changes" : "Create Deal"}</>}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      <Section title="Stage" icon={Flag}>
+        <F label="Current stage" span2>
+          <Pills value={form.stage} onChange={v => set("stage", v)} options={stages.map(x => ({ id: x.stage_id, label: x.label, won: x.is_won, lost: x.is_lost }))} />
+        </F>
+      </Section>
+
+      <Section title="Value & timing" icon={IndianRupee}>
+        <F label={isIB ? "Transaction size / fee base" : "Deal value"} hint={form.value ? `= ${inWords(form.value)}` : undefined}>
+          <MoneyInput value={form.value} onChange={v => set("value", v)} />
+        </F>
+        <F label="Expected close">
+          <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
+        </F>
+      </Section>
+
+      <Section title="Ownership" icon={User}>
+        <F label="Assigned RM">
+          <select value={form.rm_id} onChange={e => set("rm_id", e.target.value)} className={selectCls}>
+            <option value="">— None —</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+          </select>
+        </F>
+        <div className="hidden sm:block" />
+        <F label="Notes" span2>
+          <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3} className={inputCls} placeholder={isIB ? "Scope, fee terms, key dates…" : "Notes about this deal…"} />
+        </F>
+      </Section>
+    </ModalShell>
   );
 }

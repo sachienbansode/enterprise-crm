@@ -4,6 +4,7 @@ import { seedIfEmpty } from "./lib/seed";
 import { query } from "./lib/db";
 import { ensureSessionSchema } from "./lib/session";
 import { ensureAppSchema } from "./lib/schema";
+import { startMeetingJobs } from "./routes/meetings";
 
 const rawPort = process.env["PORT"];
 
@@ -33,6 +34,7 @@ await query(`
 `);
 await ensureSessionSchema();
 await ensureAppSchema();
+startMeetingJobs(); // Teams transcripts after meetings end; retries; audio retention
 
 // Clean up any expired OTPs from previous runs
 await query("DELETE FROM otp_store WHERE expires_at < NOW()");

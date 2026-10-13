@@ -86,9 +86,9 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
   const breachPct = k.openSRs ? Math.round((k.breachedSRs / k.openSRs) * 100) : 0;
 
   const kpis = [
-    { label: "Open pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open leads · by vertical ↓`, icon: TrendingUp, onClick: toScorecards },
-    { label: "Won value", value: fmt(k.wonValue), sub: `${k.wonLeads} leads won · by vertical ↓`, icon: Trophy, onClick: toScorecards },
-    { label: "Win rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} closed leads` : "No closed leads yet", icon: Target, onClick: toScorecards },
+    { label: "Open pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open lead${k.openLeads === 1 ? "" : "s"} · by vertical ↓`, icon: TrendingUp, onClick: toScorecards },
+    { label: "Won value", value: fmt(k.wonValue), sub: `${k.wonLeads} lead${k.wonLeads === 1 ? "" : "s"} won · by vertical ↓`, icon: Trophy, onClick: toScorecards },
+    { label: "Win rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} won/lost lead${k.closedLeads === 1 ? "" : "s"}` : "No won or lost leads yet", icon: Target, onClick: toScorecards },
     { label: "Active clients", value: String(k.clients.active), sub: `${k.clients.kyc_attention} need KYC attention`, icon: Users, onClick: () => onNav(null, "clients") },
     { label: "Open service requests", value: String(k.openSRs), sub: `${k.totalSRs} total`, icon: MessageSquare, onClick: () => onNav(null, "service") },
     { label: "SLA breached", value: String(k.breachedSRs), sub: `${breachPct}% of open SRs`, icon: AlertTriangle, alert: k.breachedSRs > 0, onClick: () => onNav(null, "service") },
@@ -98,7 +98,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
   const priorities = ["Critical", "High", "Medium", "Low"].map(p => ({ p, n: data.srOpenByPriority[p] || 0 }));
   const maxPri = Math.max(1, ...priorities.map(x => x.n));
   const weekly = data.weekly.map(w => ({ ...w, label: weekLabel(w.week) }));
-  const moneyTick = (v: number) => fmt(v).replace(/\.00(?=[A-Za-z])/, "");
+  const moneyTick = (v: number) => fmt(v);
 
   return (
     <div className="p-3 sm:p-5 space-y-4 overflow-y-auto h-full">
@@ -178,14 +178,14 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
           <div className={`text-[11px] ${t.textMuted} mb-3`}>Last {fWeeks} weeks · {(data?.filters?.verticals || []).length && fVerts.length ? (data!.filters!.verticals as string[]).map(v => VID_SHORT[ALL_VERTICALS.find(x => x.name === v)?.id || ""] || v).join(", ") : "all verticals"}</div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={weekly} margin={{ left: -16, right: 8, top: 8 }}>
-                <defs><linearGradient id="leadsFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={c.s1} stopOpacity={0.3} /><stop offset="100%" stopColor={c.s1} stopOpacity={0} /></linearGradient></defs>
+              {/* weekly counts → bars (a smoothed curve put peaks between weeks and misread) */}
+              <BarChart data={weekly} margin={{ left: -16, right: 8, top: 16 }}>
                 <CartesianGrid vertical={false} stroke={c.grid} />
                 <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={24} />
                 <YAxis {...axisProps} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [v, "New leads"]} labelFormatter={(l: any) => `Week of ${l}`} />
-                <Area type="monotone" dataKey="leads" stroke={c.s1} strokeWidth={2} fill="url(#leadsFill)" dot={false} activeDot={{ r: 4 }} />
-              </AreaChart>
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: isDark ? "#ffffff0d" : "#0000000a" }} formatter={(v: any) => [v, "New leads"]} labelFormatter={(l: any) => `Week of ${l}`} />
+                <Bar dataKey="leads" fill={c.s1} radius={[4, 4, 0, 0]} maxBarSize={28} label={{ position: "top", fill: c.axis, fontSize: 11, formatter: (v: any) => (v ? v : "") }} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -204,8 +204,8 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
                 <YAxis {...axisProps} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} labelFormatter={(l: any) => `Week of ${l}`} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="srOpened" name="Opened" stroke={c.s1} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                <Line type="monotone" dataKey="srResolved" name="Resolved" stroke={c.s3} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="linear" dataKey="srOpened" name="Opened" stroke={c.s1} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                <Line type="linear" dataKey="srResolved" name="Resolved" stroke={c.s3} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>

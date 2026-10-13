@@ -9,7 +9,7 @@ type Item =
   | { kind: "edited"; at: string; by: string; changes: { field: string; from: string; to: string }[] }
   | { kind: "comment"; at: string; by: string; body: string; id: string }
   | { kind: "document"; at: string; by: string; name: string; id: string }
-  | { kind: "interaction"; at: string; by: string; type: string; title?: string; body?: string; source?: string; id: string }
+  | { kind: "interaction"; at: string; by: string; type: string; title?: string; body?: string; source?: string; id: string; meeting_id?: string }
   | { kind: "task"; at: string; by: string; title: string; status: string; due?: string; owner?: string; id: string };
 
 const ago = (iso: string) => {
@@ -69,7 +69,7 @@ export function RecordActivity({ type, id, t, refreshKey = 0 }: { type: "lead" |
                 <div className="text-[11px]">
                   <span className={`font-semibold ${t.text}`}>{it.by || "System"}</span>{" "}
                   <span className={t.textMuted}>{it.kind === "comment" ? "commented" : it.kind === "edited" ? "made changes" : it.kind === "created" ? "created this record" : it.kind === "deleted" ? "deleted this record"
-                    : it.kind === "interaction" ? `logged a ${String(it.type || "note").toLowerCase()}${it.source === "fireflies" ? " (Fireflies)" : it.source === "voice" ? " (voice)" : ""}`
+                    : it.kind === "interaction" ? `logged a ${String(it.type || "note").toLowerCase()}${it.source === "fireflies" ? " (Fireflies)" : it.source === "voice" ? " (voice)" : it.source === "recording" ? " (recorded)" : it.source === "teams" ? " (Teams)" : ""}`
                     : it.kind === "task" ? (it.status === "Done" ? "completed a task" : "added a task") : "uploaded a document"}</span>
                   <span className={`${t.textMuted} ml-1`} title={full(it.at)}>· {ago(it.at)}</span>
                 </div>
@@ -79,6 +79,7 @@ export function RecordActivity({ type, id, t, refreshKey = 0 }: { type: "lead" |
                   <div className={`mt-1 text-xs rounded-lg px-2.5 py-1.5 ${t.bgCard2} ${t.text}`}>
                     {it.title && <div className="font-semibold">{it.title}</div>}
                     {it.body && <div className={`whitespace-pre-wrap break-words ${t.textSub}`}>{it.body}</div>}
+                    {it.meeting_id && <button onClick={() => window.dispatchEvent(new CustomEvent("meeting:open", { detail: { id: it.meeting_id } }))} className="mt-1 text-[11px] text-violet-500 hover:underline">Open transcript →</button>}
                   </div>
                 )}
                 {it.kind === "task" && (

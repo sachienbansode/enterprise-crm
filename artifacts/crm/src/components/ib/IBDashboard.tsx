@@ -67,7 +67,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
     <ResponsiveContainer width="100%" height={height || Math.max(140, rows.length * 30 + 30)}>
       <BarChart data={rows} layout="vertical" margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
         <CartesianGrid horizontal={false} stroke={c.grid} />
-        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt} axisLine={false} tickLine={false} />
+        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt} allowDecimals={!!fmt} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="name" width={130} tick={{ fill: c.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={tip} cursor={{ fill: isDark ? "#ffffff0d" : "#0000000a" }} formatter={(v: any) => [fmt ? fmt(v) : v, ""]} separator="" />
         <Bar dataKey={dataKey} fill={c.s1} radius={[0, 4, 4, 0]} barSize={16} onClick={toLeads} style={{ cursor: "pointer" }} />
@@ -103,8 +103,8 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
             return <Row key={a.id} onClick={toLeads} warn={late} title={a.next_action} sub={`${a.company || a.name} · ${late ? "overdue since " : ""}${d(a.next_action_date)}`} />;
           })}
         </MyDayCard>
-        <MyDayCard title="Overdue tasks" icon={AlertTriangle} n={md.overdueTasks.length} tone="text-red-500" empty="Nothing overdue. ">
-          {md.overdueTasks.map((x: any) => <Row key={x.id} onClick={() => openCompany(x.client_id)} warn={new Date(x.due_date) < today} title={x.title} sub={`${x.owner_name || "—"} · ${x.company || ""} · ${d(x.due_date)}`} />)}
+        <MyDayCard title="Overdue & due today" icon={AlertTriangle} n={md.overdueTasks.length} tone="text-red-500" empty="Nothing overdue or due today.">
+          {md.overdueTasks.map((x: any) => <Row key={x.id} onClick={() => openCompany(x.client_id)} warn={new Date(x.due_date) < today} title={x.title} sub={`${x.owner_name || "—"} · ${x.company || ""} · ${new Date(x.due_date) < today ? `overdue since ${d(x.due_date)}` : "due today"}`} />)}
         </MyDayCard>
         <MyDayCard title="Priority opportunities" icon={Star} n={md.priority.length} tone="text-violet-500" empty="No high-priority opportunities open.">
           {md.priority.map((p: any) => <Row key={p.id} onClick={toLeads} title={p.name} sub={`${p.stage}${p.expected_fee ? ` · fee ${money(Number(p.expected_fee))}` : ""}${p.next_action ? ` · → ${p.next_action}` : ""}`} />)}
