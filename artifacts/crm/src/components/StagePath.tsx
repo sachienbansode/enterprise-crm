@@ -8,9 +8,9 @@ import { Check, ChevronsRight, Flag, Lock, ArrowRight } from "lucide-react";
 export type PathStage = { id: string; label: string; skip_allowed?: boolean; is_won?: boolean; is_lost?: boolean };
 type Mark = { s: "done" | "skipped"; at?: string; by?: string };
 
-const CLIP_FIRST = "polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)";
-const CLIP_MID = "polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%)";
-const CLIP_LAST = "polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%)";
+const CLIP_FIRST = "polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)";
+const CLIP_MID = "polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%)";
+const CLIP_LAST = "polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%)";
 const fmt = (v?: string) => (v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "");
 
 export function StagePath({ stages, current, path, busy, onMove, compact, readOnly, askNextAction, nextAction, nextActionDate, readOnlyHint }: {
@@ -29,19 +29,7 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   const [confirmFor, setConfirmFor] = useState<string | null>(null);   // stage the user is about to move to
   useEffect(() => { setSel(current); setConfirmFor(null); }, [current]);
   useEffect(() => { if (readOnly) { setSel(current); setConfirmFor(null); } }, [readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Fit the whole path in the available width — no sideways scrolling. When space is short, other stages
-  // shrink to an icon / step number (name on hover) and the current or selected stage keeps its full label.
   const boxRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const el = boxRef.current; if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth)); ro.observe(el); setWidth(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
-  const slots = flow.length + (isLost ? 1 : 0);
-  const condensed = width > 0 && width / Math.max(1, slots) < 104;
-  // Width of a shrunk stage: whatever leaves ~120px for the current one, between 28 and 44px
-  const cw = Math.max(28, Math.min(44, Math.floor((width - 120) / Math.max(1, slots - 1))));
 
   const state = (s: PathStage, i: number) => {
     const m = path?.[s.id];
@@ -62,7 +50,8 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
   return (
     <div className="flex flex-col gap-2">
       <div className="flex-1 min-w-0">
-        <div ref={boxRef} className={`flex w-full rounded-full overflow-hidden ${isLost ? "opacity-60" : ""}`} role="list" aria-label="Stages">
+        {/* Full stage names always; when they don't fit on one line the path wraps onto more rows (no sideways scroll) */}
+        <div ref={boxRef} className={`flex flex-wrap w-full gap-[3px] ${isLost ? "opacity-60" : ""}`} role="list" aria-label="Stages">
           {flow.map((s, i) => {
             const st = state(s, i);
             const selected = s.id === sel && sel !== current;
@@ -76,20 +65,17 @@ export function StagePath({ stages, current, path, busy, onMove, compact, readOn
             return (
               <button key={s.id} role="listitem" disabled={busy || readOnly} onClick={() => { setSel(s.id); setConfirmFor(null); }} title={tip}
                 aria-current={st === "current" ? "step" : undefined}
-                style={{ clipPath: i === 0 ? CLIP_FIRST : i === flow.length - 1 ? CLIP_LAST : CLIP_MID, marginLeft: i === 0 ? 0 : -8,
-                  ...(condensed && st !== "current" && !selected ? { width: cw, paddingLeft: i === 0 ? 4 : 12, paddingRight: 4 } : {}) }}
+                style={{ clipPath: i === 0 ? CLIP_FIRST : i === flow.length - 1 && !isLost ? CLIP_LAST : CLIP_MID }}
                 className={`relative h-9 min-w-0 flex items-center justify-center gap-1 text-xs font-medium whitespace-nowrap transition-all duration-300 disabled:cursor-default ${tone} ${selected ? "ring-2 ring-inset ring-[#0b2a5b] dark:ring-blue-400" : ""}
-                  ${condensed && st !== "current" && !selected ? "flex-none" : "flex-1 px-5"}`}>
+                  grow shrink-0 basis-auto pl-5 pr-4 ${i === 0 ? "pl-4" : ""}`}>
                 {st === "done" && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                {condensed && st !== "current" && !selected
-                  ? (st === "todo" && <span className="text-[11px] tabular-nums opacity-80">{i + 1}</span>)
-                  : <span className={`truncate ${st === "skipped" ? "line-through decoration-1" : ""}`}>{s.label}</span>}
+                <span className={st === "skipped" ? "line-through decoration-1" : ""}>{s.label}</span>
                 {st === "skipped" && <ChevronsRight className="w-3 h-3 flex-shrink-0" aria-label="skipped" />}
                 {st === "todo" && s.skip_allowed === false && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" aria-label="mandatory" />}
               </button>
             );
           })}
-          {isLost && <div className="h-9 px-4 -ml-2 flex items-center bg-red-600 text-white text-xs font-semibold" style={{ clipPath: CLIP_LAST }}>{lostStage!.label}</div>}
+          {isLost && <div className="h-9 pl-5 pr-4 grow flex items-center justify-center rounded-r-full bg-red-600 text-white text-xs font-semibold" style={{ clipPath: CLIP_LAST }}>{lostStage!.label}</div>}
         </div>
         {/* Summary line — always lists skipped steps, so they're visible even when scrolled out of view */}
         {(() => {
