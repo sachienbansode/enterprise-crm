@@ -21,7 +21,7 @@ function expire(message: string) {
 }
 
 export function installAuthFetch() {
-  ["mousedown", "keydown", "touchstart", "scroll", "wheel"].forEach(ev =>
+  ["mousedown", "keydown", "touchstart", "touchmove", "pointerdown", "scroll", "wheel", "input"].forEach(ev =>
     window.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true, capture: true }));
 
   const orig = window.fetch.bind(window);
@@ -32,9 +32,7 @@ export function installAuthFetch() {
     if (!isApi || !token) return orig(input, init);
 
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-    // Always use the real session token — some older screens pass their own (sometimes
-    // "Bearer undefined"), which the server rejects and which used to log the user out.
-    headers.set("Authorization", `Bearer ${token}`);
+    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
     headers.set("X-Idle-Ms", String(Date.now() - lastActivity));
     const res = await orig(input, { ...init, headers });
     if (res.status === 401) {
@@ -46,15 +44,28 @@ export function installAuthFetch() {
     return res;
   };
 
-  // Local idle check too, so an idle screen locks itself even if nothing calls the API
-  setInterval(() => {
+  // Every 30 s: sign out after 30 min of no activity; otherwise, if the user did something
+  // since the last check, tell the server (a heartbeat) — reading, scrolling or typing a long
+  // note without any API call no longer lets the server-side session lapse.
+  let lastBeat = Date.now();
+  const tick = () => {
     let token: string | null = null;
     try { token = localStorage.getItem("niytri_token"); } catch { /* ignore */ }
-    if (token && Date.now() - lastActivity > IDLE_LIMIT_MS) {
+    if (!token) return;
+    const idle = Date.now() - lastActivity;
+    if (idle > IDLE_LIMIT_MS) {
       orig("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
       expire("Your session expired after 30 minutes of inactivity — please sign in again.");
+      return;
     }
-  }, 30_000);
+    if (lastActivity > lastBeat && idle < 110_000 && Date.now() - lastBeat > 60_000) {
+      lastBeat = Date.now();
+      window.fetch("/api/auth/me", { cache: "no-store" }).catch(() => {});
+    }
+  };
+  setInterval(tick, 30_000);
+  // Phones pause timers in the background — re-check as soon as the app is visible again
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
 }
 
 export async function serverLogout() {

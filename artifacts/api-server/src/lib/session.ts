@@ -5,8 +5,9 @@ import { query } from "./db";
 // ─── Server-side sessions ─────────────────────────────────────────────────────
 // • Opaque random token (returned to the browser once); only its SHA-256 is stored.
 // • Stored in PostgreSQL (user_sessions) → survives app restarts / redeploys.
-// • Idle timeout: SESSION_IDLE_MINUTES (default 30) since the last API call.
-// • Absolute limit: m365_config.session_hours (default 8).
+// • Sign-out only after SESSION_IDLE_MINUTES (default 30) without user activity.
+// • An active session keeps sliding forward — no forced sign-out in the middle of work
+//   (m365_config.session_hours only sets the initial window).
 
 export const IDLE_MINUTES = Number(process.env.SESSION_IDLE_MINUTES || 30);
 const TOUCH_EVERY_MS = 60_000; // don't write last_seen on every request
@@ -64,15 +65,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const s = r.rows[0];
     const now = Date.now();
     if (!s || s.status !== "Active") return res.status(401).json({ error: "Session not valid", code: "SESSION_INVALID" });
-    if (new Date(s.expires_at).getTime() < now || now - new Date(s.last_seen_at).getTime() > IDLE_MINUTES * 60_000) {
+    // 2-minute grace: "last seen" is only written once a minute
+    if (new Date(s.expires_at).getTime() < now || now - new Date(s.last_seen_at).getTime() > (IDLE_MINUTES + 2) * 60_000) {
       await query("UPDATE user_sessions SET is_active=FALSE WHERE id=$1", [s.session_id]);
       return res.status(401).json({ error: "Session expired — please sign in again", code: "SESSION_EXPIRED" });
     }
     // Only real user activity extends the session — background polls send X-Idle-Ms (ms since last click/keypress)
     const idleMs = Number(req.headers["x-idle-ms"]);
-    const userActive = !Number.isFinite(idleMs) || idleMs < TOUCH_EVERY_MS;
+    const userActive = !Number.isFinite(idleMs) || idleMs < 2 * TOUCH_EVERY_MS;
     if (userActive && now - new Date(s.last_seen_at).getTime() > TOUCH_EVERY_MS) {
-      query("UPDATE user_sessions SET last_seen_at=NOW() WHERE id=$1", [s.session_id]).catch(() => {});
+      query(`UPDATE user_sessions SET last_seen_at=NOW(), expires_at=GREATEST(expires_at, NOW() + ($2 || ' minutes')::interval) WHERE id=$1`,
+        [s.session_id, String(IDLE_MINUTES + 5)]).catch(() => {});
     }
     req.user = { id: s.id, name: s.name, email: s.email, role: s.role, vertical: s.vertical, auth_type: s.auth_type, sessionId: s.session_id };
     // Audit integrity: "who did it" fields always come from the session, not from the browser
