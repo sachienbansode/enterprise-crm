@@ -917,16 +917,16 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
     <div className="flex h-full overflow-hidden">
       {/* Left panel — list */}
       <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${selectedSr ? "max-w-[55%]" : ""}`}>
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {/* Header */}
-          <div className="flex items-center justify-between flex-shrink-0">
-            <div>
-              <h1 className={`text-lg font-bold ${t.text}`}>Service Requests</h1>
+          <div className="flex items-center justify-between flex-shrink-0 gap-2">
+            <div className="min-w-0">
+              <h1 className={`hidden md:block text-lg font-bold ${t.text}`}>Service Requests</h1>
               <p className={`text-xs ${t.textMuted}`}>{totalCount.toLocaleString("en-IN")} total · {SR_SORT_OPTIONS.find(o => o.value === sortBy)?.label || "Newest First"}</p>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={exportCsv} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border ${t.border} ${t.textMuted} hover:text-blue-400 hover:border-blue-500/50 transition-all`}>
-                <Download className="w-3.5 h-3.5" /> Export CSV
+                <Download className="w-3.5 h-3.5" /><span className="hidden sm:inline">Export CSV</span>
               </button>
               <button onClick={() => { load(); loadStats(); }} className={`p-2 rounded-xl border ${t.border} ${t.textMuted} hover:text-blue-400 transition-all`}>
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -941,8 +941,8 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
           <SrStatsBanner stats={stats} loading={statsLoading} t={t} onFilter={handleStatFilter} />
 
           {/* Filter bar */}
-          <div className={`flex items-center gap-2 flex-wrap p-3 rounded-xl border ${t.border} ${t.bgCard2}`}>
-            <div className={`flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs flex-1 min-w-[160px] ${t.inputBg}`}>
+          <div className={`m-toolbar m-inpage flex items-center gap-2 flex-wrap p-3 rounded-xl border ${t.border} ${t.bgCard2}`}>
+            <div className={`m-search flex items-center gap-2 border rounded-xl px-3 py-1.5 text-xs flex-1 min-w-[160px] ${t.inputBg}`}>
               <Search className={`w-3.5 h-3.5 ${t.textMuted}`} />
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search SR code, subject, client…"
                 className="flex-1 bg-transparent outline-none text-xs" />

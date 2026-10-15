@@ -52,7 +52,7 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
     { k: "company", label: "Company", value: p.company_name, icon: Building2, onClick: () => { ev("company:open", { id: p.client_id }); onClose(); } },
     { k: "designation", label: "Designation", value: p.designation, icon: UserCircle2 },
     { k: "role", label: "Role", value: p.role_type, icon: Star },
-    { k: "owner", label: "Contact owner", value: p.owner_name, icon: UserCircle2 },
+    { k: "owner", label: "Contact Owner", value: p.owner_name, icon: UserCircle2 },
     { k: "source", label: "Added", value: `${p.source === "card_scan" ? "From a business card" : "Manually"}${p.created_by_name ? ` by ${p.created_by_name}` : ""} · ${fmtDate(p.created_at)}`, icon: CreditCard, onClick: p.has_card ? openCard : undefined, action: p.has_card ? "View card" : undefined },
   ], [p]); // eslint-disable-line react-hooks/exhaustive-deps
   const touch = useMemo(() => !p ? [] : [
@@ -239,7 +239,7 @@ function TaskSheet({ p, onDone }: { p: any; onDone: (msg: string) => void }) {
       <div className="flex flex-wrap gap-1.5">
         {quick.map(([l, n]) => <button key={l} type="button" onClick={() => setDue(iso(n))} className={`text-xs px-3 py-1.5 rounded-full border ${due === iso(n) ? "border-blue-500 bg-blue-500/10 text-blue-600 font-medium" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300"}`}>{l}</button>)}
       </div>
-      <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due date" />
+      <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due Date" />
       {err && <div className="text-sm text-red-500">{err}</div>}
       <button onClick={save} disabled={busy || !title.trim()} className="w-full py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-40">{busy ? "Saving…" : "Add task"}</button>
     </div>

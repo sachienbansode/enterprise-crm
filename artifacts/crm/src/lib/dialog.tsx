@@ -57,7 +57,7 @@ export function DialogHost() {
         </div>
       </div>
     )}
-    <div className="fixed z-[101] bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 flex flex-col gap-2 w-[calc(100%-2rem)] sm:w-auto sm:max-w-sm pointer-events-none" aria-live="polite">
+    <div className="fixed z-[101] bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 flex flex-col gap-2 w-[calc(100%-2rem)] sm:w-auto sm:max-w-sm pointer-events-none" aria-live="polite">
       {toasts.map(t => (
         <div key={t.id} className={`animate-in slide-in-from-bottom-3 fade-in duration-300 pointer-events-auto flex items-start gap-2 px-3.5 py-2.5 rounded-xl shadow-lg text-sm border ${t.tone === "error" ? "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-900 text-red-700 dark:text-red-300" : t.tone === "success" ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300" : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200"}`}>
           {t.tone === "error" ? <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : t.tone === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />}

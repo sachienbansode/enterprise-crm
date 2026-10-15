@@ -21,6 +21,7 @@ import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
+import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
 import { ScanLine as ScanIcon } from "lucide-react";
@@ -1919,12 +1920,12 @@ function Client360Panel({ client, t, onClose, loggedUser }: { client: any; t: Re
             <Video className="w-3 h-3" /> Meet
           </button>
         </Tip>
-        <Tip label="Expand full client view">
+        <Tip label="Expand Full Client View">
           <button onClick={() => setShowExpand(true)} className={`flex-1 flex items-center justify-center gap-1 text-xs py-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-violet-400 transition-colors`}>
             <Maximize2 className="w-3 h-3" /> Expand
           </button>
         </Tip>
-        <Tip label="Download client profile as PDF (masked)">
+        <Tip label="Download Client Profile as PDF (masked)">
           <button onClick={downloadMaskedPDF} className={`flex-1 flex items-center justify-center gap-1 text-xs py-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-emerald-400 transition-colors`}>
             <Printer className="w-3 h-3" /> PDF
           </button>
@@ -2401,15 +2402,15 @@ const ADMIN_MENU = [
   ]},
 ];
 
-function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDark, isAdmin, setIsAdmin, loggedUser, onLogout }: any) {
-  const [expanded, setExpanded] = useState<string | null>(null);
+function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDark, isAdmin, setIsAdmin, loggedUser, onLogout, sheet }: any) {
+  const [expanded, setExpanded] = useState<string | null>(sheet ? (activeV || null) : null);
   const [adminExpanded, setAdminExpanded] = useState<string | null>("User Management");
   const [globalCollapsed, setGlobalCollapsed] = useState(false);
   const [verticalsCollapsed, setVerticalsCollapsed] = useState(false);
   const [adminCollapsed, setAdminCollapsed] = useState(false);
   const nav = (v: Vertical, p: Page) => { setActiveV(v); setPage(p); setIsAdmin(false); if (onClose) onClose(); };
   const navAdmin = (p: Page) => { setIsAdmin(true); setPage(p); setActiveV(null); if (onClose) onClose(); };
-  const toggleV = (vid: string) => { setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage((firstVisibleModule(vid) || "dashboard") as Page); setIsAdmin(false); };
+  const toggleV = (vid: string) => { if (sheet) { setExpanded(expanded === vid ? null : vid); return; } setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage((firstVisibleModule(vid) || "dashboard") as Page); setIsAdmin(false); };
   const initials = loggedUser ? loggedUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2) : "BN";
   const sb = {
     bg: isDark ? "bg-gray-950" : "bg-white",
@@ -2429,8 +2430,8 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   const sItem = sb.hover;
 
   return (
-    <aside className={`${open ? "w-60" : "w-14"} ${sb.bg} border-r ${sb.border} flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden h-full`}>
-      <div className={`h-14 flex items-center px-3 border-b ${sb.border} gap-2.5 flex-shrink-0`}>
+    <aside className={sheet ? `m-menu w-full flex flex-col ${sb.bg}` : `${open ? "w-60" : "w-14"} ${sb.bg} border-r ${sb.border} flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden h-full`}>
+      <div className={`${sheet ? "hidden" : "flex"} h-14 items-center px-3 border-b ${sb.border} gap-2.5 flex-shrink-0`}>
         <img src={APP_LOGO} onError={logoFallback} alt="NIYTRI" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
         {open && <div className="flex-1 min-w-0"><div className={`text-sm font-bold ${sb.text} leading-none`}>NIYTRI CRM</div><div className={`text-[10px] ${sb.muted} mt-0.5`}>Financial Services</div></div>}
         {open && onClose && <button onClick={onClose} className={`${sb.muted} hover:opacity-70 ml-auto`}><X className="w-4 h-4" /></button>}
@@ -2584,17 +2585,22 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-dropdown-config":   "Dropdown Values",
     "admin-pipeline-stages":   "Pipeline Stages",
     "admin-pii-masking":       "PII Data Masking",
+    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar",
   };
-  const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || SUBMENU.find(s => s.id === activePage)?.label
-    || ADMIN_PAGE_LABELS[activePage]
+  const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || (activeV ? SUBMENU.find(s => s.id === activePage)?.label : null)
+    || ADMIN_PAGE_LABELS[activePage] || SUBMENU.find(s => s.id === activePage)?.label
     || (activePage === "ai" ? "NIYTRI AI" : activePage.replace("admin-", "").replace(/-/g, " "));
   return (
-    <header className={`h-14 ${t.bgHeader} border-b ${t.border} flex items-center px-3 sm:px-4 gap-2 sm:gap-3 flex-shrink-0`}>
+    <header className={`m-header h-14 ${t.bgHeader} border-b ${t.border} flex items-center px-4 gap-2.5 sm:gap-3 flex-shrink-0 relative z-30 transition-[margin] duration-300 ease-out`}>
       {/* Desktop sidebar toggle */}
       <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`hidden md:block ${t.textMuted} hover:opacity-80`}><Menu className="w-5 h-5" /></button>
       {/* Mobile hamburger */}
-      <button onClick={onMobileMenu} className={`md:hidden ${t.textMuted} hover:opacity-80`}><Menu className="w-5 h-5" /></button>
-      <div className="flex items-center gap-1.5 text-xs min-w-0">
+      <img src={APP_LOGO} onError={logoFallback} alt="" className="md:hidden w-8 h-8 rounded-lg object-contain flex-shrink-0" />
+      <div className="md:hidden min-w-0 flex-1">
+        <div className={`text-[17px] font-bold ${t.text} truncate leading-tight`}>{pageLabel || "Dashboard"}</div>
+        <div className={`text-[12px] ${vInfo ? verticalAccent(vInfo.id) : t.textMuted} truncate leading-tight`}>{vInfo ? vInfo.label : "NIYTRI CRM"}</div>
+      </div>
+      <div className="hidden md:flex items-center gap-1.5 text-xs min-w-0">
         {vInfo ? (
           <>
             <span className={`${t.textMuted} hidden sm:inline`}>NIYTRI CRM</span>
@@ -2630,13 +2636,14 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             );
           })}
         </div>
+        <div className="hidden md:flex items-center gap-2.5">
         <Tip label="Record a meeting — transcript with each person named">
-          <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: {} }))} aria-label="Record meeting" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-red-400 hover:bg-gray-700" : "bg-slate-100 text-red-600 hover:bg-slate-200"} transition-colors`}>
+          <button onClick={() => window.dispatchEvent(new CustomEvent("recorder:open", { detail: {} }))} aria-label="Record Meeting" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-red-400 hover:bg-gray-700" : "bg-slate-100 text-red-600 hover:bg-slate-200"} transition-colors`}>
             <span className="block w-4 h-4 rounded-full border-2 border-current p-[2px]"><span className="block w-full h-full rounded-full bg-current" /></span>
           </button>
         </Tip>
         <Tip label="Scan a business card — creates the company and contact">
-          <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan business card" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
+          <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan Business Card" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
             <ScanIcon className="w-4 h-4" />
           </button>
         </Tip>
@@ -2661,6 +2668,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             {piiPendingCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold flex items-center justify-center">{piiPendingCount > 9 ? "9+" : piiPendingCount}</span>}
           </button>
         </Tip>
+        </div>
         <NotificationBell loggedUser={loggedUser} t={t} />
         <MeetingReminders email={loggedUser?.email} apiBase={API_BASE} />
         <Tip label={loggedUser?.name || "User"}>
@@ -2710,8 +2718,8 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
   return (
     <div className="flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className={`px-4 py-3 border-b ${t.border} flex items-center gap-2 flex-shrink-0 flex-wrap`}>
-          <div className="flex items-center gap-2">
+        <div className={`m-toolbar px-4 py-3 border-b ${t.border} flex items-center gap-2 flex-shrink-0 flex-wrap`}>
+          <div className="m-title flex items-center gap-2">
             <User className={`w-4 h-4 ${t.textMuted}`} />
             <span className={`text-sm font-bold ${t.text}`}>Client Registry</span>
             <span className={`text-[10px] ${t.tagGray} px-2 py-0.5 rounded-full`}>{total} clients</span>
@@ -3328,16 +3336,16 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       />
       {/* Phones: always-visible "New lead" button */}
       {!selected && !showCreate && !editingLead && (
-        <button onClick={() => setShowCreate(true)} aria-label="New lead"
-          className="sm:hidden fixed right-4 bottom-5 z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
+        <button onClick={() => setShowCreate(true)} aria-label="New Lead"
+          className="m-fab sm:hidden fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom))] z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
           <Plus className="w-5 h-5" /> New Lead
         </button>
       )}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
-          <div className={`w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><TrendingUp className="w-3.5 h-3.5 text-white" /></div>
-          <div>
+        <div className={`m-toolbar px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
+          <div className={`m-title w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><TrendingUp className="w-3.5 h-3.5 text-white" /></div>
+          <div className="m-title">
             <div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Leads Pipeline</div>
             <div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} total leads · ${stages.length} stages`}</div>
           </div>
@@ -3572,7 +3580,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                         <input value={promptVals.next_action} onChange={e => setPromptVals(p => ({ ...p, next_action: e.target.value }))} placeholder="e.g. Share pitch deck with CFO"
                           className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
                         <input type="date" value={promptVals.next_action_date} onChange={e => setPromptVals(p => ({ ...p, next_action_date: e.target.value }))}
-                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Next action date" />
+                          className={`w-full text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Next Action Date" />
                       </>)}
                       <div className="flex gap-2">
                         <button onClick={() => setStagePrompt(null)} className={`flex-1 text-xs py-1.5 rounded-lg border ${t.border}`}>Cancel</button>
@@ -3607,11 +3615,11 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               { label: "Opened on", value: selected.opened_at ? new Date(selected.opened_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
               ...(vId === "ib" ? [
                 { label: "Company", value: selected.client_name || "—" },
-                { label: "Opportunity type", value: selected.opportunity_type || "—" },
-                { label: "Expected fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
+                { label: "Opportunity Type", value: selected.opportunity_type || "—" },
+                { label: "Expected Fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
                 { label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" },
-                ...(selected.lost_reason ? [{ label: "Lost reason", value: selected.lost_reason }] : []),
-                ...(selected.lost_comment ? [{ label: "Lost comment", value: selected.lost_comment }] : []),
+                ...(selected.lost_reason ? [{ label: "Lost Reason", value: selected.lost_reason }] : []),
+                ...(selected.lost_comment ? [{ label: "Lost Comment", value: selected.lost_comment }] : []),
               ] : []),
             ].map(row => (
               <div key={row.label} className={`flex justify-between text-xs py-1.5 border-b ${t.border} last:border-0`}>
@@ -3839,16 +3847,16 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
         apiBase={API_BASE}
       />
       {!selected && !showCreate && !editingDeal && (
-        <button onClick={() => setShowCreate(true)} aria-label="New deal"
-          className="sm:hidden fixed right-4 bottom-5 z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
+        <button onClick={() => setShowCreate(true)} aria-label="New Deal"
+          className="m-fab sm:hidden fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom))] z-30 h-12 px-4 rounded-full bg-orange-600 text-white shadow-xl flex items-center gap-2 text-sm font-semibold">
           <Plus className="w-5 h-5" /> New Deal
         </button>
       )}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
-          <div className={`w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Briefcase className="w-3.5 h-3.5 text-white" /></div>
-          <div>
+        <div className={`m-toolbar px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap`}>
+          <div className={`m-title w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Briefcase className="w-3.5 h-3.5 text-white" /></div>
+          <div className="m-title">
             <div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Deals</div>
             <div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} deals`}</div>
           </div>
@@ -4065,9 +4073,9 @@ function CustomersView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   return (
     <div className="flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0`}>
-          <div className={`w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Users className="w-3.5 h-3.5 text-white" /></div>
-          <div><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Clients</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} clients`}</div></div>
+        <div className={`m-toolbar px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0`}>
+          <div className={`m-title w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Users className="w-3.5 h-3.5 text-white" /></div>
+          <div className="m-title"><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Clients</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} clients`}</div></div>
           <div className={`flex items-center gap-2 ${isDark ? "bg-gray-800" : "bg-gray-100"} rounded-lg px-3 py-1.5 ml-3`}><Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className={`bg-transparent text-xs ${t.text} outline-none w-32`} placeholder="Search…" /></div>
           <div className="ml-auto flex gap-2"><button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button><button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className={`text-xs px-3 py-1.5 rounded-lg ${v.color} text-white flex items-center gap-1.5`}><Plus className="w-3.5 h-3.5" /> New Client</button></div>
         </div>
@@ -4231,9 +4239,9 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       </div>
     )}
     <div className="p-3 sm:p-5 overflow-y-auto h-full">
-      <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
-        <div className={`w-7 h-7 rounded-lg ${v.color} flex items-center justify-center`}><FileText className="w-4 h-4 text-white" /></div>
-        <div><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Documents</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} documents`}</div></div>
+      <div className="m-toolbar m-inpage flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
+        <div className={`m-title w-7 h-7 rounded-lg ${v.color} flex items-center justify-center`}><FileText className="w-4 h-4 text-white" /></div>
+        <div className="m-title"><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Documents</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} documents`}</div></div>
         <div className={`flex items-center gap-2 ${t.bgCard2} rounded-lg px-3 py-1.5 ml-2`}><Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className={`bg-transparent text-xs ${t.text} outline-none w-32`} placeholder="Search docs…" /></div>
         <select value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} outline-none`}>
           <option value="all">All Types</option>
@@ -4495,9 +4503,9 @@ function AdminUsers({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark: boo
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className={`px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap gap-y-2`}>
-        <Users className={`w-4 h-4 ${t.textMuted}`} />
-        <div className={`text-sm font-bold ${t.text}`}>Users</div>
+      <div className={`m-toolbar px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0 flex-wrap gap-y-2`}>
+        <Users className={`m-title w-4 h-4 ${t.textMuted}`} />
+        <div className={`m-title text-sm font-bold ${t.text}`}>Users</div>
         <div className="relative ml-2">
           <Search className={`absolute left-2.5 top-2 w-3.5 h-3.5 ${t.textMuted}`} />
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
@@ -7134,10 +7142,10 @@ function AdminAIConfig({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark: 
 
 // ─── ADMIN: PII DATA MASKING ──────────────────────────────────────────────────
 const SCOPE_OPTIONS = [
-  { value: "all",           label: "All users (including owners & admins)" },
-  { value: "non_owner",     label: "All users except client owners" },
-  { value: "non_super",     label: "All users except Super Admin" },
-  { value: "staff_only",    label: "Staff only (not admin/owner)" },
+  { value: "all",           label: "All Users (including Owners & Admins)" },
+  { value: "non_owner",     label: "All Users Except Client Owners" },
+  { value: "non_super",     label: "All Users Except Super Admin" },
+  { value: "staff_only",    label: "Staff Only (not Admin/owner)" },
 ];
 const CATEGORY_COLORS: Record<string, string> = {
   identity:  "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
@@ -7328,8 +7336,8 @@ function AdminPIIMasking({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark
           <div className={`text-xs ${t.textMuted} mb-3`}>Control which roles can click the eye icon to reveal unmasked PII on client profiles.</div>
           <div className="flex flex-wrap gap-4">
             {[
-              { key: "allow_admin_view", label: "Admins can view PII",       desc: "Super Admin & Admin roles can reveal PII" },
-              { key: "allow_owner_view", label: "Client owner can view PII",  desc: "Assigned RM / owner of the client record can reveal PII" },
+              { key: "allow_admin_view", label: "Admins Can View PII",       desc: "Super Admin & Admin roles can reveal PII" },
+              { key: "allow_owner_view", label: "Client Owner Can View PII",  desc: "Assigned RM / owner of the client record can reveal PII" },
             ].map(opt => (
               <label key={opt.key} className={`flex items-start gap-2.5 cursor-pointer ${t.text}`}>
                 <button onClick={() => setSettings((s: any) => ({ ...s, [opt.key]: !s[opt.key] }))}
@@ -8177,6 +8185,11 @@ export function CRMApp() {
     window.addEventListener("quicklog:open", h);
     return () => window.removeEventListener("quicklog:open", h);
   }, []);
+  // Phone chrome state (hooks must run before the sign-in early returns)
+  const [navHidden, setNavHidden] = useHideOnScroll();
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => { setNavHidden(false); setMoreOpen(false); setPlusOpen(false); }, [activeV, activePage, isAdmin]);
   if (authStep === "login") return <LoginScreen
     onAppLogin={(email) => { setLoginEmail(email); setAuthStep("otp"); }}
     onM365Login={(token, userJson) => {
@@ -8225,6 +8238,14 @@ export function CRMApp() {
   };
 
   const navTo = (v: Vertical, p: Page) => { setIsAdmin(false); setActiveV(v); setActivePage(p); };
+  // ── Phone chrome: bottom tabs, quick actions, More menu ──
+  const pipeV = (activeV || VERTICALS[0]?.id) as Vertical;
+  const mobileTabs = [
+    { id: "home", label: "Home", icon: TAB_ICONS.Home, active: !isAdmin && !activeV && activePage === "dashboard" && !moreOpen, onClick: () => navTo(null, "dashboard") },
+    { id: "pipe", label: "Pipeline", icon: TAB_ICONS.TrendingUp, active: !isAdmin && !!activeV && (activePage === "leads" || activePage === "deals") && !moreOpen, onClick: () => navTo(pipeV, moduleVisible(pipeV as string, "leads") ? "leads" : ((firstVisibleModule(pipeV as string) || "dashboard") as Page)) },
+    { id: "ai", label: "AI", icon: TAB_ICONS.Sparkles, active: !isAdmin && activePage === "ai" && !moreOpen, onClick: () => navTo(null, "ai") },
+    { id: "more", label: "More", icon: TAB_ICONS.LayoutGrid, active: moreOpen, onClick: () => { setPlusOpen(false); setMoreOpen(true); } },
+  ];
 
 
   const renderContent = () => {
@@ -8310,8 +8331,14 @@ export function CRMApp() {
       )}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <div className="print:hidden"><Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onMobileMenu={() => setMobileSidebarOpen(true)} activeV={activeV} activePage={activePage} isDark={darkMode} setIsDark={setDarkMode} t={t} loggedUser={loggedUser} onNavAI={() => navTo(null, "ai")} onPIIRequests={() => setShowPIIRequests(true)} piiPendingCount={piiPendingCount} currUnit={currUnit} setCurrUnit={setCurrUnit} /></div>
-        <main className="flex-1 overflow-hidden"><div key={`${isAdmin ? "admin" : activeV || "main"}/${activePage}`} className="h-full animate-in fade-in duration-300">{renderContent()}</div></main>
+        <main className="flex-1 overflow-hidden m-main"><div key={`${isAdmin ? "admin" : activeV || "main"}/${activePage}`} className="h-full animate-in fade-in duration-300">{renderContent()}</div></main>
       </div>
+      <MobileTabBar hidden={navHidden} tabs={mobileTabs} plusOpen={plusOpen} onPlus={() => { setMoreOpen(false); setPlusOpen(v => !v); }} />
+      <MobileSheet open={plusOpen} onClose={() => setPlusOpen(false)} title="Quick Actions"><QuickActions onClose={() => setPlusOpen(false)} onAI={() => navTo(null, "ai")} /></MobileSheet>
+      <MobileSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu" full>
+        <MoreTopRow isDark={darkMode} setIsDark={setDarkMode} onPII={() => { setMoreOpen(false); setShowPIIRequests(true); }} piiCount={piiPendingCount} />
+        <Sidebar sheet open={true} onClose={() => setMoreOpen(false)} activeV={activeV} setActiveV={setActiveV} activePage={activePage} setPage={setActivePage} isDark={darkMode} isAdmin={isAdmin} setIsAdmin={setIsAdmin} loggedUser={loggedUser} onLogout={handleLogout} />
+      </MobileSheet>
       {showPIIRequests && <PIIRequestsPanel loggedUser={loggedUser} t={t} isDark={darkMode} onClose={() => { setShowPIIRequests(false); /* refresh badge */ const isSA = (loggedUser?.role || "").toLowerCase().includes("super"); fetch(`${API_BASE}/api/clients/access-requests/list?user_id=${loggedUser?.id}&role=approver&is_super_admin=${isSA}`).then(r => r.ok ? r.json() : { data: [] }).then(d => setPiiPendingCount((d.data || []).filter((r: any) => r.status === "pending").length)).catch(() => {}); }} />}
     </div>
   );

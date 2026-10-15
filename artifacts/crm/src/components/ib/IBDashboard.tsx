@@ -113,12 +113,12 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Kpi label="Open pipeline" value={k.openOpportunities} sub={k.noNextAction ? `${k.noNextAction} without a next action` : "all have a next action"} onClick={toLeads} />
-        <Kpi label="Transaction value" value={money(k.pipelineValue)} sub="open opportunities" onClick={toLeads} />
-        <Kpi label="Expected fee" value={money(k.expectedFee)} sub="open opportunities" onClick={toLeads} />
-        <Kpi label="Probability-weighted fee" value={money(k.weightedFee)} sub="fee × probability" onClick={toLeads} />
-        <Kpi label="Mandates won / lost" value={`${k.mandatesWon} / ${k.mandatesLost}`} sub="closed vs lost" onClick={toLeads} />
-        <Kpi label="Win rate" value={k.winRate === null ? "—" : `${k.winRate}%`} sub="of decided opportunities" onClick={toLeads} />
+        <Kpi label="Open Pipeline" value={k.openOpportunities} sub={k.noNextAction ? `${k.noNextAction} without a next action` : "all have a next action"} onClick={toLeads} />
+        <Kpi label="Transaction Value" value={money(k.pipelineValue)} sub="open opportunities" onClick={toLeads} />
+        <Kpi label="Expected Fee" value={money(k.expectedFee)} sub="open opportunities" onClick={toLeads} />
+        <Kpi label="Probability-weighted Fee" value={money(k.weightedFee)} sub="fee × probability" onClick={toLeads} />
+        <Kpi label="Mandates Won / Lost" value={`${k.mandatesWon} / ${k.mandatesLost}`} sub="closed vs lost" onClick={toLeads} />
+        <Kpi label="Win Rate" value={k.winRate === null ? "—" : `${k.winRate}%`} sub="of decided opportunities" onClick={toLeads} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

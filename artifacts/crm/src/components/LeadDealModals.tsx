@@ -372,20 +372,20 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
         </F>
         {isIB ? (
-          <F label="Opportunity type">
+          <F label="Opportunity Type">
             <select value={form.opportunity_type} onChange={e => set("opportunity_type", e.target.value)} className={selectCls}>
               <option value="">— Select —</option>
               {withCurrent(oppTypes, form.opportunity_type).map(t => <option key={t}>{t}</option>)}
             </select>
           </F>
         ) : (<>
-          <F label="Product / segment">
+          <F label="Product / Segment">
             <select value={form.product} onChange={e => set("product", e.target.value)} className={selectCls}>
               <option value="">— Select —</option>
               {withCurrent(products, form.product).map(p => <option key={p}>{p}</option>)}
             </select>
           </F>
-          <F label="Deal type">
+          <F label="Deal Type">
             <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
               <option value="">— Select —</option>
               {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
@@ -414,7 +414,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
 
       {isIB && curStage?.is_lost ? (
         <Section title="Why was it lost?" tone="red">
-          <F label="Lost reason" req span2 bad={bad === "lost_reason"}>
+          <F label="Lost Reason" req span2 bad={bad === "lost_reason"}>
             <select value={form.lost_reason} onChange={e => set("lost_reason", e.target.value)} className={selectCls}>
               <option value="">— Choose a reason —</option>
               {withCurrent(lostReasons, form.lost_reason).map(r => <option key={r}>{r}</option>)}
@@ -430,10 +430,10 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
         </Section>
       ) : isIB && !curStage?.is_won ? (
         <Section title="Next step" icon={ArrowRight} tone="amber">
-          <F label="Next action" req bad={bad === "next_action"} hint="Every active opportunity needs one — it drives My Day and reminders">
+          <F label="Next Action" req bad={bad === "next_action"} hint="Every active opportunity needs one — it drives My Day and reminders">
             <input value={form.next_action} onChange={e => set("next_action", e.target.value)} className={inputCls} placeholder="e.g. Send pitch deck to CFO" />
           </F>
-          <F label="By when">
+          <F label="By When">
             <input type="date" value={form.next_action_date} onChange={e => set("next_action_date", e.target.value)} className={inputCls} />
           </F>
         </Section>
@@ -444,11 +444,11 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           <MoneyInput value={form.value_estimate} onChange={v => set("value_estimate", v)} />
         </F>
         {isIB ? (
-          <F label="Expected fee" hint={form.expected_fee ? `= ${inWords(form.expected_fee)}${form.value_estimate && Number(form.value_estimate) ? ` · ${(Number(form.expected_fee) / Number(form.value_estimate) * 100).toFixed(2)}% of size` : ""}` : undefined}>
+          <F label="Expected Fee" hint={form.expected_fee ? `= ${inWords(form.expected_fee)}${form.value_estimate && Number(form.value_estimate) ? ` · ${(Number(form.expected_fee) / Number(form.value_estimate) * 100).toFixed(2)}% of size` : ""}` : undefined}>
             <MoneyInput value={form.expected_fee} onChange={v => set("expected_fee", v)} />
           </F>
         ) : (
-          <F label="Expected close">
+          <F label="Expected Close">
             <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
           </F>
         )}
@@ -471,7 +471,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
           </select>
         </F>
         {isIB && (
-          <F label="Expected close">
+          <F label="Expected Close">
             <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
           </F>
         )}
@@ -658,13 +658,13 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
           <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
         </F>
         {!kind && (<>
-        <F label="Deal type">
+        <F label="Deal Type">
           <select value={form.deal_type} onChange={e => set("deal_type", e.target.value)} className={selectCls}>
             <option value="">— Select —</option>
             {withCurrent(dealTypes, form.deal_type).map(t => <option key={t}>{t}</option>)}
           </select>
         </F>
-        <F label="Sub-type / product (optional)">
+        <F label="Sub-type / Product (optional)">
           <input value={form.type} onChange={e => set("type", e.target.value)} className={inputCls} placeholder="e.g. Fresh issue + OFS, Block, QIP" />
         </F>
         </>)}
@@ -677,7 +677,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
       )}
 
       <Section title="Stage" icon={Flag}>
-        <F label="Current stage" span2>
+        <F label="Current Stage" span2>
           <Pills value={form.stage} onChange={v => set("stage", v)} options={stages.map(x => ({ id: x.stage_id, label: x.label, won: x.is_won, lost: x.is_lost }))} />
         </F>
       </Section>
@@ -686,7 +686,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
         <F label={kind?.valueLabel || (isIB ? "Transaction size / fee base" : "Deal value")} hint={form.value ? `= ${inWords(form.value)}` : undefined}>
           <MoneyInput value={form.value} onChange={v => set("value", v)} />
         </F>
-        <F label="Expected close">
+        <F label="Expected Close">
           <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
         </F>
       </Section>

@@ -79,16 +79,16 @@ export default function AdminRecordings({ t }: { t: any }) {
       <div className="px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
         <div className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${t.border} ${t.bgCard} flex-1 min-w-[200px] sm:max-w-xs`}>
           <Search className={`w-3.5 h-3.5 ${t.textMuted}`} />
-          <input value={q} onChange={e => setQ(e.target.value)} className={`bg-transparent text-xs ${t.text} outline-none w-full`} placeholder="Name, company, opportunity or IB-code…" aria-label="Search recordings" />
-          {q && <button onClick={() => setQ("")} aria-label="Clear search" className={`${t.textMuted} hover:text-red-500 text-xs`}>✕</button>}
+          <input value={q} onChange={e => setQ(e.target.value)} className={`bg-transparent text-xs ${t.text} outline-none w-full`} placeholder="Name, company, opportunity or IB-code…" aria-label="Search Recordings" />
+          {q && <button onClick={() => setQ("")} aria-label="Clear Search" className={`${t.textMuted} hover:text-red-500 text-xs`}>✕</button>}
         </div>
         {[["", "All"], ["transcribed", "Ready"], ["processing", "In progress"], ["failed", "Failed"]].map(([v, l]) => <button key={v} onClick={() => setStatus(v)} className={chip(status === v)}>{l}</button>)}
         <span className={`w-px h-5 ${t.border} border-l mx-1`} />
         {[["", "Both"], ["recording", "In person"], ["teams", "Teams"]].map(([v, l]) => <button key={v} onClick={() => setSource(v)} className={chip(source === v)}>{l}</button>)}
         <span className={`w-px h-5 ${t.border} border-l mx-1`} />
         {([[7, "7 days"], [30, "30 days"], [90, "90 days"]] as const).map(([d, l]) => <button key={d} onClick={() => quick(d)} className={chip(range(d))}>{l}</button>)}
-        <label className={`flex items-center gap-1 text-[11px] ${t.textMuted}`}>From <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="From date" /></label>
-        <label className={`flex items-center gap-1 text-[11px] ${t.textMuted}`}>To <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="To date" /></label>
+        <label className={`flex items-center gap-1 text-[11px] ${t.textMuted}`}>From <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="From Date" /></label>
+        <label className={`flex items-center gap-1 text-[11px] ${t.textMuted}`}>To <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="To Date" /></label>
         {(from || to) && <button onClick={() => quick(null)} className={`text-[11px] ${t.textMuted} hover:text-red-500`}>Clear dates</button>}
         {sel.size > 0 && <button onClick={() => del([...sel])} className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150"><Trash2 className="w-3.5 h-3.5" /> Delete {sel.size}</button>}
       </div>
@@ -100,7 +100,7 @@ export default function AdminRecordings({ t }: { t: any }) {
             <table className="w-full text-xs">
               <thead className={t.tableHead}>
                 <tr className={`border-b ${t.border}`}>
-                  <th className="w-8 px-3 py-2.5"><input type="checkbox" aria-label="Select all" checked={rows.length > 0 && rows.every(r => sel.has(r.id))} onChange={e => setSel(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())} /></th>
+                  <th className="w-8 px-3 py-2.5"><input type="checkbox" aria-label="Select All" checked={rows.length > 0 && rows.every(r => sel.has(r.id))} onChange={e => setSel(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())} /></th>
                   {["When", "Meeting", "Company", "Opportunity", "Recorded by", "Length", "Audio", "Status", ""].map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-3 py-2.5 whitespace-nowrap ${["Recorded by", "Audio"].includes(h) ? "hidden md:table-cell" : ""} ${h === "Company" ? "hidden sm:table-cell" : ""} ${h === "Opportunity" ? "hidden lg:table-cell" : ""}`}>{h}</th>)}
                 </tr>
               </thead>
@@ -143,12 +143,12 @@ export default function AdminRecordings({ t }: { t: any }) {
             <div className={`flex flex-wrap items-center justify-between gap-2 pt-3 text-xs ${t.textMuted}`}>
               <div className="flex items-center gap-2">
                 <span>Showing {page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} of {total}</span>
-                <select value={PAGE} onChange={e => setPAGE(Number(e.target.value))} className={`text-xs rounded-lg border px-2 py-1 ${t.inputBg}`} aria-label="Rows per page">
+                <select value={PAGE} onChange={e => setPAGE(Number(e.target.value))} className={`text-xs rounded-lg border px-2 py-1 ${t.inputBg}`} aria-label="Rows per Page">
                   {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1">
-                <button disabled={page === 0} onClick={() => setPage(p => p - 1)} aria-label="Previous page" className={`p-1.5 rounded-lg border ${t.border} disabled:opacity-40`}><ChevronLeft className="w-3.5 h-3.5" /></button>
+                <button disabled={page === 0} onClick={() => setPage(p => p - 1)} aria-label="Previous Page" className={`p-1.5 rounded-lg border ${t.border} disabled:opacity-40`}><ChevronLeft className="w-3.5 h-3.5" /></button>
                 {nums.map((n, i) => (
                   <span key={n} className="flex items-center gap-1">
                     {i > 0 && n - nums[i - 1] > 1 && <span className="px-1">…</span>}
@@ -156,7 +156,7 @@ export default function AdminRecordings({ t }: { t: any }) {
                       className={`min-w-[30px] h-[30px] px-2 rounded-lg border transition-colors ${n === page ? "bg-blue-600 border-blue-600 text-white font-semibold" : `${t.border} hover:border-blue-400`}`}>{n + 1}</button>
                   </span>
                 ))}
-                <button disabled={page >= pages - 1} onClick={() => setPage(p => p + 1)} aria-label="Next page" className={`p-1.5 rounded-lg border ${t.border} disabled:opacity-40`}><ChevronRight className="w-3.5 h-3.5" /></button>
+                <button disabled={page >= pages - 1} onClick={() => setPage(p => p + 1)} aria-label="Next Page" className={`p-1.5 rounded-lg border ${t.border} disabled:opacity-40`}><ChevronRight className="w-3.5 h-3.5" /></button>
               </div>
             </div>
           );

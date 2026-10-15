@@ -86,12 +86,12 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
   const breachPct = k.openSRs ? Math.round((k.breachedSRs / k.openSRs) * 100) : 0;
 
   const kpis = [
-    { label: "Open pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open lead${k.openLeads === 1 ? "" : "s"} · by vertical ↓`, icon: TrendingUp, onClick: toScorecards },
-    { label: "Won value", value: fmt(k.wonValue), sub: `${k.wonLeads} lead${k.wonLeads === 1 ? "" : "s"} won · by vertical ↓`, icon: Trophy, onClick: toScorecards },
-    { label: "Win rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} won/lost lead${k.closedLeads === 1 ? "" : "s"}` : "No won or lost leads yet", icon: Target, onClick: toScorecards },
-    { label: "Active clients", value: String(k.clients.active), sub: `${k.clients.kyc_attention} need KYC attention`, icon: Users, onClick: () => onNav(null, "clients") },
-    { label: "Open service requests", value: String(k.openSRs), sub: `${k.totalSRs} total`, icon: MessageSquare, onClick: () => onNav(null, "service") },
-    { label: "SLA breached", value: String(k.breachedSRs), sub: `${breachPct}% of open SRs`, icon: AlertTriangle, alert: k.breachedSRs > 0, onClick: () => onNav(null, "service") },
+    { label: "Open Pipeline", value: fmt(k.openPipeline), sub: `${k.openLeads} open lead${k.openLeads === 1 ? "" : "s"} · by vertical ↓`, icon: TrendingUp, onClick: toScorecards },
+    { label: "Won Value", value: fmt(k.wonValue), sub: `${k.wonLeads} lead${k.wonLeads === 1 ? "" : "s"} won · by vertical ↓`, icon: Trophy, onClick: toScorecards },
+    { label: "Win Rate", value: k.winRate === null ? "—" : `${k.winRate}%`, sub: k.closedLeads ? `of ${k.closedLeads} won/lost lead${k.closedLeads === 1 ? "" : "s"}` : "No won or lost leads yet", icon: Target, onClick: toScorecards },
+    { label: "Active Clients", value: String(k.clients.active), sub: `${k.clients.kyc_attention} need KYC attention`, icon: Users, onClick: () => onNav(null, "clients") },
+    { label: "Open Service Requests", value: String(k.openSRs), sub: `${k.totalSRs} total`, icon: MessageSquare, onClick: () => onNav(null, "service") },
+    { label: "SLA Breached", value: String(k.breachedSRs), sub: `${breachPct}% of open SRs`, icon: AlertTriangle, alert: k.breachedSRs > 0, onClick: () => onNav(null, "service") },
   ];
 
   const pipelineRows = data.verticals.map(v => ({ name: VID_SHORT[v.id] || v.name, full: v.name, Open: v.open, Won: v.won }));

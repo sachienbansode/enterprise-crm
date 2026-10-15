@@ -241,7 +241,7 @@ export function MeetingRecorder({ open, onClose, defaults, currentUser }: {
             {step === "recording" ? (
               <div className="flex items-center gap-4">
                 <button onClick={togglePause} className="w-14 h-14 rounded-full border border-gray-300 dark:border-gray-700 flex items-center justify-center text-gray-700 dark:text-gray-200" aria-label={paused ? "Resume" : "Pause"}>{paused ? <Play size={22} /> : <Pause size={22} />}</button>
-                <button onClick={stop} className="w-20 h-20 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white shadow-lg" aria-label="Stop and save"><Square size={28} fill="currentColor" /></button>
+                <button onClick={stop} className="w-20 h-20 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white shadow-lg" aria-label="Stop and Save"><Square size={28} fill="currentColor" /></button>
               </div>
             ) : <RefreshCw className="animate-spin text-violet-500" />}
             {step === "recording" && <div className="text-[11px] text-gray-500">Tap ■ when the meeting ends</div>}

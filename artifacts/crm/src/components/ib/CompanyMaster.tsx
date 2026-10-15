@@ -67,24 +67,24 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
   return (
     <div className="flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className={`px-4 sm:px-5 py-3 border-b ${t.border} flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0`}>
-          <div className="w-6 h-6 rounded-lg bg-amber-600 flex items-center justify-center"><Building2 className="w-3.5 h-3.5 text-white" /></div>
-          <div className="mr-2">
+        <div className={`m-toolbar px-4 sm:px-5 py-3 border-b ${t.border} flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0`}>
+          <div className="m-title w-6 h-6 rounded-lg bg-amber-600 flex items-center justify-center"><Building2 className="w-3.5 h-3.5 text-white" /></div>
+          <div className="m-title mr-2">
             <div className={`text-sm font-bold ${t.text} uppercase`}>Companies & Promoters</div>
             <div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${rows.length} companies · Investment Banking`}</div>
           </div>
           <div className={`flex items-center gap-2 ${isDark ? "bg-gray-800" : "bg-gray-100"} rounded-lg px-3 py-1.5 flex-1 min-w-[180px] sm:flex-none sm:w-72`}>
             <Search className={`w-3.5 h-3.5 ${t.textMuted}`} />
-            <input value={search} onChange={e => setSearch(e.target.value)} className={`bg-transparent text-xs ${t.text} outline-none w-full`} placeholder="Company, CIN, group or promoter…" aria-label="Search companies" />
+            <input value={search} onChange={e => setSearch(e.target.value)} className={`bg-transparent text-xs ${t.text} outline-none w-full`} placeholder="Company, CIN, group or promoter…" aria-label="Search Companies" />
           </div>
-          <select value={sector} onChange={e => setSector(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Sector">
+          <select value={sector} onChange={e => setSector(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg} min-w-0 flex-1 sm:flex-none`} aria-label="Sector">
             <option value="">All sectors</option>
             {sectors.map(s => <option key={s}>{s}</option>)}
           </select>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-2 flex-shrink-0">
             <button onClick={load} aria-label="Refresh" className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button>
-            <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanLine className="w-3.5 h-3.5" /> Scan card</button>
-            <button onClick={() => setForm({})} className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Company</button>
+            <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanLine className="w-3.5 h-3.5" /><span className="hidden sm:inline">Scan card</span></button>
+            <button onClick={() => setForm({})} className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New<span className="hidden sm:inline"> Company</span></button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -203,31 +203,31 @@ function CompanyForm({ t, edit, sectors, loggedUser, onClose, onSaved }: { t: an
                 {f.sector && !sectors.includes(f.sector) && <option>{f.sector}</option>}
               </select>
             </F>
-            <F label="Industry / sub-sector"><input value={f.industry || ""} onChange={e => set("industry", e.target.value)} className={inputCls} /></F>
+            <F label="Industry / Sub-sector"><input value={f.industry || ""} onChange={e => set("industry", e.target.value)} className={inputCls} /></F>
             <F label="Group"><input value={f.group_name || ""} onChange={e => set("group_name", e.target.value)} className={inputCls} placeholder="Business group, if any" /></F>
-            <F label="Listing status">
+            <F label="Listing Status">
               <select value={f.listed_status || ""} onChange={e => set("listed_status", e.target.value)} className={inputCls}><option value="">—</option>{LISTED.map(s => <option key={s}>{s}</option>)}</select>
             </F>
-            <F label="NSE / BSE symbol"><input value={f.exchange_symbol || ""} onChange={e => set("exchange_symbol", e.target.value.toUpperCase())} className={inputCls} /></F>
-            <F label="Headquarters city"><input value={f.hq_city || ""} onChange={e => set("hq_city", e.target.value)} className={inputCls} /></F>
+            <F label="NSE / BSE Symbol"><input value={f.exchange_symbol || ""} onChange={e => set("exchange_symbol", e.target.value.toUpperCase())} className={inputCls} /></F>
+            <F label="Headquarters City"><input value={f.hq_city || ""} onChange={e => set("hq_city", e.target.value)} className={inputCls} /></F>
             <F label="Website"><input value={f.website || ""} onChange={e => set("website", e.target.value)} className={inputCls} placeholder="https://" /></F>
-            <F label="Date of incorporation"><input type="date" value={f.date_of_incorporation || ""} onChange={e => set("date_of_incorporation", e.target.value)} className={inputCls} /></F>
+            <F label="Date of Incorporation"><input type="date" value={f.date_of_incorporation || ""} onChange={e => set("date_of_incorporation", e.target.value)} className={inputCls} /></F>
           </section>
 
           <section>
             <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Relationship</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <F label="Relationship owner">
+              <F label="Relationship Owner">
                 <select value={f.relationship_owner_id || ""} onChange={e => set("relationship_owner_id", e.target.value)} className={inputCls}>
                   <option value="">—</option>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </F>
-              <F label="Relationship strength">
+              <F label="Relationship Strength">
                 <div className="flex gap-1.5">
                   {STRENGTH.map(s => <button key={s} type="button" onClick={() => set("relationship_strength", s)} className={`flex-1 text-xs py-2 rounded-lg border ${f.relationship_strength === s ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold" : "border-gray-200 dark:border-gray-700 text-gray-500"}`}>{s}</button>)}
                 </div>
               </F>
-              <F label="Company info source"><input value={f.info_source || ""} onChange={e => set("info_source", e.target.value)} className={inputCls} placeholder="e.g. MCA21, company website, promoter" /></F>
+              <F label="Company Info Source"><input value={f.info_source || ""} onChange={e => set("info_source", e.target.value)} className={inputCls} placeholder="e.g. MCA21, company website, promoter" /></F>
               <F label="Info as of"><input type="date" value={f.info_as_of || ""} onChange={e => set("info_as_of", e.target.value)} className={inputCls} /></F>
             </div>
           </section>
@@ -235,7 +235,7 @@ function CompanyForm({ t, edit, sectors, loggedUser, onClose, onSaved }: { t: an
           <section>
             <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Financials & valuation <span className="normal-case font-normal">(₹ crore)</span></div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <F label="Financial year"><input value={f.fin_year || ""} onChange={e => set("fin_year", e.target.value.toUpperCase())} className={inputCls} placeholder="FY26" /></F>
+              <F label="Financial Year"><input value={f.fin_year || ""} onChange={e => set("fin_year", e.target.value.toUpperCase())} className={inputCls} placeholder="FY26" /></F>
               {[["revenue_cr", "Revenue"], ["ebitda_cr", "EBITDA"], ["pat_cr", "PAT"], ["net_worth_cr", "Net worth"], ["valuation_cr", "Valuation"]].map(([k, l]) => (
                 <F key={k} label={l}><input type="number" value={f[k] ?? ""} onChange={e => set(k, e.target.value)} className={inputCls} /></F>
               ))}
@@ -455,8 +455,8 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                   </div>
                   <ChevronRight className={`w-4 h-4 mt-2 flex-shrink-0 ${t.textMuted}`} />
                   </button>
-                  {editMode && <button onClick={() => setPerson(p)} aria-label="Edit person" className={`p-1 ${t.textMuted}`}><Edit2 className="w-3.5 h-3.5" /></button>}
-                  {editMode && <button onClick={() => delPerson(p)} aria-label="Remove person" className="p-1 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>}
+                  {editMode && <button onClick={() => setPerson(p)} aria-label="Edit Person" className={`p-1 ${t.textMuted}`}><Edit2 className="w-3.5 h-3.5" /></button>}
+                  {editMode && <button onClick={() => delPerson(p)} aria-label="Remove Person" className="p-1 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               ))}
               {!data.people.length && <div className={`text-xs ${t.textMuted}`}>No promoters or management added yet.</div>}
@@ -534,7 +534,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
             <div className="space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px_140px_auto] gap-1.5">
                 <input value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))} onKeyDown={e => e.key === "Enter" && addTask()} placeholder="New task…" className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} />
-                <input type="date" value={newTask.due_date} onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Due date" />
+                <input type="date" value={newTask.due_date} onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Due Date" />
                 <select value={newTask.owner_id} onChange={e => setNewTask(p => ({ ...p, owner_id: e.target.value }))} className={`text-xs rounded-lg border px-2 py-1.5 ${t.inputBg}`} aria-label="Owner">
                   <option value="">Me</option>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>

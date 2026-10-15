@@ -131,7 +131,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
     <div className="fixed inset-0 animate-in fade-in duration-200 z-[60] bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4" onClick={() => step !== "saving" && step !== "reading" && onClose()}>
       <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-xl bg-gray-50 dark:bg-gray-950 sm:rounded-2xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 fade-in duration-200 max-h-full sm:max-h-[92vh] overflow-hidden">
         <div className="flex items-center gap-2 px-3 h-14 bg-slate-800 text-white flex-shrink-0">
-          {step === "review" ? <button onClick={() => setStep("capture")} aria-label="Back to photo" className="p-2 rounded-lg hover:bg-white/10"><ArrowLeft className="w-5 h-5" /></button> : <ScanLine className="w-5 h-5 ml-2" />}
+          {step === "review" ? <button onClick={() => setStep("capture")} aria-label="Back to Photo" className="p-2 rounded-lg hover:bg-white/10"><ArrowLeft className="w-5 h-5" /></button> : <ScanLine className="w-5 h-5 ml-2" />}
           <div className="flex-1 font-semibold">{step === "review" ? "Check & save" : step === "done" ? "Saved" : "Scan business card"}</div>
           <button onClick={onClose} disabled={step === "saving"} aria-label="Close" className="p-2 rounded-lg hover:bg-white/10"><X className="w-5 h-5" /></button>
         </div>
@@ -159,7 +159,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
                 <button onClick={() => frontGal.current?.click()} className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 flex items-center justify-center gap-2 bg-white dark:bg-gray-900"><ImageIcon className="w-4 h-4" /> From gallery</button>
                 {back ? (
                   <div className="relative"><img src={back} alt="Back of the card" className="h-11 w-full object-cover rounded-xl border border-gray-200 dark:border-gray-800" />
-                    <button onClick={() => setBack("")} aria-label="Remove back side" className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gray-800 text-white flex items-center justify-center"><X className="w-3.5 h-3.5" /></button></div>
+                    <button onClick={() => setBack("")} aria-label="Remove Back Side" className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gray-800 text-white flex items-center justify-center"><X className="w-3.5 h-3.5" /></button></div>
                 ) : (
                   <button onClick={() => backCam.current?.click()} disabled={!front} className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 flex items-center justify-center gap-2 bg-white dark:bg-gray-900 disabled:opacity-40"><Plus className="w-4 h-4" /> Back side</button>
                 )}
@@ -204,10 +204,10 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
                 </div>
               )}
               {companyChoice === "new" ? (<>
-                <L label="Company name" req><input value={company.name || ""} onChange={e => C("name", e.target.value)} className={`${input} ${bad === "cname" ? "border-red-500 ring-2 ring-red-500/30" : ok}`} placeholder="e.g. Osai eBiz Solutions Pvt Ltd" /></L>
+                <L label="Company Name" req><input value={company.name || ""} onChange={e => C("name", e.target.value)} className={`${input} ${bad === "cname" ? "border-red-500 ring-2 ring-red-500/30" : ok}`} placeholder="e.g. Osai eBiz Solutions Pvt Ltd" /></L>
                 <div className="grid grid-cols-2 gap-2">
                   <L label="Website"><input value={company.website || ""} onChange={e => C("website", e.target.value)} autoCapitalize="off" className={`${input} ${ok}`} /></L>
-                  <L label="Office phone"><input type="tel" value={company.phone || ""} onChange={e => C("phone", e.target.value)} className={`${input} ${ok}`} /></L>
+                  <L label="Office Phone"><input type="tel" value={company.phone || ""} onChange={e => C("phone", e.target.value)} className={`${input} ${ok}`} /></L>
                   <L label="City"><input value={company.city || ""} onChange={e => C("city", e.target.value)} className={`${input} ${ok}`} /></L>
                   <L label="Sector"><select value={company.sector || ""} onChange={e => C("sector", e.target.value)} className={`${input} ${ok}`}><option value="">—</option>{sectors.map(s => <option key={s}>{s}</option>)}</select></L>
                 </div>

@@ -431,15 +431,20 @@ html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
     border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   table:not([data-no-stack]) td {
-    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-    padding: 4px 12px !important; text-align: right; min-width: 0 !important; border: 0 !important;
-    overflow-wrap: anywhere;
+    display: grid; grid-template-columns: minmax(84px, 34%) minmax(0, 1fr); column-gap: 12px; row-gap: 2px; align-items: start;
+    padding: 5px 14px !important; text-align: right; min-width: 0 !important; border: 0 !important;
+    overflow-wrap: anywhere; justify-items: end;
   }
-  table:not([data-no-stack]) td > * { max-width: 70%; }
+  table:not([data-no-stack]) td > * { grid-column: 2; max-width: 100%; }
+  table:not([data-no-stack]) td[data-label]::before { grid-column: 1; grid-row: 1 / span 6; justify-self: start; padding-top: 2px; }
+  table:not([data-no-stack]) td:not([data-label]), table:not([data-no-stack]) td[data-label=""] { grid-template-columns: minmax(0, 1fr); }
+  table:not([data-no-stack]) td:not([data-label]) > *, table:not([data-no-stack]) td[data-label=""] > * { grid-column: 1; }
+  table:not([data-no-stack]) tbody tr { margin: 0 0 10px; border-radius: 16px; border: 1px solid color-mix(in srgb, currentColor 10%, transparent) !important; padding: 8px 0 !important; }
+  table:not([data-no-stack]) tbody tr:first-child td:first-child, table:not([data-no-stack]) tbody tr td:first-child { font-weight: 600; }
   table:not([data-no-stack]) td .truncate { white-space: normal; }
   table:not([data-no-stack]) td[data-label]::before {
     content: attr(data-label);
-    flex-shrink: 0; text-align: left; font-size: 11px; font-weight: 600; color: #8f99a8; opacity: 1;
+    flex-shrink: 0; text-align: left; font-size: 12px; font-weight: 500; color: #8f99a8; opacity: 1; letter-spacing: .01em;
   }
   table:not([data-no-stack]) td[data-label=""]::before { content: none; }
   table:not([data-no-stack]) td[data-label=""] { justify-content: flex-end; }
@@ -456,3 +461,59 @@ html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
 .dark select, .dark option, .dark optgroup { color-scheme: dark; }
 .dark option, .dark optgroup { background-color: #141a24; color: #eceff3; }
 .dark option:checked { background-color: #2563eb; color: #fff; }
+
+/* ── Phone app shell (bottom tab bar, collapsing header, readable type) ───────── */
+html { touch-action: manipulation; }
+@media (max-width: 767px) {
+  body { font-size: 15px; line-height: 1.45; -webkit-tap-highlight-color: transparent; }
+  .m-header { height: calc(3.5rem + env(safe-area-inset-top)) !important; padding-top: env(safe-area-inset-top); }
+  .m-nav-hidden .m-header { margin-top: calc(-3.5rem - env(safe-area-inset-top)); }
+  /* room under every page for the floating tab bar */
+  .m-main { --m-bar: calc(84px + env(safe-area-inset-bottom)); }
+  .m-main .overflow-y-auto:not([data-keep-nav]):not(.m-noscrollpad),
+  .m-main .overflow-auto:not([data-keep-nav]):not(.m-noscrollpad) { padding-bottom: var(--m-bar); scroll-padding-bottom: var(--m-bar); }
+  .m-main .overflow-y-auto .overflow-y-auto, .m-main .overflow-y-auto .overflow-auto,
+  .m-main .overflow-auto .overflow-y-auto, .m-main .overflow-auto .overflow-auto { padding-bottom: 0; }
+  /* type scale: nothing below 11px, body copy 13–15px */
+  .text-\[8px\]  { font-size: 10px !important; }
+  .text-\[9px\]  { font-size: 11px !important; }
+  .text-\[10px\] { font-size: 11.5px !important; }
+  .text-\[10\.5px\] { font-size: 12px !important; }
+  .text-\[11px\] { font-size: 12.5px !important; }
+  .text-\[11\.5px\] { font-size: 13px !important; }
+  .text-xs { font-size: 13px !important; line-height: 1.4 !important; }
+  .text-sm { font-size: 14.5px !important; }
+  /* bigger touch targets in the More menu */
+  .m-menu nav button { font-size: 15px !important; padding-top: 11px !important; padding-bottom: 11px !important; gap: 12px !important; }
+  .m-menu nav button svg { width: 20px; height: 20px; }
+  .m-menu nav button span.text-\[9px\] { font-size: 11px !important; }
+  /* pressed feedback instead of hover */
+  button:active, a:active { transition: transform .12s; }
+}
+@media (max-width: 767px) {
+  /* Page toolbars: full-width search on top, compact pill filters below, page title lives in the app header */
+  .m-toolbar { flex-wrap: wrap !important; gap: 8px !important; padding: 12px 16px !important; row-gap: 8px !important; }
+  .m-toolbar.m-inpage { padding: 0 !important; background: transparent !important; border: 0 !important; }
+  .m-toolbar .m-title { display: none !important; }
+  .m-toolbar > :has(> input:not([type=date]):not([type=checkbox])) { order: -1; flex: 1 1 100% !important; max-width: none !important; min-height: 44px; border-radius: 14px !important; margin-left: 0 !important; display: flex; align-items: center; }
+  .m-toolbar > :has(> input:not([type=date]):not([type=checkbox])) > input { width: 100% !important; flex: 1; }
+  .m-toolbar > :has(> input:not([type=date]):not([type=checkbox])).relative > input { min-height: 44px; border-radius: 14px; }
+  .m-toolbar > select, .m-toolbar > div > select, .m-toolbar > button, .m-toolbar > div > button { min-height: 36px; }
+  .m-toolbar > select { border-radius: 999px !important; padding-left: 12px !important; padding-right: 12px !important; }
+  .m-toolbar > .ml-auto { margin-left: auto !important; }
+}
+@media (max-width: 767px) {
+  /* Title Case for labels and headings on phones (ALL-CAPS section titles become Title Case) */
+  .uppercase { text-transform: capitalize !important; letter-spacing: 0 !important; }
+  label, th, dt, h1, h2, h3, legend { text-transform: capitalize; }
+  table:not([data-no-stack]) td[data-label]::before { text-transform: capitalize; }
+  .m-tc { text-transform: capitalize; }
+  /* Forms: one field per row, aligned labels, equal-height controls */
+  .m-main form .grid:has(input, select, textarea),
+  [role=dialog] .grid:has(> * input, > * select, > * textarea),
+  .fixed .grid:has(> div > label + input, > div > label + select, > div > label + textarea, > label) { grid-template-columns: minmax(0, 1fr) !important; }
+  .fixed .grid:has(> div > label + input, > div > label + select, > div > label + textarea, > label) > * { grid-column: auto !important; }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select { min-height: 44px; }
+  textarea { min-height: 88px; }
+  label { display: inline-block; margin-bottom: 2px; font-weight: 500; }
+}
