@@ -1,3 +1,4 @@
+import { MList, MCard } from "../components/MobileCard";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronLeft,
@@ -916,7 +917,7 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left panel — list */}
-      <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${selectedSr ? "max-w-[55%]" : ""}`}>
+      <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${selectedSr ? "md:max-w-[55%]" : ""}`}>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between flex-shrink-0 gap-2">
@@ -983,8 +984,25 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
               <p className="text-sm">No service requests found</p>
               {hasFilters && <button onClick={clearFilters} className="mt-2 text-xs text-blue-400 underline">Clear filters</button>}
             </div>
-          ) : (
-            <div className={`rounded-xl border ${t.border} overflow-hidden`}>
+          ) : (<>
+            <MList>
+              {srs.map(sr => {
+                const sla = slaInfo(sr.sla_deadline, sr.status);
+                return (
+                  <MCard key={sr.id} selected={selectedSr?.id === sr.id} onClick={() => setSelectedSr(selectedSr?.id === sr.id ? null : sr)}
+                    title={sr.subject}
+                    badge={<span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium ${priorityBadge(sr.priority)}`}><span className={`w-1.5 h-1.5 rounded-full ${priorityDot(sr.priority)}`} />{sr.priority}</span>}
+                    value={sr.client_name || <span className="text-[14px] font-medium opacity-60">No client linked</span>}
+                    left={`${sr.category}${sr.subcategory ? " › " + sr.subcategory : ""}`}
+                    right={sr.sr_code}
+                    chips={[<span key="s" className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${statusBadge(sr.status)}`}>{sr.status}</span>,
+                      <span key="l" className={`inline-flex items-center gap-1 text-[11.5px] font-medium ${sla.color}`}><Clock className="w-3 h-3" />{sla.text}</span>]}
+                    lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{sr.assigned_to_name || "Unassigned"}</span><span className="ml-auto flex-shrink-0">{fmtDate(sr.created_at)}</span></>]}
+                  />
+                );
+              })}
+            </MList>
+            <div className={`hidden md:block rounded-xl border ${t.border} overflow-hidden`}>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
@@ -1053,7 +1071,7 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
                 </table>
               </div>
             </div>
-          )}
+          </>)}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -1075,7 +1093,7 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
 
       {/* Right panel — detail */}
       {selectedSr && (
-        <div className={`w-[45%] flex-shrink-0 border-l ${t.border} overflow-hidden`}>
+        <div className={`max-md:fixed max-md:inset-0 max-md:z-50 max-md:bg-white max-md:dark:bg-gray-950 max-md:animate-in max-md:slide-in-from-bottom-8 max-md:duration-300 md:w-[45%] flex-shrink-0 border-l ${t.border} overflow-hidden`}>
           <SrDetailPanel sr={selectedSr} t={t} isDark={isDark} onClose={() => setSelectedSr(null)} onUpdate={onUpdate} loggedUser={loggedUser} />
         </div>
       )}

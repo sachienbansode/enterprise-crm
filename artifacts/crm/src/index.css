@@ -515,5 +515,15 @@ html { touch-action: manipulation; }
   .fixed .grid:has(> div > label + input, > div > label + select, > div > label + textarea, > label) > * { grid-column: auto !important; }
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select { min-height: 44px; }
   textarea { min-height: 88px; }
-  label { display: inline-block; margin-bottom: 2px; font-weight: 500; }
+  label { font-weight: 500; }
+}
+
+@media (max-width: 767px) {
+  /* Remaining tables (admin / logs): each row reads like a list card — first column is the title */
+  table:not([data-no-stack]) tbody tr { background: color-mix(in srgb, currentColor 3%, transparent); padding: 12px 0 !important; }
+  table:not([data-no-stack]) tbody tr > td:first-child { grid-template-columns: minmax(0, 1fr) !important; justify-items: start; text-align: left; font-size: 15px; font-weight: 600; padding-bottom: 6px !important; }
+  table:not([data-no-stack]) tbody tr > td:first-child > * { grid-column: 1 !important; }
+  table:not([data-no-stack]) tbody tr > td:first-child::before { content: none !important; }
+  table:not([data-no-stack]) tbody tr > td:first-child:has(> input[type=checkbox]:only-child) { display: none; }
+  table:not([data-no-stack]) td { font-size: 13px; }
 }

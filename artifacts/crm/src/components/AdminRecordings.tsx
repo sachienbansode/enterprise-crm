@@ -1,3 +1,4 @@
+import { MList, MCard } from "./MobileCard";
 import { useCallback, useEffect, useState } from "react";
 import { Mic, Video, Search, RefreshCw, Trash2, RotateCcw, ChevronLeft, ChevronRight, HardDrive, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 import { appConfirm, appToast } from "../lib/dialog";
@@ -95,8 +96,29 @@ export default function AdminRecordings({ t }: { t: any }) {
 
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-4">
         {loading && !rows.length ? <div className={`py-10 text-center text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Loading…</div>
-          : !rows.length ? <div className={`py-12 text-center text-sm ${t.textMuted}`}>No recordings match.</div> : (
-          <div className={`${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
+          : !rows.length ? <div className={`py-12 text-center text-sm ${t.textMuted}`}>No recordings match.</div> : (<>
+          <MList>
+            {rows.map(r => {
+              const [sl, sc] = STATUS[r.status] || [r.status, "bg-gray-500/15 text-gray-500"];
+              return (
+                <MCard key={r.id} onClick={() => open(r.id)} selected={sel.has(r.id)}
+                  title={<span className="flex items-center gap-1.5">{r.source === "teams" ? <Video className="w-4 h-4 text-sky-500 flex-shrink-0" /> : <Mic className="w-4 h-4 text-red-500 flex-shrink-0" />}<span className="truncate">{r.title || "Meeting"}</span></span>}
+                  badge={<span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${sc}`}>{sl}</span>}
+                  sub={r.company || "No company"}
+                  left={`${when(r.start_at || r.created_at)} · ${mins(r.duration_sec)}`} right={r.lead_code || undefined}
+                  lines={[r.opportunity ? <span className="truncate">Opportunity: {r.opportunity}</span> : null,
+                    <span className="truncate">By {r.recorded_by || "—"} · {r.source === "teams" ? (r.has_audio ? "Audio in Teams" : "No audio") : r.has_audio ? mb(r.audio_bytes) : "Audio deleted"}</span>,
+                    r.status === "failed" && r.error ? <span className="text-red-500 truncate">{r.error}</span> : null]}
+                  footer={<>
+                    <label className="mr-auto flex items-center gap-2 text-[13px]"><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Select ${r.title}`} /> Select</label>
+                    {r.status === "failed" && r.source === "recording" && <button onClick={() => retry(r.id)} className="text-[13px] px-3 py-1.5 rounded-lg text-blue-500 flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> Retry</button>}
+                    <button onClick={() => del([r.id])} className="text-[13px] px-3 py-1.5 rounded-lg text-red-500 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                  </>}
+                />
+              );
+            })}
+          </MList>
+          <div className={`max-md:hidden ${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
             <table className="w-full text-xs">
               <thead className={t.tableHead}>
                 <tr className={`border-b ${t.border}`}>
@@ -134,7 +156,7 @@ export default function AdminRecordings({ t }: { t: any }) {
               </tbody>
             </table>
           </div>
-        )}
+        </>)}
         {/* Pagination — always shown */}
         {total > 0 && (() => {
           const pages = Math.max(1, Math.ceil(total / PAGE));

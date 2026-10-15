@@ -21,6 +21,7 @@ import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
+import { MList, MCard } from "./components/MobileCard";
 import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
@@ -2761,8 +2762,22 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className={`flex items-center justify-center h-24 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…</div>
-          ) : (
-            <table className="w-full">
+          ) : (<>
+            <MList className="p-3">
+              {clients.map(c => (
+                <MCard key={c.id} selected={selected?.id === c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)}
+                  accent={c.status === "Active" ? "bg-emerald-500" : "bg-amber-500"}
+                  title={c.name}
+                  badge={<StatusBadge s={c.kyc_status} />}
+                  left={[c.type, c.category].filter(Boolean).join(" · ")}
+                  right={c.client_code}
+                  chips={(c.verticals || []).map((v: string) => <span key={v} className={`text-[11px] px-2 py-0.5 rounded-full uppercase ${t.tagGray}`}>{v}</span>)}
+                  lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{c.rm_name || "No RM"}</span><span className="ml-auto flex-shrink-0">{maskValue(c.mobile) || ""}</span></>]}
+                  footer={<button onClick={() => { setEditingClient(c); setCreateClientOpen(true); }} className="text-[13px] px-3 py-1.5 rounded-lg text-blue-500 flex items-center gap-1.5 active:bg-blue-500/10"><Edit className="w-3.5 h-3.5" /> Edit</button>}
+                />
+              ))}
+            </MList>
+            <table className="w-full max-md:hidden">
               <thead className={`sticky top-0 z-10 ${t.tableHead}`}>
                 <tr className={`border-b ${t.border}`}>
                   {["Client Code", "Name", "Type / Category", "PAN", "Mobile", "RM", "Verticals", "KYC", "Status", ""].map(h => (
@@ -2809,7 +2824,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
                 ))}
               </tbody>
             </table>
-          )}
+          </>)}
         </div>
         <Pagination total={total} page={page} pageSize={PAGE_SIZE} onChange={setPage} t={t} />
       </div>
@@ -3448,7 +3463,24 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         ) : (
           /* ── List View ── */
           <div className="flex-1 overflow-y-auto">
-            <table className="w-full">
+            <MList className="p-3">
+              {filtered.map((lead: any) => {
+                const overdue = lead.next_action_date && new Date(lead.next_action_date) < new Date(new Date().toDateString());
+                return (
+                  <MCard key={lead.id} selected={selected?.id === lead.id} onClick={() => setSelected(selected?.id === lead.id ? null : lead)}
+                    title={lead.name} badge={<PriorityBadge p={lead.priority} />}
+                    value={lead.value_estimate ? fmtMoneyStr(lead.value_estimate) : "—"}
+                    left={lead.source} right={lead.lead_code}
+                    chips={[<span key="st" className={`text-[11px] px-2 py-0.5 rounded-full ${v.color}/20 ${isDark ? "text-blue-300" : "text-blue-700"}`}>{stages.find((s: any) => s.id === lead.stage)?.label || lead.stage}</span>,
+                      lead.days_open ? <span key="d" className={`inline-flex items-center gap-1 text-[11.5px] ${t.textMuted}`}><Clock className="w-3 h-3" />{lead.days_open}d open</span> : null,
+                      lead.rm_name ? <span key="rm" className={`inline-flex items-center gap-1 text-[11.5px] ${t.textMuted}`}><User className="w-3 h-3" />{lead.rm_name}</span> : null]}
+                    lines={lead.next_action ? [<span className={`truncate ${overdue ? "text-red-500 font-semibold" : ""}`}>→ {lead.next_action}</span>] : []}
+                    footer={isWonStage(lead.stage) ? <button onClick={() => convertToDeal(lead)} className="text-[13px] px-3 py-1.5 rounded-lg bg-emerald-600/15 text-emerald-500 font-medium">Convert to Deal →</button> : undefined}
+                  />
+                );
+              })}
+            </MList>
+            <table className="w-full max-md:hidden">
               <thead className={`sticky top-0 ${t.tableHead}`}>
                 <tr className={`border-b ${t.border}`}>
                   {["Lead Code", "Name", "Stage", "Priority", "Value", "Source", "Days Open", "RM", "Actions"].map(h => (
@@ -3892,7 +3924,17 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
         ) : viewMode === "list" ? (
           <>
             <div className="flex-1 overflow-y-auto">
-              <table className="w-full">
+              <MList className="p-3">
+                {paginated.map((d: any) => (
+                  <MCard key={d.id} selected={selected?.id === d.id} onClick={() => setSelected(selected?.id === d.id ? null : d)}
+                    title={d.name} badge={<StatusBadge s={d.stage} />}
+                    value={d.value ? fmtMoneyStr(d.value) : "—"}
+                    left={d.type} right={d.deal_code}
+                    lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{d.rm_name || "No RM"}</span><span className="ml-auto flex-shrink-0">{fmtDateShort(d.deal_date)}</span></>]}
+                  />
+                ))}
+              </MList>
+              <table className="w-full max-md:hidden">
                 <thead className={`sticky top-0 ${t.tableHead}`}>
                   <tr className={`border-b ${t.border}`}>
                     {["Deal ID", "Name", "Type", "Value", "Stage", "RM", "Date", ""].map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2.5 whitespace-nowrap`}>{h}</th>)}
@@ -4082,8 +4124,18 @@ function CustomersView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className={`flex items-center justify-center h-24 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…</div>
-          ) : (
-            <table className="w-full">
+          ) : (<>
+            <MList className="p-3">
+              {clients.map(c => (
+                <MCard key={c.id} selected={selected?.id === c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)}
+                  accent={c.status === "Active" ? "bg-emerald-500" : "bg-amber-500"}
+                  title={c.name} badge={<StatusBadge s={c.kyc_status} />}
+                  left={c.category} right={c.client_code}
+                  lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{c.rm_name || "No RM"}</span><span className="ml-auto flex-shrink-0">{maskValue(c.mobile) || ""}</span></>]}
+                />
+              ))}
+            </MList>
+            <table className="w-full max-md:hidden">
               <thead className={`sticky top-0 ${t.tableHead}`}><tr className={`border-b ${t.border}`}>{["Code", "Name", "Category", "Contact", "RM", "KYC", "Status", ""].map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2.5`}>{h}</th>)}</tr></thead>
               <tbody>{clients.map(c => (
                 <tr key={c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)} className={`border-b ${t.border} last:border-0 ${t.rowHover} cursor-pointer text-xs ${selected?.id === c.id ? (isDark ? "bg-blue-950/30" : "bg-blue-50") : ""}`}>
@@ -4098,7 +4150,7 @@ function CustomersView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                 </tr>
               ))}</tbody>
             </table>
-          )}
+          </>)}
         </div>
         <Pagination total={total} page={page} pageSize={PAGE_SIZE} onChange={setPage} t={t} />
       </div>
@@ -4530,8 +4582,21 @@ function AdminUsers({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark: boo
       <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-32"><RefreshCw className={`w-5 h-5 animate-spin ${t.textMuted}`} /></div>
-        ) : (
-          <table className="w-full min-w-[900px]">
+        ) : (<>
+          <MList className="p-3">
+            {paged.length === 0 && <div className={`text-center text-sm py-12 ${t.textMuted}`}>No users found</div>}
+            {paged.map(u => (
+              <MCard key={u.id} onClick={() => setEditUser(u)} accent={u.status === "Active" ? "bg-emerald-500" : "bg-gray-400"}
+                title={<span className="flex items-center gap-2.5"><span className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-[12px] font-bold text-white flex-shrink-0">{(u.name || "?").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}</span><span className="min-w-0"><span className="block truncate">{u.name}</span><span className={`block text-[12.5px] font-normal ${t.textMuted} truncate`}>{maskValue(u.email)}</span></span></span>}
+                badge={<Badge text={u.role} color={ROLE_COLOR[u.role] || badgeColors("blue")} />}
+                chips={[<AuthBadge key="a" method={u.auth_type as AuthMethod} />,
+                  <span key="m" className={`text-[11.5px] ${u.mfa_enabled ? "text-emerald-500" : t.textMuted}`}>MFA {u.mfa_enabled ? "On" : "Off"}</span>,
+                  <span key="s" className={`text-[11.5px] font-medium ${u.status === "Active" ? t.successText : t.textMuted}`}>{u.status}</span>]}
+                lines={[<><span className="truncate">{[u.vertical, u.location].filter(Boolean).join(" · ") || "—"}</span><span className="ml-auto flex-shrink-0">{u.last_login ? `Last login ${new Date(u.last_login).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}` : "Never signed in"}</span></>]}
+              />
+            ))}
+          </MList>
+          <table className="w-full min-w-[900px] max-md:hidden">
             <thead className={`sticky top-0 ${t.tableHead}`}>
               <tr className={`border-b ${t.border}`}>
                 {["User", "Email", "Mobile", "Location", "Vertical", "Role", "Auth", "MFA", "Status", "Last Login", ""].map(h => (
@@ -4576,7 +4641,7 @@ function AdminUsers({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark: boo
               ))}
             </tbody>
           </table>
-        )}
+        </>)}
       </div>
       <Pagination total={users.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} t={t} />
 
@@ -5400,8 +5465,23 @@ function AdminAuditLog({ t }: { t: ReturnType<typeof useTheme> }) {
         <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-amber-400" /></div>
       ) : rows.length === 0 ? (
         <div className={`text-center py-12 ${t.textMuted} text-sm`}>No audit records match the selected filters.</div>
-      ) : (
-        <div className={`${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
+      ) : (<>
+        <MList>
+          {rows.map(row => {
+            const fields = parseArr(row.changed_fields);
+            return (
+              <MCard key={row.id} onClick={() => setSelected(row)}
+                title={row.record_display || row.user_name || (ENTITY_LABELS[row.entity_type] || row.entity_type)}
+                badge={<span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${actionBadge(row.action)}`}>{row.action}</span>}
+                left={<span className={`text-[12px] font-semibold ${entityColor(row.entity_type)}`}>{ENTITY_LABELS[row.entity_type] || row.entity_type}</span>}
+                right={row.entity_code || String(row.entity_id).slice(0, 8)}
+                lines={[fields.length ? <span className="truncate">Changed: {fields.slice(0, 3).join(", ")}{fields.length > 3 ? ` +${fields.length - 3}` : ""}</span> : null,
+                  <><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{row.user_name || "System"}{row.user_role ? ` · ${row.user_role}` : ""}</span><span className="ml-auto flex-shrink-0">{fmtDate(row.created_at)}</span></>]}
+              />
+            );
+          })}
+        </MList>
+        <div className={`max-md:hidden ${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -5465,7 +5545,7 @@ function AdminAuditLog({ t }: { t: ReturnType<typeof useTheme> }) {
             </table>
           </div>
         </div>
-      )}
+      </>)}
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -5637,8 +5717,18 @@ function AdminAILogs({ t }: { t: ReturnType<typeof useTheme> }) {
         <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>
       ) : rows.length === 0 ? (
         <div className={`text-center py-12 ${t.textMuted} text-sm`}>No AI bot interactions logged yet.</div>
-      ) : (
-        <div className={`${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
+      ) : (<>
+        <MList>
+          {rows.map(row => (
+            <MCard key={row.id} onClick={() => setSelected(row)}
+              title={row.query}
+              badge={row.sql_query ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-bold">SQL</span> : undefined}
+              left={row.provider ? `${row.provider}/${row.model}` : "—"} right={row.latency_ms ? `${row.latency_ms}ms` : undefined}
+              lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{row.user_name || "—"}{row.user_role ? ` · ${row.user_role}` : ""}</span><span className="ml-auto flex-shrink-0">{fmtDate(row.created_at)}</span></>]}
+            />
+          ))}
+        </MList>
+        <div className={`max-md:hidden ${t.bgCard} border ${t.border} rounded-xl overflow-hidden`}>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -5672,7 +5762,7 @@ function AdminAILogs({ t }: { t: ReturnType<typeof useTheme> }) {
             </table>
           </div>
         </div>
-      )}
+      </>)}
 
       {/* Detail modal */}
       {selected && (

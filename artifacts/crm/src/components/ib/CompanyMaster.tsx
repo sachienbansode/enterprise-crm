@@ -1,3 +1,4 @@
+import { MList, MCard } from "../MobileCard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { appConfirm } from "../../lib/dialog";
 import {
@@ -92,8 +93,21 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
             <div className={`flex items-center justify-center h-24 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…</div>
           ) : !rows.length ? (
             <div className={`p-10 text-center text-sm ${t.textMuted}`}>No companies yet. Add the first one with <b>New Company</b>.</div>
-          ) : (
-            <table className="w-full">
+          ) : (<>
+            <MList className="p-3">
+              {rows.map(c => (
+                <MCard key={c.id} selected={openId === c.id} onClick={() => setOpenId(c.id)}
+                  title={c.name}
+                  badge={c.relationship_strength ? <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${strengthCls(c.relationship_strength)}`}>{c.relationship_strength}</span> : undefined}
+                  sub={[c.sector, c.listed_status, c.group_name].filter(Boolean).join(" · ")}
+                  left={c.promoters || "No key people yet"} right={c.client_code}
+                  chips={[<span key="o" className={`text-[11.5px] px-2 py-0.5 rounded-full ${Number(c.open_opps) ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold" : t.tagGray}`}>{c.open_opps} open opp{Number(c.open_opps) === 1 ? "" : "s"}</span>,
+                    <span key="l" className={`text-[11.5px] ${t.textMuted}`}>Last contact {ago(c.last_interaction)}</span>]}
+                  lines={c.relationship_owner ? [<span className="truncate">Owner: {c.relationship_owner}</span>] : []}
+                />
+              ))}
+            </MList>
+            <table className="w-full max-md:hidden">
               <thead className={`sticky top-0 ${t.tableHead}`}>
                 <tr className={`border-b ${t.border}`}>
                   {(openId ? ["Company", "Relationship", "Open opps"] : ["Company", "CIN", "Sector", "Key people", "Relationship", "Open opps", "Last contact"]).map(h => <th key={h} className={`text-left text-[10px] font-semibold uppercase tracking-wide ${t.textMuted} px-4 py-2.5`}>{h}</th>)}
@@ -121,7 +135,7 @@ export default function CompanyMaster({ t, isDark, loggedUser }: { t: any; isDar
                 ))}
               </tbody>
             </table>
-          )}
+          </>)}
         </div>
       </div>
       {openId && <Company360 id={openId} t={t} isDark={isDark} loggedUser={loggedUser} onClose={() => setOpenId(null)} onEdit={c => setForm(c)} onChanged={load} />}
