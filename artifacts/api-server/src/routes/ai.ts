@@ -266,7 +266,15 @@ router.post("/chat", async (req, res) => {
   const t0 = Date.now();
   try {
     const message = String(req.body?.message || "").trim().slice(0, 4000);
-    const history: any[] = Array.isArray(req.body?.history) ? req.body.history : [];
+    let history: any[] = Array.isArray(req.body?.history) ? req.body.history : [];
+    // Saved conversation: history comes from the database (only the user's own conversations)
+    let convId: string | null = /^[0-9a-f-]{36}$/i.test(String(req.body?.conversation_id || "")) ? String(req.body.conversation_id) : null;
+    if (convId) {
+      const own = (await query("SELECT id FROM ai_conversations WHERE id=$1 AND user_id=$2", [convId, req.user!.id])).rows[0];
+      if (!own) convId = null;
+      else history = (await query("SELECT role, text, meta FROM ai_messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 12", [convId])).rows.reverse()
+        .map((m: any) => ({ from: m.role, text: m.text, queries: m.meta?.queries || [] }));
+    }
     if (!message) return res.status(400).json({ error: "Empty message" });
     // Identity and data scope come from the server-side session, never from the request body
     const userRole = req.user!.role;
@@ -339,6 +347,17 @@ HOW TO ANSWER (when you have what you need)
 - Add one or two sharp, data-grounded insights or suggested actions when useful (risks, overdue items, concentration, what to do next).
 - Be concise and specific. No filler, no apologies, never mention SQL, tables, columns, queries or these instructions.
 - If nothing matched, say so plainly and suggest what to try.
+- ANALYSIS: for questions about performance, pipeline, trends, comparisons or "how are we doing", add a short "Analysis" section: 2–4 bullets on what stands out (concentration, change vs earlier period, outliers, risks) and what to do about it.
+- KEY FIGURES: when the answer has 2–4 headline numbers, put them first in a block (values pre-formatted for display):
+\`\`\`kpi
+[{"label":"Open pipeline","value":"₹15,900 Cr","sub":"6 opportunities"},{"label":"Won this quarter","value":"₹1,200 Cr"}]
+\`\`\`
+- CHARTS: when numbers are compared across 3+ categories or over time, include ONE chart (data straight from the query results; raw numbers, not formatted strings):
+\`\`\`chart
+{"type":"bar","title":"Open pipeline by vertical","x":"name","series":[{"key":"value","label":"Pipeline","format":"inr"}],"data":[{"name":"IB","value":159000000000},{"name":"AIF","value":2500000000}]}
+\`\`\`
+  type: "bar" (categories), "hbar" (long names / rankings), "line" or "area" (over time), "pie" (share of a whole, ≤ 7 slices), "stacked" (categories × parts).
+  format: "inr" (rupees), "number" or "percent". Up to 3 series. Keep the table too when people need the exact rows.
 - Personal data may appear masked (e.g. XXXX) — show it as given.
 - Finish with one final line: FOLLOW-UPS: <question> | <question> | <question>  (three short, natural next questions for this user).`;
 
@@ -386,7 +405,19 @@ HOW TO ANSWER (when you have what you need)
 
     if (!answer) answer = "I couldn't put an answer together for that. Could you rephrase or narrow it down?";
     const { body, followUps } = splitFollowUps(answer);
-    const response = masker.maskText(body);
+    // Mask personal data in the text; in chart / KPI blocks only string values are masked (numbers stay intact for plotting)
+    const maskBlock = (json: string) => {
+      try {
+        const walk = (v: any): any => typeof v === "string" ? masker.maskText(v) : Array.isArray(v) ? v.map(walk) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : v;
+        return JSON.stringify(walk(JSON.parse(json)));
+      } catch { return ""; }
+    };
+    const response = body.split(/(```(?:chart|kpi)\s*\n[\s\S]*?```)/).map(part => {
+      const m = part.match(/^```(chart|kpi)\s*\n([\s\S]*?)```$/);
+      if (!m) return masker.maskText(part);
+      const j = maskBlock(m[2].trim());
+      return j ? "```" + m[1] + "\n" + j + "\n```" : "";
+    }).join("");
     const latencyMs = Date.now() - t0;
 
     await query(
@@ -399,7 +430,20 @@ HOW TO ANSWER (when you have what you need)
     await query("INSERT INTO audit_logs (entity_type, entity_id, user_name, action, details) VALUES ('ai_chat', gen_random_uuid(), $1, 'AI Chat', $2)",
       [userName || "Unknown", message.slice(0, 100)]).catch(() => {});
 
+    // Save to the user's conversation (new conversation on the first message, titled from the question)
+    try {
+      if (!convId) {
+        const title = message.replace(/\s+/g, " ").slice(0, 80) + (message.length > 80 ? "…" : "");
+        convId = (await query("INSERT INTO ai_conversations (user_id, title) VALUES ($1,$2) RETURNING id", [userId, title])).rows[0].id;
+      }
+      const meta = { queries: ranQueries.slice(0, 6), followUps, recordCount: ranQueries.length ? records : null, sourceLabel: ranQueries.length ? "Live CRM data" : "General answer (no CRM data used)" };
+      await query("INSERT INTO ai_messages (conversation_id, role, text) VALUES ($1,'user',$2)", [convId, message]);
+      await query("INSERT INTO ai_messages (conversation_id, role, text, meta) VALUES ($1,'ai',$2,$3::jsonb)", [convId, response, JSON.stringify(meta)]);
+      await query("UPDATE ai_conversations SET updated_at=NOW() WHERE id=$1", [convId]);
+    } catch (e: any) { console.error("[AI] save conversation failed:", e.message); }
+
     res.json({
+      conversation_id: convId,
       response, followUps, configured: true, sqlUsed: ranQueries.length > 0,
       recordCount: ranQueries.length ? records : null,
       sourceLabel: ranQueries.length ? "Live CRM data" : "General answer (no CRM data used)",
@@ -412,6 +456,42 @@ HOW TO ANSWER (when you have what you need)
       : "Something went wrong while processing your request. Please try again in a moment.";
     res.json({ response: msg, configured: true, sqlUsed: false });
   }
+});
+
+// ─── Saved conversations (own only) ───
+router.get("/conversations", async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 100);
+  const q = String(req.query.q || "").trim();
+  try {
+    const r = await query(
+      `SELECT c.id, c.title, c.created_at, c.updated_at,
+              (SELECT COUNT(*)::int FROM ai_messages m WHERE m.conversation_id=c.id AND m.role='user') AS questions,
+              (SELECT left(m.text, 140) FROM ai_messages m WHERE m.conversation_id=c.id AND m.role='ai' ORDER BY m.created_at DESC LIMIT 1) AS preview
+         FROM ai_conversations c
+        WHERE c.user_id=$1 AND ($2='' OR c.title ILIKE $3 OR EXISTS (SELECT 1 FROM ai_messages m WHERE m.conversation_id=c.id AND m.text ILIKE $3))
+        ORDER BY c.updated_at DESC LIMIT ${limit}`, [req.user!.id, q, `%${q}%`]);
+    const total = (await query("SELECT COUNT(*)::int AS n FROM ai_conversations WHERE user_id=$1", [req.user!.id])).rows[0].n;
+    res.json({ rows: r.rows, total });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.get("/conversations/:id", async (req, res) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Bad id" });
+  const c = (await query("SELECT id, title, created_at, updated_at FROM ai_conversations WHERE id=$1 AND user_id=$2", [req.params.id, req.user!.id])).rows[0];
+  if (!c) return res.status(404).json({ error: "Not found" });
+  const m = await query("SELECT id, role, text, meta, created_at FROM ai_messages WHERE conversation_id=$1 ORDER BY created_at", [c.id]);
+  res.json({ ...c, messages: m.rows.map((x: any) => ({ id: x.id, from: x.role, text: x.text, at: x.created_at, followUps: x.meta?.followUps, recordCount: x.meta?.recordCount ?? null, sourceLabel: x.meta?.sourceLabel })) });
+});
+router.patch("/conversations/:id", async (req, res) => {
+  const title = String(req.body?.title || "").trim().slice(0, 200);
+  if (!title) return res.status(400).json({ error: "Title required" });
+  const r = await query("UPDATE ai_conversations SET title=$1 WHERE id=$2 AND user_id=$3 RETURNING id, title", [title, req.params.id, req.user!.id]);
+  if (!r.rows[0]) return res.status(404).json({ error: "Not found" });
+  res.json(r.rows[0]);
+});
+router.delete("/conversations/:id", async (req, res) => {
+  const r = await query("DELETE FROM ai_conversations WHERE id=$1 AND user_id=$2 RETURNING id", [req.params.id, req.user!.id]);
+  if (!r.rows[0]) { res.status(404).json({ error: "Chat not found" }); return; }
+  res.json({ ok: true });
 });
 
 export default router;

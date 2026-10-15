@@ -20,6 +20,7 @@ import PersonView from "./components/PersonView";
 import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
+import AIAssistant from "./components/AIAssistant";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
 import { ScanLine as ScanIcon } from "lucide-react";
@@ -8247,7 +8248,7 @@ export function CRMApp() {
       if (activePage === "admin-theme")    return <AdminTheme t={t} isDark={darkMode} setIsDark={setDarkMode} />;
       if (activePage === "admin-system")   return <AdminSystem t={t} />;
     }
-    if (!activeV && activePage === "ai")       return <AIModule t={t} loggedUser={loggedUser} isDark={darkMode} />;
+    if (!activeV && activePage === "ai")       return <AIAssistant t={t} loggedUser={loggedUser} isDark={darkMode} prompts={AI_SUGGESTED_PROMPTS[loggedUser?.role] || AI_SUGGESTED_PROMPTS.default} />;
     if (!activeV && activePage === "clients")  return <ClientsModule t={t} loggedUser={loggedUser} />;
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
