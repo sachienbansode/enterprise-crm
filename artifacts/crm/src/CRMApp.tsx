@@ -2057,8 +2057,12 @@ const API_BASE = (() => {
 
 function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: { onAppLogin: (email: string) => void; onM365Login: (token: string, userJson: string) => void; onM365MFA: (email: string) => void; isDark: boolean; m365Error?: string }) {
   const t = useTheme(isDark);
-  const [email, setEmail] = useState("bhushan@niytri.com");
-  const [password, setPassword] = useState("niytri@123");
+  // No default credentials. The last e-mail is remembered on this browser (if allowed);
+  // the password is left to the browser's own password manager.
+  const savedEmail = (() => { try { return localStorage.getItem("niytri_last_email") || ""; } catch { return ""; } })();
+  const [email, setEmail] = useState(savedEmail);
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState(m365Error || "");
   const [loading, setLoading] = useState(false);
@@ -2067,6 +2071,7 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
   const [m365Hint, setM365Hint] = useState(false);
 
   const handleSubmit = async () => {
+    if (!email.trim()) { setError("Please enter your email address."); return; }
     if (!email.includes("@niytri.com")) { setError("Please use your @niytri.com email address."); return; }
     if (!password) { setError("Please enter your password."); return; }
     setError(""); setM365Hint(false); setLoading(true);
@@ -2082,6 +2087,9 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
         setLoading(false);
         return;
       }
+      try { if (remember) localStorage.setItem("niytri_last_email", email.trim().toLowerCase()); else localStorage.removeItem("niytri_last_email"); } catch { /* storage blocked */ }
+      // Offer the browser's "Save password?" (Chrome / Edge / Android); Safari & Firefox use the form autocomplete hints
+      try { const PC = (window as any).PasswordCredential; if (remember && PC && navigator.credentials) navigator.credentials.store(new PC({ id: email.trim().toLowerCase(), password, name: email.trim().toLowerCase() })).catch(() => {}); } catch { /* not supported */ }
       // MFA disabled path: API returns token + user directly (no OTP step)
       if (data.token && data.user) {
         localStorage.setItem("niytri_token", data.token);
@@ -2190,33 +2198,40 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
             <div className={`flex-1 h-px ${isDark ? "bg-gray-800" : "bg-gray-200"}`} />
           </div>
 
-          <div className="space-y-3">
+          <form className="space-y-3" onSubmit={e => { e.preventDefault(); handleSubmit(); }} autoComplete="on" method="post" action="#">
             <div>
-              <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Email Address</label>
+              <label htmlFor="login-email" className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Email Address</label>
               <div className="relative">
                 <Mail className={`absolute left-3 top-2.5 w-4 h-4 ${t.textMuted}`} />
-                <input value={email} onChange={e => setEmail(e.target.value)} className={`w-full border rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors ${t.inputBg}`} placeholder="you@niytri.com" />
+                <input id="login-email" name="email" type="email" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus={!savedEmail}
+                  value={email} onChange={e => setEmail(e.target.value)} className={`w-full border rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors ${t.inputBg}`} placeholder="you@niytri.com" />
               </div>
             </div>
             <div>
-              <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Password</label>
+              <label htmlFor="login-password" className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Password</label>
               <div className="relative">
                 <Lock className={`absolute left-3 top-2.5 w-4 h-4 ${t.textMuted}`} />
-                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} className={`w-full border rounded-xl pl-9 pr-10 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors ${t.inputBg}`} placeholder="••••••••••" />
-                <button onClick={() => setShowPw(!showPw)} className={`absolute right-3 top-2.5 ${t.textMuted}`}>{showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                <input id="login-password" name="password" type={showPw ? "text" : "password"} autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus={!!savedEmail}
+                  value={password} onChange={e => setPassword(e.target.value)} className={`w-full border rounded-xl pl-9 pr-11 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors ${t.inputBg}`} placeholder="Enter your password" />
+                <button type="button" onClick={() => setShowPw(!showPw)} aria-label={showPw ? "Hide password" : "Show password"} aria-pressed={showPw} title={showPw ? "Hide password" : "Show password"}
+                  className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-lg ${t.textMuted} hover:text-blue-500`}>{showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
               </div>
             </div>
-          </div>
+            <label className={`flex items-center gap-2 text-xs ${t.textMuted} select-none cursor-pointer`}>
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="w-4 h-4 accent-blue-600" />
+              Remember Me on This Device
+            </label>
           {error && (
             <div className={`flex items-start gap-2 rounded-xl p-3 border ${isDark ? "bg-red-900/30 border-red-700/50" : "bg-red-50 border-red-200"}`}>
               <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isDark ? "text-red-400" : "text-red-600"}`} />
               <p className={`text-xs ${isDark ? "text-red-400" : "text-red-600"}`}>{error}</p>
             </div>
           )}
-          <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
             {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
             {loading ? "Signing in…" : "Sign In"}
           </button>
+          </form>
         </div>
         <p className={`text-[10px] ${t.textMuted} text-center mt-5`}>© 2026 NIYTRI Solutions. All rights reserved.</p>
       </div>
@@ -8081,7 +8096,7 @@ export function CRMApp() {
     return "login";
   });
   const [loggedUser, setLoggedUser] = useState<typeof USERS[0]>(() => restoreUserFromStorage() || USERS[0]);
-  const [loginEmail, setLoginEmail] = useState("bhushan@niytri.com");
+  const [loginEmail, setLoginEmail] = useState("");
   const [activeV, setActiveV] = useState<Vertical>(null);
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
