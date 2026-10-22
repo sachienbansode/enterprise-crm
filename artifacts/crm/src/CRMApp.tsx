@@ -2619,7 +2619,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             <Sparkles className="w-4 h-4" />
           </button>
         </Tip>
-        <Tip label={isDark ? "Switch to light mode" : "Switch to dark mode"}>
+        <Tip label={`${isDark ? "Switch to light mode" : "Switch to dark mode"} (${/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"}+Shift+L)`}>
           <button onClick={() => setIsDark(!isDark)} className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-yellow-400 hover:bg-gray-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -8047,7 +8047,7 @@ export function CRMApp() {
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("niytri_theme") !== "light"; } catch { return true; } });
   const [currUnit, setCurrUnitState] = useState<string>(getUnit());
   const setCurrUnit = (u: string) => { setUnit(u as CurrUnit); setCurrUnitState(u); };
   const [isAdmin, setIsAdmin] = useState(false);
@@ -8164,7 +8164,19 @@ export function CRMApp() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+    try { localStorage.setItem("niytri_theme", darkMode ? "dark" : "light"); } catch { /* storage blocked */ }
   }, [darkMode]);
+
+  // Keyboard shortcut: Ctrl+Shift+L (⌘+Shift+L on Mac) switches light / dark mode — works on every screen, even while typing
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === "L" || e.key === "l" || e.code === "KeyL")) {
+        e.preventDefault(); setDarkMode(d => !d);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // NOTE: hooks must stay above the early "return" screens below (login / OTP / M365),
   // otherwise React sees a different hook count after sign-in and the page goes blank.
