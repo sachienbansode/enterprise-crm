@@ -1,3 +1,4 @@
+import { fmtINR, fmtAxisINR, useCurrUnit } from "../../lib/money";
 import { useEffect, useState } from "react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { CalendarClock, AlertTriangle, CheckSquare, Star, RefreshCw, Mic, TrendingUp, ArrowRight } from "lucide-react";
@@ -11,12 +12,13 @@ const PALETTE = {
   light: { s1: "#2a78d6", grid: "#e5e7eb", axis: "#6b7280", tipBg: "#ffffff", tipBorder: "#e5e7eb", tipText: "#111827" },
   dark: { s1: "#3987e5", grid: "#1e2633", axis: "#8f99a8", tipBg: "#141a24", tipBorder: "#2e3848", tipText: "#eceff3" },
 };
-const money = (n: number) => !n ? "₹0" : n >= 1e7 ? `₹${(n / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 1 })} Cr` : n >= 1e5 ? `₹${(n / 1e5).toLocaleString("en-IN", { maximumFractionDigits: 1 })} L` : `₹${Math.round(n).toLocaleString("en-IN")}`;
+const money = (n: number) => fmtINR(n || 0);
 const d = (v: any) => (v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "");
 const time = (v: any) => new Date(v).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 const quickLog = (detail: any = {}) => window.dispatchEvent(new CustomEvent("quicklog:open", { detail }));
 
 export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: boolean; onNav: (v: any, p: any) => void }) {
+  useCurrUnit();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
   const [scope, setScope] = useState<"team" | "mine">(() => { try { return (localStorage.getItem("ib_dash_scope") as any) || "team"; } catch { return "team"; } });
@@ -67,7 +69,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
     <ResponsiveContainer width="100%" height={height || Math.max(140, rows.length * 30 + 30)}>
       <BarChart data={rows} layout="vertical" margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
         <CartesianGrid horizontal={false} stroke={c.grid} />
-        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt} allowDecimals={!!fmt} axisLine={false} tickLine={false} />
+        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt === money ? fmtAxisINR : fmt} allowDecimals={!!fmt} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="name" width={130} tick={{ fill: c.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={tip} cursor={{ fill: isDark ? "#ffffff0d" : "#0000000a" }} formatter={(v: any) => [fmt ? fmt(v) : v, ""]} separator="" />
         <Bar dataKey={dataKey} fill={c.s1} radius={[0, 4, 4, 0]} barSize={16} onClick={toLeads} style={{ cursor: "pointer" }} />

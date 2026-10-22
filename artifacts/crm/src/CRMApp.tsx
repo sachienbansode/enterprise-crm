@@ -21,6 +21,7 @@ import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
+import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
 import { MList, MCard } from "./components/MobileCard";
 import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
@@ -88,65 +89,10 @@ function useTheme(isDark: boolean) {
   };
 }
 let isDark = false;
-// ─── CURRENCY UNIT (module-level, set each render like isDark) ────────────────
-let currencyUnit: string = "crore";
-
-/** Parse strings like "₹48.2Cr", "₹5.5L", "₹12,45,000" → raw rupee amount */
-function parseCrStr(s: string | number | null | undefined): number {
-  if (s === null || s === undefined || s === "") return 0;
-  if (typeof s === "number") return s;
-  const str = String(s).replace(/,/g, "").trim();
-  const crMatch = str.match(/₹?([\d.]+)\s*[Cc][Rr]/);
-  if (crMatch) return parseFloat(crMatch[1]) * 1e7;
-  const lMatch = str.match(/₹?([\d.]+)\s*[Ll]\b/);
-  if (lMatch) return parseFloat(lMatch[1]) * 1e5;
-  const mMatch = str.match(/₹?([\d.]+)\s*[Mm]\b/);
-  if (mMatch) return parseFloat(mMatch[1]) * 1e6;
-  const numMatch = str.match(/₹?([\d.]+)/);
-  if (numMatch) return parseFloat(numMatch[1]);
-  return 0;
-}
-
-/** Format a raw rupee number according to current currencyUnit — Indian digit grouping, no trailing zeros:
- *  ₹15,900 Cr · ₹4.5 Cr · ₹85 L · ₹12,500 */
-const grp = (v: number, maxFrac: number) => v.toLocaleString("en-IN", { maximumFractionDigits: maxFrac, minimumFractionDigits: 0 });
-function fmtMoney(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(amount as number)) return "—";
-  const n = amount as number;
-  const sign = n < 0 ? "-" : "";
-  const abs = Math.abs(n);
-  if (abs === 0) return "₹0";
-  const frac = (v: number) => (v >= 100 ? 0 : v >= 10 ? 1 : 2);
-  switch (currencyUnit) {
-    case "lakh": { const l = abs / 1e5; return l < 0.01 ? `${sign}₹${grp(abs, 0)}` : `${sign}₹${grp(l, frac(l))} L`; }
-    case "million": { const m = abs / 1e6; return m < 0.01 ? `${sign}₹${grp(abs, 0)}` : `${sign}₹${grp(m, frac(m))} M`; }
-    case "crore": {
-      const c = abs / 1e7;
-      if (c >= 0.1) return `${sign}₹${grp(c, frac(c))} Cr`;
-      const l = abs / 1e5;
-      return l >= 1 ? `${sign}₹${grp(l, frac(l))} L` : `${sign}₹${grp(abs, 0)}`;
-    }
-    default: return `${sign}₹${grp(abs, 0)}`;
-  }
-}
-
-/** Re-format a money string like "₹48.2Cr" or "₹12,45,000" using the current unit.
- *  Non-monetary strings (counts, %, text) are returned unchanged. */
-function fmtMoneyStr(s: string | null | undefined): string {
-  if (!s) return "—";
-  const str = String(s).trim();
-  if (!str.includes("₹") && !/^\+?-?₹/.test(str)) return str;
-  const prefix = str.startsWith("+") ? "+" : str.startsWith("-") ? "-" : "";
-  // Strip leading +/- sign for parsing
-  const core = str.replace(/^[+\-]/, "");
-  const parsed = parseCrStr(core);
-  if (!parsed && parsed !== 0) return str;
-  // Preserve percentage portion like "(19.1%)"
-  const pctMatch = str.match(/\(([\d.]+%)\)/);
-  const formatted = prefix + fmtMoney(Math.abs(parsed) * (str.startsWith("-") ? -1 : 1));
-  return pctMatch ? `${formatted} (${pctMatch[1]})` : formatted;
-}
-
+// ─── CURRENCY UNIT — one formatter for the whole app (lib/money.ts) ───────────
+const parseCrStr = (s: string | number | null | undefined): number => { const n = parseINR(s as any); return isFinite(n) ? n : 0; };
+const fmtMoney = (amount: number | null | undefined): string => fmtINR(amount);
+const fmtMoneyStr = (s: string | null | undefined): string => fmtINRStr(s);
 // ─── CURRENCY UNIT END ────────────────────────────────────────────────────────
 // Global PII settings — loaded at app startup, used in canViewPII checks
 let piiSettings: { allow_admin_view: boolean; allow_owner_view: boolean } = { allow_admin_view: true, allow_owner_view: true };
@@ -8102,7 +8048,8 @@ export function CRMApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [currUnit, setCurrUnit] = useState<string>("crore");
+  const [currUnit, setCurrUnitState] = useState<string>(getUnit());
+  const setCurrUnit = (u: string) => { setUnit(u as CurrUnit); setCurrUnitState(u); };
   const [isAdmin, setIsAdmin] = useState(false);
   const [m365Error, setM365Error] = useState("");
   const [, setVerticalsKey] = useState(0);
@@ -8209,7 +8156,6 @@ export function CRMApp() {
   }, []);
 
   isDark = darkMode;
-  currencyUnit = currUnit;
   const t = useTheme(darkMode);
   const userEmail = loggedUser?.email || "bhushan@niytri.com";
 
@@ -8441,7 +8387,7 @@ export function CRMApp() {
       <MobileTabBar hidden={navHidden} tabs={mobileTabs} plusOpen={plusOpen} onPlus={() => { setMoreOpen(false); setPlusOpen(v => !v); }} />
       <MobileSheet open={plusOpen} onClose={() => setPlusOpen(false)} title="Quick Actions"><QuickActions onClose={() => setPlusOpen(false)} onAI={() => navTo(null, "ai")} /></MobileSheet>
       <MobileSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu" full>
-        <MoreTopRow isDark={darkMode} setIsDark={setDarkMode} onPII={() => { setMoreOpen(false); setShowPIIRequests(true); }} piiCount={piiPendingCount} />
+        <MoreTopRow isDark={darkMode} setIsDark={setDarkMode} onPII={() => { setMoreOpen(false); setShowPIIRequests(true); }} piiCount={piiPendingCount} unit={currUnit} setUnit={setCurrUnit} />
         <Sidebar sheet open={true} onClose={() => setMoreOpen(false)} activeV={activeV} setActiveV={setActiveV} activePage={activePage} setPage={setActivePage} isDark={darkMode} isAdmin={isAdmin} setIsAdmin={setIsAdmin} loggedUser={loggedUser} onLogout={handleLogout} />
       </MobileSheet>
       {showPIIRequests && <PIIRequestsPanel loggedUser={loggedUser} t={t} isDark={darkMode} onClose={() => { setShowPIIRequests(false); /* refresh badge */ const isSA = (loggedUser?.role || "").toLowerCase().includes("super"); fetch(`${API_BASE}/api/clients/access-requests/list?user_id=${loggedUser?.id}&role=approver&is_super_admin=${isSA}`).then(r => r.ok ? r.json() : { data: [] }).then(d => setPiiPendingCount((d.data || []).filter((r: any) => r.status === "pending").length)).catch(() => {}); }} />}

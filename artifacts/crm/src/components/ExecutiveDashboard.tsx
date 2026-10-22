@@ -1,3 +1,4 @@
+import { fmtAxisINR } from "../lib/money";
 import { useEffect, useRef, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -98,7 +99,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
   const priorities = ["Critical", "High", "Medium", "Low"].map(p => ({ p, n: data.srOpenByPriority[p] || 0 }));
   const maxPri = Math.max(1, ...priorities.map(x => x.n));
   const weekly = data.weekly.map(w => ({ ...w, label: weekLabel(w.week) }));
-  const moneyTick = (v: number) => fmt(v);
+  const moneyTick = (v: number) => fmtAxisINR(v);
 
   return (
     <div className="p-3 sm:p-5 space-y-4 overflow-y-auto h-full">

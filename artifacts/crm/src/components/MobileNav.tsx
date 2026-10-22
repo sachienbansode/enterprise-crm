@@ -101,14 +101,26 @@ export function QuickActions({ onClose, onAI }: { onClose: () => void; onAI: () 
   );
 }
 
-export function MoreTopRow({ isDark, setIsDark, onPII, piiCount }: { isDark: boolean; setIsDark: (v: boolean) => void; onPII: () => void; piiCount: number }) {
+export function MoreTopRow({ isDark, setIsDark, onPII, piiCount, unit, setUnit }: { isDark: boolean; setIsDark: (v: boolean) => void; onPII: () => void; piiCount: number; unit?: string; setUnit?: (u: string) => void }) {
   const cls = "flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[14px] font-medium bg-slate-50 dark:bg-gray-900 border border-slate-200/70 dark:border-gray-800 text-slate-700 dark:text-gray-200 active:scale-[0.97] transition-transform";
-  return (
+  return (<>
     <div className="flex gap-2.5 px-4 pb-2">
       <button onClick={() => setIsDark(!isDark)} className={cls}>{isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}{isDark ? "Light Mode" : "Dark Mode"}</button>
-      <button onClick={onPII} className={`${cls} relative`}><KeyRound className="w-4 h-4 text-amber-500" />Access requests
+      <button onClick={onPII} className={`${cls} relative`}><KeyRound className="w-4 h-4 text-amber-500" />Access Requests
         {piiCount > 0 && <span className="ml-1 min-w-5 h-5 px-1 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center">{piiCount > 9 ? "9+" : piiCount}</span>}</button>
     </div>
+    {setUnit && (
+      <div className="px-4 pb-2">
+        <div className="text-[12px] font-medium text-slate-500 dark:text-gray-400 mb-1.5">Show Amounts In</div>
+        <div className="grid grid-cols-4 gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-gray-900 border border-slate-200/70 dark:border-gray-800" role="radiogroup" aria-label="Show amounts in">
+          {([["rupee", "₹ Rupees"], ["lakh", "Lakh"], ["million", "Million"], ["crore", "Crore"]] as const).map(([u, l]) => (
+            <button key={u} role="radio" aria-checked={unit === u} onClick={() => setUnit(u)}
+              className={`py-2 rounded-xl text-[13px] font-semibold transition-colors ${unit === u ? "bg-blue-600 text-white shadow" : "text-slate-600 dark:text-gray-300"}`}>{l}</button>
+          ))}
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

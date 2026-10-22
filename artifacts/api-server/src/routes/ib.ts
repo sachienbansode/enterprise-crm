@@ -317,9 +317,9 @@ router.get("/dashboard", async (req, res) => {
     const isLost = (s: string) => !!st.find(x => x.stage_id === s)?.is_lost;
     const order = (s: string) => st.find(x => x.stage_id === s)?.sort_order ?? 0;
     const val = (v: any) => {
-      const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*(cr|crore|l|lakh|lac|k)?/i);
+      const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*(crores?|cr|lakhs?|lacs?|lac|l|mn|million|m|k)?\b/i);
       if (!m) return 0; const n = parseFloat(m[1]); const u = (m[2] || "").toLowerCase();
-      return n * (u.startsWith("cr") ? 1e7 : u === "l" || u.startsWith("la") ? 1e5 : u === "k" ? 1e3 : 1);
+      return n * (u.startsWith("cr") ? 1e7 : u.startsWith("l") ? 1e5 : u.startsWith("m") ? 1e6 : u === "k" ? 1e3 : 1);
     };
     const rows = opps.rows;
     const open = rows.filter(l => !isWon(l.stage) && !isLost(l.stage));

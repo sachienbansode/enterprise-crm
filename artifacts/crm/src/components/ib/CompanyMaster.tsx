@@ -1,3 +1,4 @@
+import { fmtINR } from "../../lib/money";
 import { MList, MCard } from "../MobileCard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { appConfirm } from "../../lib/dialog";
@@ -24,8 +25,8 @@ const ago = (v: any) => {
   const days = Math.floor((Date.now() - new Date(v).getTime()) / 86400000);
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days}d ago` : d(v);
 };
-const cr = (v: any) => (v === null || v === undefined || v === "" ? "—" : `₹${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 })} Cr`);
-const money = (n: number) => !n ? "—" : n >= 1e7 ? `₹${(n / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 1 })} Cr` : n >= 1e5 ? `₹${(n / 1e5).toLocaleString("en-IN", { maximumFractionDigits: 1 })} L` : `₹${n.toLocaleString("en-IN")}`;
+const cr = (v: any) => (v === null || v === undefined || v === "" ? "—" : fmtINR(Number(v) * 1e7)); // financials are stored in ₹ Cr
+const money = (n: number) => (!n ? "—" : fmtINR(n));
 const rupees = (v: any) => {
   const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*(cr|crore|l|lakh|lac|k)?/i);
   if (!m) return 0; const n = parseFloat(m[1]); const u = (m[2] || "").toLowerCase();

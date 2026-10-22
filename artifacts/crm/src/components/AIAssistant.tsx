@@ -1,3 +1,4 @@
+import { fmtINR, fmtINRStr, fmtAxisINR, useCurrUnit } from "../lib/money";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Sparkles, Send, Loader2, Plus, MessageSquare, Trash2, Search, Copy, Check, History, X, Database, BarChart3, Pencil } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
@@ -10,12 +11,9 @@ type Msg = { id: string; from: "user" | "ai"; text: string; at?: string; recordC
 type Conv = { id: string; title: string; updated_at: string; questions: number; preview?: string };
 
 const PALETTE = ["#7c3aed", "#2563eb", "#059669", "#d97706", "#db2777", "#0891b2", "#65a30d", "#dc2626"];
-const inr = (n: number) => {
-  const a = Math.abs(n), s = n < 0 ? "-" : "";
-  if (a >= 1e7) return `${s}₹${(a / 1e7).toLocaleString("en-IN", { maximumFractionDigits: a >= 1e9 ? 0 : 1 })} Cr`;
-  if (a >= 1e5) return `${s}₹${(a / 1e5).toLocaleString("en-IN", { maximumFractionDigits: 1 })} L`;
-  return `${s}₹${a.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-};
+const inr = (n: number) => fmtINR(n);
+// ₹ amounts written by the AI ("₹15,900 Cr", "₹85 L") follow the header unit too
+const unitText = (x: string) => x.replace(/₹\s?[\d,]*\.?\d+\s?(?:Cr|crore|L|lakh|M|Mn)?\b/g, m => fmtINRStr(m));
 const fmtBy = (f?: string) => (v: any) => { const n = Number(v); if (!isFinite(n)) return String(v); return f === "inr" ? inr(n) : f === "percent" ? `${n.toLocaleString("en-IN", { maximumFractionDigits: 1 })}%` : n.toLocaleString("en-IN", { maximumFractionDigits: 2 }); };
 const ago = (d?: string) => {
   if (!d) return ""; const m = Math.round((Date.now() - new Date(d).getTime()) / 60000);
@@ -24,6 +22,7 @@ const ago = (d?: string) => {
 
 // ─── Markdown (headings, bold, lists, tables) ───
 function mdToHtml(text: string): string {
+  text = unitText(text);
   const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const inline = (x: string) => esc(x).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
     .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-violet-500/15 text-[0.9em]">$1</code>');
@@ -72,7 +71,7 @@ function Kpis({ body }: { body: string }) {
       {items.slice(0, 4).map((k, i) => (
         <div key={i} className="rounded-xl border border-current/10 bg-gradient-to-br from-violet-500/[0.07] to-transparent px-3 py-2.5 animate-in fade-in zoom-in-95 duration-300" style={{ animationDelay: `${i * 60}ms` }}>
           <div className="text-[10px] uppercase tracking-wide opacity-60 truncate">{String(k.label || "")}</div>
-          <div className="text-[15px] sm:text-[17px] font-bold mt-0.5 leading-tight break-words">{String(k.value ?? "")}</div>
+          <div className="text-[15px] sm:text-[17px] font-bold mt-0.5 leading-tight break-words">{unitText(String(k.value ?? ""))}</div>
           {k.sub && <div className="text-[11px] opacity-60 leading-snug">{String(k.sub)}</div>}
         </div>
       ))}
@@ -96,7 +95,7 @@ function AIChart({ body, dark }: { body: string; dark: boolean }) {
   // Short axis ticks: ₹16K Cr, ₹4.2 Cr, 12K, 40%
   const tickF = (v: any) => { const n = Number(v); if (!isFinite(n)) return String(v); const fm = series[0].format;
     const k = (m: number) => (m >= 1000 ? `${(m / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })}K` : m.toLocaleString("en-IN", { maximumFractionDigits: 1 }));
-    if (fm === "inr") { const a = Math.abs(n); return a >= 1e7 ? `₹${k(n / 1e7)} Cr` : a >= 1e5 ? `₹${k(n / 1e5)} L` : `₹${k(n)}`; }
+    if (fm === "inr") return fmtAxisINR(n);
     return fm === "percent" ? `${n}%` : k(n); };
   const xTick = (v: any) => { const t = String(v ?? ""); const max = narrow ? (c.data.length > 2 ? 9 : 14) : c.data.length > 4 ? 12 : 24; return t.length > max ? t.slice(0, max - 1) + "…" : t; };
   let chart: any;
@@ -152,6 +151,7 @@ function Answer({ text, dark }: { text: string; dark: boolean }) {
 }
 
 export default function AIAssistant({ t, loggedUser, isDark, prompts }: { t: any; loggedUser: any; isDark: boolean; prompts: string[] }) {
+  useCurrUnit();
   const [convs, setConvs] = useState<Conv[]>([]);
   const [totalConvs, setTotalConvs] = useState(0);
   const [showAll, setShowAll] = useState(false);
