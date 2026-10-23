@@ -155,6 +155,26 @@ const IB_LABELS: Record<string, string> = { leads: "Opportunities", deals: "Mand
 // Open the global Quick Log from anywhere (the host lives in CRMApp)
 const openQuickLog = (defaults: any = {}) => window.dispatchEvent(new CustomEvent("quicklog:open", { detail: defaults }));
 let HIDDEN_MODULES: Record<string, string[]> = {};
+// Copy to clipboard with a fallback for browsers / pages where the Clipboard API is unavailable
+function copyText(text: string, done = "Copied") {
+  const ok = () => appToast(done, "success");
+  const fallback = () => {
+    const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy") ? ok() : appToast("Copy failed", "error"); } catch { appToast("Copy failed", "error"); }
+    ta.remove();
+  };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+}
+// Verticals the signed-in user may open: null = all ("All", Super Admin). Mirrors the server rule (lib/visibility.ts).
+function myVerticalIds(u: any): string[] | null {
+  if (!u || /super admin/i.test(u.role || "")) return null;
+  const raw = String(u.vertical || "").trim();
+  if (!raw || /^(all|assigned)$/i.test(raw)) return null;
+  const names: Record<string, string> = { "retail broking": "retail", "corporate broking": "corporate", "investment banking": "ib", "aif": "aif", "institutional equities": "ie" };
+  const ids = raw.split(/[,;|]/).map(x => x.trim().toLowerCase()).map(x => names[x] || (Object.values(names).includes(x) ? x : "")).filter(Boolean);
+  return ids.length ? ids : null;
+}
 const moduleVisible = (vId: string, mod: string) => !(HIDDEN_MODULES[vId] || []).includes(mod);
 const firstVisibleModule = (vId: string) => ["dashboard", "leads", "deals", "customers", "documents"].find(m => moduleVisible(vId, m)) || null;
 const SUBMENU = [
@@ -2374,6 +2394,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
   const navAdmin = (p: Page) => { setIsAdmin(true); setPage(p); setActiveV(null); if (onClose) onClose(); };
   const toggleV = (vid: string) => { if (sheet) { setExpanded(expanded === vid ? null : vid); return; } setExpanded(expanded === vid ? null : vid); setActiveV(vid as Vertical); setPage((firstVisibleModule(vid) || "dashboard") as Page); setIsAdmin(false); };
   const initials = loggedUser ? loggedUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2) : "BN";
+  const canAdmin = /admin/i.test(loggedUser?.role || "");
   const sb = {
     bg: isDark ? "bg-gray-950" : "bg-white",
     border: isDark ? "border-gray-800" : "border-slate-200",
@@ -2468,8 +2489,8 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
           )}
         </div>
 
-        {/* ── ADMINISTRATION section header ── */}
-        {open && (
+        {/* ── ADMINISTRATION — only for admin roles (Super Admin, IB Admin, …); the API enforces the same ── */}
+        {canAdmin && open && (
           <button onClick={() => setAdminCollapsed(!adminCollapsed)}
             className={`w-full flex items-center justify-between px-2.5 py-1 mt-1 rounded-lg transition-colors ${sb.adminHov}`}>
             <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500">Administration</span>
@@ -2478,7 +2499,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
         )}
 
         {/* ── ADMIN items ── */}
-        {(!adminCollapsed || !open) && (
+        {canAdmin && (!adminCollapsed || !open) && (
           <div className={open ? `${sb.sectionAdmin} space-y-0.5 mt-0.5` : "space-y-0.5"}>
             {ADMIN_MENU.map(section => (
               <div key={section.section}>
@@ -2752,7 +2773,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1.5">
                         <code className="text-blue-400 font-mono text-[10px]">{c.client_code}</code>
-                        <button onClick={e => { e.stopPropagation(); }} className={t.textMuted}><Copy className="w-2.5 h-2.5" /></button>
+                        <button onClick={e => { e.stopPropagation(); copyText(c.client_code, `Copied ${c.client_code}`); }} className={`${t.textMuted} hover:text-blue-500 p-1 -m-1 rounded`} title="Copy client code" aria-label={`Copy ${c.client_code}`}><Copy className="w-3 h-3" /></button>
                       </div>
                     </td>
                     <td className={`px-3 py-2.5 font-medium ${t.text}`}>{c.name}</td>
@@ -8126,8 +8147,9 @@ export function CRMApp() {
       .then((rows: any[]) => {
         if (!Array.isArray(rows)) return;
         HIDDEN_MODULES = Object.fromEntries(rows.map(r => [(r.vertical_id || "").toLowerCase(), r.hidden_modules || []]));
+        const mine = myVerticalIds(loggedUser);
         VERTICALS = rows
-          .filter(r => r.is_active)
+          .filter(r => r.is_active && (!mine || mine.includes((r.vertical_id || "").toLowerCase())))
           .sort((a, b) => a.display_order - b.display_order)
           .map(r => {
             const nid = (r.vertical_id || "").toLowerCase();
@@ -8137,7 +8159,7 @@ export function CRMApp() {
         setVerticalsKey(k => k + 1);
       })
       .catch(() => {});
-  }, [authStep, visRev]); // (re)load once signed in — these endpoints need a session
+  }, [authStep, visRev, loggedUser?.id]); // (re)load once signed in — these endpoints need a session
 
   // Parse M365 callback params from URL (after Azure AD redirect)
   const urlParams = new URLSearchParams(window.location.search);
@@ -8312,6 +8334,17 @@ export function CRMApp() {
 
 
   const renderContent = () => {
+    if (isAdmin && !/admin/i.test(loggedUser?.role || "")) {
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className={`max-w-sm text-center rounded-2xl border ${t.border} ${t.bgCard} p-6`}>
+            <div className={`text-base font-semibold ${t.text}`}>Administrators Only</div>
+            <p className={`text-sm mt-1 ${t.textMuted}`}>Your role ({loggedUser?.role || "—"}) doesn't include administration. Ask an administrator if you need access.</p>
+            <button onClick={() => navTo(null, "dashboard")} className="mt-4 text-sm px-4 py-2 rounded-xl bg-blue-600 text-white">Go to the Dashboard</button>
+          </div>
+        </div>
+      );
+    }
     if (isAdmin) {
       if (activePage === "admin-users")    return <AdminUsers t={t} isDark={darkMode} />;
       if (activePage === "admin-roles")    return <AdminUserRoles t={t} />;

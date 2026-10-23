@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import { query } from "./db";
+import { requestUser } from "./visibility";
 
 // ─── Server-side sessions ─────────────────────────────────────────────────────
 // • Opaque random token (returned to the browser once); only its SHA-256 is stored.
@@ -84,7 +85,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         if (k in req.body) req.body[k] = s.name;
       }
     }
-    return next();
+    return requestUser.run({ role: s.role, vertical: s.vertical }, () => next());
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }

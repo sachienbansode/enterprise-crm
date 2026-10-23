@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
-import { visibleNames, visibleIds } from "../lib/visibility";
+import { visibleNames, visibleIds, userVerticalIds, VERTICALS } from "../lib/visibility";
 
 import { logAudit } from "../lib/audit";
 
@@ -215,6 +215,7 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to } = req.body;
+    if (!String(subject || "").trim() || !category) return res.status(400).json({ error: "Subject and category are required" });
 
     // Prefer subcategory-specific SLA, fall back to category-level
     let slaResult = subcategory
@@ -227,15 +228,29 @@ router.post("/", async (req, res) => {
     const tatHours = sla?.tat_hours || 24;
     const slaDeadline = new Date(Date.now() + tatHours * 60 * 60 * 1000);
 
-    const countResult = await query("SELECT COUNT(*) FROM service_requests");
-    const seq = 5800 + parseInt(countResult.rows[0].count, 10) + 1;
-    const sr_code = `SR-${seq}`;
-
-    const result = await query(
-      `INSERT INTO service_requests (sr_code, subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to, sla_deadline, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Open') RETURNING *`,
-      [sr_code, subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to || created_by, slaDeadline],
-    );
+    // Blank form fields arrive as "" — store NULL (uuid columns reject ""). The creator is the signed-in user.
+    const creator = req.user?.id || created_by || null;
+    let srVertical = vertical || null;
+    if (!srVertical) { // a single-vertical user's SR belongs to their vertical
+      const mine = userVerticalIds(req.user);
+      if (mine && mine.length === 1) srVertical = VERTICALS.find(v => v.id === mine[0])?.name || null;
+    }
+    // Next code after the highest SR-<number> (a count-based number could repeat an existing code)
+    let result: any = null;
+    for (let attempt = 0; attempt < 5 && !result; attempt++) {
+      const mx = await query("SELECT COALESCE(MAX(substring(sr_code FROM '^SR-([0-9]+)$')::int), 5800) AS n FROM service_requests");
+      const sr_code = `SR-${Number(mx.rows[0].n) + 1 + attempt}`;
+      try {
+        result = await query(
+          `INSERT INTO service_requests (sr_code, subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to, sla_deadline, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Open') RETURNING *`,
+          [sr_code, String(subject || "").trim(), description || null, category, subcategory || null, channel || null, priority || "Medium",
+           client_id || null, srVertical, creator, assigned_to || creator, slaDeadline],
+        );
+      } catch (e: any) { if (e.code !== "23505") throw e; } // code taken meanwhile → next number
+    }
+    if (!result) throw new Error("Could not allocate an SR number — please try again");
+    const sr_code = result.rows[0].sr_code;
 
     const srId = result.rows[0].id;
     await logAudit({
@@ -243,7 +258,7 @@ router.post("/", async (req, res) => {
       entityId: srId,
       entityCode: sr_code,
       action: "CREATE",
-      userId: created_by || null,
+      userId: creator,
       recordDisplay: `${sr_code} — ${subject}`,
       after: result.rows[0],
     });

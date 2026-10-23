@@ -1,4 +1,5 @@
 import { MList, MCard } from "../components/MobileCard";
+import { appToast } from "../lib/dialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronLeft,
@@ -72,12 +73,12 @@ function slaInfo(deadline: string | null, status: string) {
       const remH = Math.floor(hrs % 24);
       breachText = remH > 0 ? `Breached ${days}d ${remH}h ago` : `Breached ${days}d ago`;
     } else {
-      const h = Math.floor(hrs), m = Math.round((hrs - h) * 60);
+      const tm = Math.floor(hrs * 60), h = Math.floor(tm / 60), m = tm % 60; // whole minutes — never "60m"
       breachText = `Breached ${h}h ${m}m ago`;
     }
     return { text: breachText, color: "text-red-500", bg: "bg-red-500/10", urgent: true, pct: 0 };
   }
-  const h = Math.floor(hrs), m = Math.round((hrs - Math.floor(hrs)) * 60);
+  const tm = Math.floor(hrs * 60), h = Math.floor(tm / 60), m = tm % 60; // whole minutes — never "60m"
   if (hrs < 1)   return { text: `${m}m left`, color: "text-red-400", bg: "bg-red-400/10", urgent: true, pct: 5 };
   if (hrs < 4)   return { text: `${h}h ${m}m left`, color: "text-amber-400", bg: "bg-amber-400/10", urgent: false, pct: 30 };
   if (hrs < 12)  return { text: `${h}h ${m}m left`, color: "text-amber-300", bg: "bg-amber-300/10", urgent: false, pct: 60 };
@@ -226,6 +227,7 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
   const [slaPreview, setSlaPreview] = useState<string | null>(null);
   const [attachFiles, setAttachFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [assignedName, setAssignedName] = useState("");
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
   const [allSlaConfig, setAllSlaConfig] = useState<any[]>([]);
@@ -266,20 +268,21 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
   };
 
   const doSubmit = async () => {
-    if (!form.subject.trim()) return;
-    setSaving(true);
+    if (!form.subject.trim()) { setSaveError("Please enter a subject."); return; }
+    setSaving(true); setSaveError("");
     setShowCreateConfirm(false);
     try {
       const r = await fetch(`${API_BASE}/api/service-requests`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, created_by: loggedUser?.id }),
       });
-      if (r.ok) {
-        const created = await r.json();
-        if (attachFiles.length && created.id) await uploadAttachments(created.id);
-        onCreated(); onClose();
-      }
-    } finally { setSaving(false); }
+      const created = await r.json().catch(() => ({}));
+      if (!r.ok) { setSaveError(created.error || "The service request could not be created. Please try again."); return; }
+      if (attachFiles.length && created.id) await uploadAttachments(created.id);
+      appToast(`Service request ${created.sr_code || ""} created`, "success");
+      onCreated(); onClose();
+    } catch { setSaveError("Couldn't reach the server. Check your connection and try again."); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -378,7 +381,8 @@ function CreateSrModal({ t, isDark, loggedUser, onClose, onCreated }: { t: any; 
             )}
           </div>
         </div>
-        <div className={`px-5 py-4 border-t ${t.border} flex justify-end gap-2 flex-shrink-0`}>
+        <div className={`px-5 py-4 border-t ${t.border} flex items-center justify-end gap-2 flex-shrink-0 flex-wrap`}>
+          {saveError && <div role="alert" className="w-full text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{saveError}</div>}
           <button onClick={onClose} className={`text-xs px-4 py-2 rounded-xl border ${t.border} ${t.textMuted} hover:opacity-80`}>Cancel</button>
           <button onClick={() => setShowCreateConfirm(true)} disabled={saving || !form.subject.trim()} className="text-xs px-5 py-2 rounded-xl bg-blue-600 text-white font-medium disabled:opacity-40 flex items-center gap-1.5">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
@@ -911,7 +915,16 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
     if (priorityFilter[0]) params.set("priority", priorityFilter[0]);
     if (categoryFilter[0]) params.set("category", categoryFilter[0]);
     if (search)            params.set("search",   search);
-    window.open(`${API_BASE}/api/service-requests/export.csv?${params}`, "_blank");
+    // The session token travels in a header, so download through fetch (a plain link / new tab would be refused)
+    fetch(`${API_BASE}/api/service-requests/export.csv?${params}`)
+      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Export failed (${r.status})`); return r.blob(); })
+      .then(b => {
+        const a = document.createElement("a"); a.href = URL.createObjectURL(b);
+        a.download = `service-requests-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        appToast("Service requests exported", "success");
+      })
+      .catch(e => appToast(e.message || "Export failed", "error"));
   };
 
   return (
