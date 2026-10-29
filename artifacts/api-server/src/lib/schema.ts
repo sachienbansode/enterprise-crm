@@ -91,6 +91,17 @@ export async function ensureAppSchema() {
        updated_by varchar(255), updated_at timestamptz DEFAULT now()
      )`,
     "INSERT INTO speech_config (id) VALUES (1) ON CONFLICT DO NOTHING",
+    // Convert to Deal keeps the link between an opportunity and the deal created from it
+    "ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_id uuid",
+    "CREATE INDEX IF NOT EXISTS idx_deals_lead ON deals (lead_id)",
+    // Won / Lost opportunities: status follows the stage, no live next action, open tasks closed (fixes older records)
+    `UPDATE leads l SET status = CASE WHEN ps.is_won THEN 'Won' ELSE 'Lost' END, next_action = NULL, next_action_date = NULL,
+            closed_at = COALESCE(l.closed_at, l.updated_at, NOW())
+       FROM pipeline_stages ps
+      WHERE ps.entity = 'lead' AND ps.stage_id = l.stage AND (ps.is_won OR ps.is_lost)
+        AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+        AND (l.status NOT IN ('Won','Lost') OR l.next_action IS NOT NULL OR l.closed_at IS NULL)`,
+    `UPDATE tasks t SET status = 'Done', completed_at = NOW() FROM leads l WHERE t.lead_id = l.id AND t.status = 'Open' AND l.status IN ('Won','Lost')`,
     // ── AI assistant: saved conversations (each user sees only their own) ──
     `CREATE TABLE IF NOT EXISTS ai_conversations (
        id uuid DEFAULT gen_random_uuid() PRIMARY KEY, user_id uuid NOT NULL, title varchar(200) NOT NULL DEFAULT 'New chat',

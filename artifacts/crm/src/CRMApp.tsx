@@ -2697,6 +2697,8 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
   }, [page, search, searchField, filterType, filterStatus, filterKyc]);
 
   useEffect(() => { load(); }, [load]);
+  // The Client 360 panel follows the list: close it when its client is filtered out (NC-08)
+  useEffect(() => { if (selected && !clients.some((c: any) => c.id === selected.id)) setSelected(null); }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -3306,15 +3308,24 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
 
   const wonStages = stages.filter((s: any) => s.is_won || s.id.toLowerCase().includes("won") || s.label.toLowerCase().includes("won"));
   const isWonStage = (stageId: string) => wonStages.some((s: any) => s.id === stageId);
+  const isLostStage = (stageId: string) => stages.some((s: any) => s.id === stageId && (s.is_lost || /lost/i.test(s.id)));
 
+  // Open the deal created from an opportunity (Deals page selects it on load)
+  const openDeal = (code: string) => {
+    try { sessionStorage.setItem("niytri_open_deal", code); } catch { /* storage blocked */ }
+    window.location.hash = `#/${vId}/deals`;
+  };
   const convertToDeal = async (lead: any) => {
-    if (!(await appConfirm({ title: "Convert to a deal?", message: `"${lead.name}" will be added to Deals. The opportunity stays as it is.`, confirmLabel: "Convert" }))) return;
+    if (lead.deal_code) { openDeal(lead.deal_code); return; }
+    const noun = vId === "ib" ? "mandate" : "deal";
+    if (!(await appConfirm({ title: `Convert to a ${noun}?`, message: `A ${noun} will be created from "${lead.name}" with its company, type, RM, value, expected close and fee. The opportunity stays as it is and links to the ${noun}.`, confirmLabel: "Convert" }))) return;
     try {
-      await fetch(`${API_BASE}/api/deals`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: lead.name, vertical: vName, type: "Converted Lead", value: lead.value_estimate || "TBD", stage: "Active", notes: `Converted from lead ${lead.lead_code}` }),
-      });
-      appToast(`"${lead.name}" converted to a deal`, "success");
+      const r = await fetch(`${API_BASE}/api/leads/${lead.id}/convert`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409 && d.deal_code) { appToast(`Already converted to ${d.deal_code}`, "info"); load(); openDeal(d.deal_code); return; }
+      if (!r.ok) { appToast(d.error || "Could not convert", "error"); return; }
+      appToast(`"${lead.name}" converted to ${d.deal_code}`, "success");
+      if (selected?.id === lead.id) setSelected({ ...selected, deal_code: d.deal_code });
       load();
     } catch { appToast("Could not convert to a deal", "error"); }
   };
@@ -3419,16 +3430,16 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                             <span className={`text-[9px] ${t.textMuted}`}>{lead.source}</span>
                             <span className={`text-[9px] ${t.textMuted} font-mono`}>{lead.lead_code}</span>
                           </div>
-                          {lead.days_open && <div className={`text-[9px] ${t.textMuted} flex items-center gap-1 mt-1`}><Clock className="w-2.5 h-2.5" />{lead.days_open}d open</div>}
-                          {lead.next_action && (
+                          {lead.days_open != null && <div className={`text-[9px] ${t.textMuted} flex items-center gap-1 mt-1`}><Clock className="w-2.5 h-2.5" />{isWonStage(lead.stage) || isLostStage(lead.stage) ? `${isWonStage(lead.stage) ? "Won" : "Lost"} after ${lead.days_open}d` : `${lead.days_open}d open`}</div>}
+                          {lead.next_action && !isWonStage(lead.stage) && !isLostStage(lead.stage) && (
                             <div className={`text-[9px] mt-1 truncate ${lead.next_action_date && new Date(lead.next_action_date) < new Date(new Date().toDateString()) ? "text-red-500 font-semibold" : t.textMuted}`} title={lead.next_action}>
                               → {lead.next_action}
                             </div>
                           )}
-                          {isWonStage(stage.id) && (
+                          {(isWonStage(stage.id) || lead.deal_code) && (
                             <button onClick={e => { e.stopPropagation(); convertToDeal(lead); }}
                               className={`mt-2 w-full text-[10px] py-1 rounded-lg border transition-colors ${isDark ? "bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30" : "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"}`}>
-                              Convert to Deal →
+                              {lead.deal_code ? `Open ${lead.deal_code} →` : "Convert to Deal →"}
                             </button>
                           )}
                         </div>
@@ -3454,10 +3465,10 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                     value={lead.value_estimate ? fmtMoneyStr(lead.value_estimate) : "—"}
                     left={lead.source} right={lead.lead_code}
                     chips={[<span key="st" className={`text-[11px] px-2 py-0.5 rounded-full ${v.color}/20 ${isDark ? "text-blue-300" : "text-blue-700"}`}>{stages.find((s: any) => s.id === lead.stage)?.label || lead.stage}</span>,
-                      lead.days_open ? <span key="d" className={`inline-flex items-center gap-1 text-[11.5px] ${t.textMuted}`}><Clock className="w-3 h-3" />{lead.days_open}d open</span> : null,
+                      lead.days_open != null ? <span key="d" className={`inline-flex items-center gap-1 text-[11.5px] ${t.textMuted}`}><Clock className="w-3 h-3" />{lead.days_open}d open</span> : null,
                       lead.rm_name ? <span key="rm" className={`inline-flex items-center gap-1 text-[11.5px] ${t.textMuted}`}><User className="w-3 h-3" />{lead.rm_name}</span> : null]}
                     lines={lead.next_action ? [<span className={`truncate ${overdue ? "text-red-500 font-semibold" : ""}`}>→ {lead.next_action}</span>] : []}
-                    footer={isWonStage(lead.stage) ? <button onClick={() => convertToDeal(lead)} className="text-[13px] px-3 py-1.5 rounded-lg bg-emerald-600/15 text-emerald-500 font-medium">Convert to Deal →</button> : undefined}
+                    footer={isWonStage(lead.stage) || lead.deal_code ? <button onClick={() => convertToDeal(lead)} className="text-[13px] px-3 py-1.5 rounded-lg bg-emerald-600/15 text-emerald-500 font-medium">{lead.deal_code ? `Open ${lead.deal_code} →` : "Convert to Deal →"}</button> : undefined}
                   />
                 );
               })}
@@ -3489,9 +3500,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                         <button onClick={() => setEditingLead(lead)} className={`p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-500`} title="Edit lead">
                           <Edit className="w-3.5 h-3.5" />
                         </button>
-                        {isWonStage(lead.stage) && (
+                        {(isWonStage(lead.stage) || lead.deal_code) && (
                           <button onClick={() => convertToDeal(lead)} className={`text-[10px] px-2 py-1 rounded-lg border whitespace-nowrap ${isDark ? "bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30" : "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"}`}>
-                            Convert →
+                            {lead.deal_code ? `${lead.deal_code} →` : "Convert →"}
                           </button>
                         )}
                       </div>
@@ -3642,7 +3653,11 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               </div>
             ))}
             </div>
-            {panelEdit && isWonStage(selected.stage) && (
+            {selected.deal_code ? (
+              <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10">
+                Converted to {selected.deal_code} — open →
+              </button>
+            ) : panelEdit && isWonStage(selected.stage) && (
               <button onClick={() => convertToDeal(selected)} className="w-full text-xs py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Convert to Deal →
               </button>
@@ -3796,6 +3811,14 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [filterStage, search, sortBy]);
+  // Arriving from an opportunity's "Open IB-D0xx": select that deal
+  useEffect(() => {
+    let code = ""; try { code = sessionStorage.getItem("niytri_open_deal") || ""; } catch { /* ignore */ }
+    if (!code) return;
+    try { sessionStorage.removeItem("niytri_open_deal"); } catch { /* ignore */ }
+    fetch(`${API_BASE}/api/deals?vertical=${encodeURIComponent(VERTICAL_LABEL_FALLBACK[vId] || vId)}&search=${encodeURIComponent(code)}&limit=5`)
+      .then(r => r.json()).then(d => { const hit = (d.data || []).find((x: any) => x.deal_code === code); if (hit) setSelected(hit); }).catch(() => {});
+  }, [vId]);
 
   const deals = allDeals;
   const paginated = deals.slice((page - 1) * DEAL_PAGE_SIZE, page * DEAL_PAGE_SIZE);
@@ -4021,6 +4044,12 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             <code className={`text-[10px] ${verticalAccent(v.id)}`}>{selected.deal_code}</code>
             <div className={`text-sm font-bold ${t.text} mt-1`}>{selected.name}</div>
             <div className={`text-xl font-bold ${t.text} mt-1`}>{selected.value ? fmtMoneyStr(selected.value) : "—"}</div>
+            {(selected.lead_code || selected.details?.expected_fee != null) && (
+              <div className={`text-[11px] ${t.textMuted} mt-1 flex flex-wrap gap-x-3`}>
+                {selected.lead_code && <span>From opportunity <b className={t.text}>{selected.lead_code}</b></span>}
+                {selected.details?.expected_fee != null && <span>Expected fee <b className={t.text}>{fmtMoney(Number(selected.details.expected_fee))}</b></span>}
+              </div>
+            )}
             <StatusBadge s={selected.stage} />
           </div>
           {/* Stage path — same workflow as opportunities (Mandatory / Skip allowed) */}
@@ -4382,6 +4411,8 @@ function UserFormModal({
   } : blank);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
 
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
   const inp = `w-full text-xs rounded-xl border px-3 py-2.5 ${t.inputBg} outline-none focus:ring-1 focus:ring-blue-500/50`;
@@ -4390,16 +4421,19 @@ function UserFormModal({
   const save = async () => {
     if (!form.name.trim()) { setError("Name is required"); return; }
     if (!isEdit && !form.email.trim()) { setError("Email is required"); return; }
+    if (form.auth_type === "app" && !isEdit && !password) { setError("Set a password for this user (app sign-in)."); return; }
+    if (password && (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password))) { setError("Password must be at least 8 characters with a letter and a number."); return; }
     setSaving(true); setError("");
     try {
       const url = isEdit ? `${API_BASE}/api/admin/users/${initial.id}` : `${API_BASE}/api/admin/users`;
       const method = isEdit ? "PUT" : "POST";
       const r = await fetch(url, {
         method, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(password && form.auth_type === "app" ? { ...form, password } : form),
       });
       const d = await r.json();
-      if (!r.ok) { setError(d.error || "Failed to save"); return; }
+      if (!r.ok) { setError(d.error || "Failed to save"); setSaving(false); return; }
+      if (password) appToast(isEdit ? "Password changed — the user is signed out of other sessions" : "User created — share the password securely", "success");
       onSaved(d);
       onClose();
     } catch (e: any) { setError(e.message); }
@@ -4460,7 +4494,7 @@ function UserFormModal({
             <div>
               <label className={`text-[11px] font-medium ${t.textMuted} block mb-1`}>Auth Type</label>
               <select value={form.auth_type} onChange={e => set("auth_type", e.target.value)} className={sel}>
-                <option value="app">App (Email OTP)</option>
+                <option value="app">App (e-mail & password)</option>
                 <option value="m365">Microsoft 365 SSO</option>
               </select>
             </div>
@@ -4471,6 +4505,16 @@ function UserFormModal({
               </select>
             </div>
           </div>
+          {form.auth_type === "app" && (
+            <div>
+              <label className={`text-[11px] font-medium ${t.textMuted} block mb-1`}>{isEdit ? "New Password (leave blank to keep the current one)" : "Password *"}</label>
+              <div className="relative">
+                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"
+                  placeholder={isEdit ? "Type a new password to reset it" : "At least 8 characters, with a letter and a number"} className={`${inp} pr-10`} />
+                <button type="button" onClick={() => setShowPw(v => !v)} aria-label={showPw ? "Hide password" : "Show password"} className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 ${t.textMuted}`}>{showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+              </div>
+            </div>
+          )}
           <label className="flex items-center gap-2.5 cursor-pointer mt-1">
             <div onClick={() => set("mfa_enabled", !form.mfa_enabled)}
               className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${form.mfa_enabled ? "bg-blue-600" : (isDark ? "bg-gray-600" : "bg-gray-300")}`}>

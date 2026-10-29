@@ -107,9 +107,9 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
   // Fetch dropdown categories and users on open
   useEffect(() => {
     if (!open) return;
-    fetch(`${API}/config/dropdowns?entity=client&field=category`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/config/dropdowns?entity=client&field=category`)
       .then(r => r.json()).then(rows => setCategories(rows.map((r: any) => r.value))).catch(() => {});
-    fetch(`${API}/users`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/users`)
       .then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : d.data || [])).catch(() => {});
   }, [open, token]);
 
@@ -189,7 +189,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
       const method = isEdit ? "PATCH" : "POST";
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" }, // session token added by lib/authFetch
         body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to save client"); }

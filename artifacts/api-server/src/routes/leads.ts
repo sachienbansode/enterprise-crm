@@ -1,3 +1,4 @@
+import { nextDealCode } from "./deals";
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
@@ -35,7 +36,8 @@ router.get("/", async (req, res) => {
     params.push(pageSize, offset);
     const result = await query(
       `SELECT l.*, u.name as rm_name, c.name as client_name, c.client_code,
-        EXTRACT(DAY FROM NOW() - l.opened_at)::int as days_open
+        EXTRACT(DAY FROM COALESCE(l.closed_at, NOW()) - l.opened_at)::int as days_open,
+        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code
         FROM leads l
         LEFT JOIN users u ON l.assigned_rm_id = u.id
         LEFT JOIN clients c ON l.client_id = c.id
@@ -43,7 +45,7 @@ router.get("/", async (req, res) => {
         ORDER BY ${
           sort_by === "updated_at_desc"  ? "l.updated_at DESC" :
           sort_by === "priority_asc"     ? "CASE l.priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END ASC, l.created_at DESC" :
-          sort_by === "days_open_desc"   ? "EXTRACT(DAY FROM NOW() - l.opened_at) DESC NULLS LAST, l.created_at DESC" :
+          sort_by === "days_open_desc"   ? "EXTRACT(DAY FROM COALESCE(l.closed_at, NOW()) - l.opened_at) DESC NULLS LAST, l.created_at DESC" :
           sort_by === "name_asc"         ? "l.name ASC" :
           sort_by === "value_desc"       ? "l.value_estimate DESC NULLS LAST, l.created_at DESC" :
                                            "l.created_at DESC"
@@ -78,7 +80,8 @@ router.get("/:id", async (req, res) => {
   try {
     const result = await query(
       `SELECT l.*, u.name as rm_name, c.name as client_name, c.client_code,
-        EXTRACT(DAY FROM NOW() - l.opened_at)::int as days_open
+        EXTRACT(DAY FROM COALESCE(l.closed_at, NOW()) - l.opened_at)::int as days_open,
+        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code
         FROM leads l
         LEFT JOIN users u ON l.assigned_rm_id = u.id
         LEFT JOIN clients c ON l.client_id = c.id
@@ -93,6 +96,19 @@ router.get("/:id", async (req, res) => {
 });
 
 // IB / ECM rules: every active opportunity needs a next action; a lost one needs a reason AND a comment.
+// Won / Lost ends the opportunity: status follows the stage, the next action and open tasks are closed,
+// and ageing stops at the close date. Re-opening restores Active and clears the close date.
+async function syncClosedState(id: string, stage: string, who?: string) {
+  const st = (await query(`SELECT bool_or(ps.is_won) AS won, bool_or(ps.is_lost) AS lost FROM leads l
+      JOIN pipeline_stages ps ON ps.entity='lead' AND ps.stage_id=l.stage WHERE l.id=$1`, [id])).rows[0] || {};
+  if (st.won || st.lost) {
+    await query(`UPDATE leads SET status=$2, next_action=NULL, next_action_date=NULL, closed_at=COALESCE(closed_at, NOW()) WHERE id=$1`, [id, st.won ? "Won" : "Lost"]);
+    await query(`UPDATE tasks SET status='Done', completed_at=NOW() WHERE lead_id=$1 AND status='Open'`, [id]);
+  } else {
+    await query(`UPDATE leads SET status='Active', closed_at=NULL WHERE id=$1 AND (status IN ('Won','Lost') OR closed_at IS NOT NULL)`, [id]);
+  }
+}
+
 // `enteringLost` = the record is being moved into (or created in) a Lost stage — only then is a fresh comment required.
 async function ibRuleError(vertical: string, stage: string, nextAction: any, lostReason: any, lostComment?: any, enteringLost = false): Promise<{ error: string; code: string } | null> {
   if (vertical !== "Investment Banking" || !stage) return null;
@@ -170,6 +186,10 @@ router.patch("/:id", async (req, res) => {
        opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), leavingLost, lost_comment || null, JSON.stringify(flow.path || {})],
     );
     if (stageChanged) await noteStageChange("lead", req.params.id, req.user, { from: await stageLabelOf("lead", prev.vertical, prev.stage), to: flow.target || await stageLabelOf("lead", prev.vertical, stage), skipped: flow.skipped, comment: req.body.stage_comment });
+    if (stageChanged) {
+      await syncClosedState(req.params.id, result.rows[0].stage, req.user?.name);
+      result.rows[0] = (await query("SELECT * FROM leads WHERE id=$1", [req.params.id])).rows[0];
+    }
     if (enteringLost && lost_comment) await postLostComment(req.params.id, req.user, await stageLabel(stage), lost_reason || result.rows[0].lost_reason, lost_comment);
 
     await logAudit({
@@ -226,6 +246,7 @@ router.post("/", async (req, res) => {
        opportunity_type || null, next_action || null, next_action_date || null, lost_reason || null, numOrNull(expected_fee), numOrNull(probability), createdLost ? lost_comment || null : null, JSON.stringify(flow.path)],
     );
     await noteStageChange("lead", result.rows[0].id, req.user, { from: "New", to: flow.target || stage, skipped: flow.skipped, comment: req.body.stage_comment });
+    await syncClosedState(result.rows[0].id, result.rows[0].stage, req.user?.name);
     if (createdLost && lost_comment) await postLostComment(result.rows[0].id, req.user, await stageLabel(stage), lost_reason, lost_comment);
 
     await logAudit({
@@ -264,6 +285,66 @@ router.delete("/:id", async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── POST /api/leads/:id/convert — create the deal / mandate from a won opportunity ───────────────
+// Carries over company, kind / type, RM, value, expected close and fee; links the deal to the opportunity;
+// refuses a second conversion (409 with the existing deal code).
+const IB_KINDS: [RegExp, { id: string; label: string; dealType: string }][] = [
+  [/pre-?ipo|private|pe\b/i, { id: "pe", label: "Private equity / pre-IPO", dealType: "Other" }],
+  [/ipo|invit|reit|sme/i, { id: "ipo", label: "IPO", dealType: "IPO/OFS" }],
+  [/qip/i, { id: "qip", label: "QIP", dealType: "ECM - QIP" }],
+  [/rights/i, { id: "rights", label: "Rights issue", dealType: "ECM - Rights Issue" }],
+  [/ofs|block|fpo/i, { id: "ofs_block", label: "OFS / Block", dealType: "Institutional Block" }],
+  [/m&a|merger|acqui|sell-side|buy-side/i, { id: "ma", label: "M&A advisory", dealType: "M&A Advisory" }],
+  [/restruct/i, { id: "restructuring", label: "Debt restructuring", dealType: "Other" }],
+  [/debt|ncd|bond|dcm/i, { id: "debt", label: "Debt / NCD", dealType: "Debt Arrangement" }],
+];
+const rupeesOf = (v: any) => {
+  const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*(crores?|cr|lakhs?|lacs?|l|mn|million|m|k)?\b/i);
+  if (!m) return 0; const n = parseFloat(m[1]); const u = (m[2] || "").toLowerCase();
+  return n * (u.startsWith("cr") ? 1e7 : u.startsWith("l") ? 1e5 : u.startsWith("m") ? 1e6 : u === "k" ? 1e3 : 1);
+};
+
+router.post("/:id/convert", async (req, res) => {
+  try {
+    const l = (await query(`SELECT l.*, ps.is_won FROM leads l
+        LEFT JOIN pipeline_stages ps ON ps.entity='lead' AND ps.stage_id=l.stage
+         AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+        WHERE l.id=$1 AND l.stage <> 'deleted'`, [req.params.id])).rows[0];
+    if (!l) return res.status(404).json({ error: "Opportunity not found" });
+    if (!l.is_won) return res.status(400).json({ error: "Only a won / closed opportunity can be converted to a deal." });
+    const existing = (await query("SELECT id, deal_code FROM deals WHERE lead_id=$1 AND stage <> 'deleted' ORDER BY created_at LIMIT 1", [l.id])).rows[0];
+    if (existing) return res.status(409).json({ error: `Already converted to ${existing.deal_code}`, code: "ALREADY_CONVERTED", deal_id: existing.id, deal_code: existing.deal_code });
+
+    const isIB = l.vertical === "Investment Banking";
+    const kind = isIB ? IB_KINDS.find(([re]) => re.test(`${l.opportunity_type || ""} ${l.name || ""}`))?.[1] : undefined;
+    const size = rupeesOf(l.value_estimate);
+    const details: Record<string, any> = { converted_from: l.lead_code };
+    if (kind) details.kind = kind.id;
+    if (l.expected_fee != null) {
+      details.expected_fee = Number(l.expected_fee);
+      if (size > 0 && kind && kind.id !== "restructuring") details.fee_pct = Math.round(Number(l.expected_fee) / size * 10000) / 100;
+    }
+    const deal_code = await nextDealCode(l.vertical);
+    const stage = (await query(`SELECT label FROM pipeline_stages WHERE entity='deal' AND is_active AND vertical =
+        (CASE $1 WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+        ORDER BY sort_order LIMIT 1`, [l.vertical])).rows[0]?.label || "Active";
+    const d = (await query(
+      `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name, details, stage_path, lead_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_DATE,$11,$12,$13,$14::jsonb,'{}'::jsonb,$15) RETURNING *`,
+      [deal_code, l.name, l.vertical, kind?.label || l.opportunity_type || l.product || null, kind?.dealType || l.deal_type || null, l.value_estimate || null, stage,
+       l.client_id || null, l.assigned_rm_id || null, `Converted from opportunity ${l.lead_code}`, l.expected_close || null, req.user?.id || null, req.user?.name || null,
+       JSON.stringify(details), l.id],
+    )).rows[0];
+    await query(`INSERT INTO entity_comments (entity_type, entity_id, user_id, user_name, body) VALUES ('lead', $1, $2, $3, $4)`,
+      [l.id, req.user?.id || null, req.user?.name || "System", `Converted to ${d.vertical === "Investment Banking" ? "mandate" : "deal"} ${deal_code}`]).catch(() => {});
+    await logAudit({ entityType: "deal", entityId: d.id, entityCode: deal_code, action: "CREATE", userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role,
+      recordDisplay: `${d.name} (${deal_code}) — converted from ${l.lead_code}`, after: d });
+    res.status(201).json(d);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

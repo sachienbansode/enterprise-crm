@@ -241,7 +241,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.ageing} margin={{ left: -20, right: 8, top: 8 }}>
                 <CartesianGrid vertical={false} stroke={c.grid} />
-                <XAxis dataKey="bucket" {...axisProps} />
+                <XAxis dataKey="bucket" {...axisProps} interval={0} />
                 <YAxis {...axisProps} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} cursor={{ fill: isDark ? "#ffffff08" : "#0000000a" }} formatter={(v: any) => [v, "Open leads"]} />
                 <Bar dataKey="count" fill={c.seq} radius={[4, 4, 0, 0]} maxBarSize={44} />

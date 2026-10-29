@@ -5,6 +5,19 @@ import { checkStageMove, noteStageChange, stageLabelOf } from "../lib/stageFlow"
 import { visibleNames, visibleIds } from "../lib/visibility";
 
 
+// "₹4,800 Cr" / "₹85 L" / "12 M" / "50000000" → rupees, so value sorts numerically (text sort put ₹500 Cr above ₹1,200 Cr)
+const VALUE_RUPEES = `(SELECT CASE WHEN m IS NULL THEN NULL ELSE m[1]::numeric * CASE
+    WHEN lower(coalesce(m[2],'')) LIKE 'cr%' THEN 10000000 WHEN lower(coalesce(m[2],'')) LIKE 'l%' THEN 100000
+    WHEN lower(coalesce(m[2],'')) LIKE 'm%' THEN 1000000 WHEN lower(coalesce(m[2],'')) = 'k' THEN 1000 ELSE 1 END END
+  FROM (SELECT regexp_match(replace(d.value, ',', ''), '([0-9]+(?:\\.[0-9]+)?)\\s*(crores?|cr|lakhs?|lacs?|l|mn|million|m|k)?', 'i') AS m) x)`;
+
+// Next deal code after the highest existing one for the vertical (a count-based number could repeat a code)
+export async function nextDealCode(vertical: string): Promise<string> {
+  const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : "IE-D";
+  const r = await query(`SELECT COALESCE(MAX(substring(deal_code FROM '^' || $1 || '([0-9]+)$')::int), 0) AS n FROM deals`, [prefix]);
+  return `${prefix}${String(Number(r.rows[0].n) + 1).padStart(3, "0")}`;
+}
+
 const router = Router();
 
 // GET /api/deals — list with filters and pagination
@@ -33,7 +46,8 @@ router.get("/", async (req, res) => {
 
     params.push(pageSize, offset);
     const result = await query(
-      `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code
+      `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code,
+              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code
         FROM deals d
         LEFT JOIN users u ON d.rm_id = u.id
         LEFT JOIN clients c ON d.client_id = c.id
@@ -41,9 +55,9 @@ router.get("/", async (req, res) => {
         ORDER BY ${
           sort_by === "updated_at_desc" ? "d.updated_at DESC" :
           sort_by === "name_asc"        ? "d.name ASC" :
-          sort_by === "value_desc"      ? "d.value DESC NULLS LAST, d.created_at DESC" :
+          sort_by === "value_desc"      ? `${VALUE_RUPEES} DESC NULLS LAST, d.created_at DESC` :
           sort_by === "stage_asc"       ? "d.stage ASC, d.created_at DESC" :
-                                          "d.created_at DESC"
+                                          "d.deal_date DESC NULLS LAST, d.created_at DESC" // Newest First = the deal's date shown in the list
         }
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
@@ -71,7 +85,8 @@ router.get("/stats", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const result = await query(
-      `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code
+      `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code,
+              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code
         FROM deals d
         LEFT JOIN users u ON d.rm_id = u.id
         LEFT JOIN clients c ON d.client_id = c.id
@@ -163,10 +178,7 @@ router.post("/", async (req, res) => {
 
     const flow = await checkStageMove("deal", vertical, null, stage || "Active", {}, !!req.body.skip_confirmed, req.user?.name || "System", req.body.stage_comment);
     if (!flow.ok) return res.status(flow.status).json(flow.body);
-    const countResult = await query("SELECT COUNT(*) FROM deals WHERE vertical=$1", [vertical]);
-    const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : "IE-D";
-    const seq = String(parseInt(countResult.rows[0].count, 10) + 1).padStart(3, "0");
-    const deal_code = `${prefix}${seq}`;
+    const deal_code = await nextDealCode(vertical);
 
     const result = await query(
       `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name, details, stage_path)

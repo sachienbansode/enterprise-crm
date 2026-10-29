@@ -69,7 +69,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
     <ResponsiveContainer width="100%" height={height || Math.max(140, rows.length * 30 + 30)}>
       <BarChart data={rows} layout="vertical" margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
         <CartesianGrid horizontal={false} stroke={c.grid} />
-        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt === money ? fmtAxisINR : fmt} allowDecimals={!!fmt} axisLine={false} tickLine={false} />
+        <XAxis type="number" tick={{ fill: c.axis, fontSize: 11 }} tickFormatter={fmt === money ? (v: number) => fmtAxisINR(v) : fmt} allowDecimals={!!fmt} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="name" width={130} tick={{ fill: c.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={tip} cursor={{ fill: isDark ? "#ffffff0d" : "#0000000a" }} formatter={(v: any) => [fmt ? fmt(v) : v, ""]} separator="" />
         <Bar dataKey={dataKey} fill={c.s1} radius={[0, 4, 4, 0]} barSize={16} onClick={toLeads} style={{ cursor: "pointer" }} />

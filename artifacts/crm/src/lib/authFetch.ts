@@ -32,7 +32,9 @@ export function installAuthFetch() {
     if (!isApi || !token) return orig(input, init);
 
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+    // Always use the session token — a caller passing "Bearer undefined" / "Bearer null" must not end the session
+    const given = headers.get("Authorization") || "";
+    if (!given || /^Bearer\s*(undefined|null)?\s*$/i.test(given)) headers.set("Authorization", `Bearer ${token}`);
     headers.set("X-Idle-Ms", String(Date.now() - lastActivity));
     const res = await orig(input, { ...init, headers });
     if (res.status === 401) {

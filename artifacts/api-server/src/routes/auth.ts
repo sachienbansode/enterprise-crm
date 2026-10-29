@@ -126,8 +126,8 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     const result = await query(
-      "SELECT id, name, email, role, vertical, auth_type, mfa_enabled, password_hash FROM users WHERE email=$1 AND status='Active'",
-      [email],
+      "SELECT id, name, email, role, vertical, auth_type, mfa_enabled, password_hash FROM users WHERE lower(email)=lower($1) AND status='Active'",
+      [String(email || "").trim()],
     );
     if (!result.rows.length) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -163,11 +163,11 @@ router.post("/login", async (req, res) => {
 
     // MFA enabled → send OTP
     const otp = String(randomInt(100000, 999999));
-    await storeOtp(email, otp, 5);
-    console.log(`[OTP] ${email}: ${otp}`);
-    sendOtpEmail(email, otp).catch(e => console.error("[OTP] Email send error:", e));
+    await storeOtp(user.email, otp, 5);
+    if (process.env.NODE_ENV !== "production") console.log(`[OTP] ${user.email}: ${otp}`); // never write OTPs to production logs
+    sendOtpEmail(user.email, otp).catch(e => console.error("[OTP] Email send error:", e));
 
-    res.json({ message: "OTP sent to registered email", requiresOtp: true, email });
+    res.json({ message: "OTP sent to registered email", requiresOtp: true, email: user.email });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

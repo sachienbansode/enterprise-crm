@@ -197,16 +197,16 @@ function SrStatsBanner({ stats, loading, t, onFilter }: { stats: any; loading: b
     { label: "Resolved Today", val: stats?.resolved_today || 0, icon: CheckCircle2,   color: "text-emerald-400", bg: "bg-emerald-500/10",  border: "border-emerald-500/20", filterKey: "status", filterVal: "Resolved" },
   ];
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 flex-shrink-0">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2 sm:gap-3 flex-shrink-0">
       {cards.map(c => (
         <button key={c.label} onClick={() => onFilter(c.filterKey, c.filterVal)}
           className={`flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border ${c.bg} ${c.border} hover:opacity-80 transition-all text-left`}>
           <div className={`hidden sm:flex w-8 h-8 rounded-lg ${c.bg} items-center justify-center flex-shrink-0`}>
             <c.icon className={`w-4 h-4 ${c.color}`} />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className={`text-lg font-bold ${c.color} leading-none`}>{loading ? "—" : c.val}</div>
-            <div className={`text-[10px] ${t.textMuted} mt-0.5`}>{c.label}</div>
+            <div className={`text-[10px] ${t.textMuted} mt-0.5 whitespace-nowrap truncate`}>{c.label}</div>
           </div>
         </button>
       ))}
@@ -523,8 +523,8 @@ function SrDetailPanel({ sr: initialSr, t, isDark, onClose, onUpdate, loggedUser
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className={`text-[11px] font-bold font-mono ${t.textMuted}`}>{sr.sr_code}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${statusBadge(sr.status)}`}>{sr.status}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${priorityBadge(sr.priority)}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${statusBadge(sr.status)}`}>{sr.status}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${priorityBadge(sr.priority)}`}>
                 <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${priorityDot(sr.priority)}`} />{sr.priority}
               </span>
             </div>
@@ -1004,11 +1004,11 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
                 return (
                   <MCard key={sr.id} selected={selectedSr?.id === sr.id} onClick={() => setSelectedSr(selectedSr?.id === sr.id ? null : sr)}
                     title={sr.subject}
-                    badge={<span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium ${priorityBadge(sr.priority)}`}><span className={`w-1.5 h-1.5 rounded-full ${priorityDot(sr.priority)}`} />{sr.priority}</span>}
+                    badge={<span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${priorityBadge(sr.priority)}`}><span className={`w-1.5 h-1.5 rounded-full ${priorityDot(sr.priority)}`} />{sr.priority}</span>}
                     value={sr.client_name || <span className="text-[14px] font-medium opacity-60">No client linked</span>}
                     left={`${sr.category}${sr.subcategory ? " › " + sr.subcategory : ""}`}
                     right={sr.sr_code}
-                    chips={[<span key="s" className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${statusBadge(sr.status)}`}>{sr.status}</span>,
+                    chips={[<span key="s" className={`text-[11px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${statusBadge(sr.status)}`}>{sr.status}</span>,
                       <span key="l" className={`inline-flex items-center gap-1 text-[11.5px] font-medium ${sla.color}`}><Clock className="w-3 h-3" />{sla.text}</span>]}
                     lines={[<><User className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{sr.assigned_to_name || "Unassigned"}</span><span className="ml-auto flex-shrink-0">{fmtDate(sr.created_at)}</span></>]}
                   />
@@ -1017,17 +1017,17 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
             </MList>
             <div className={`hidden md:block rounded-xl border ${t.border} overflow-hidden`}>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[800px]">
+                <table className={`w-full ${selectedSr ? "" : "min-w-[800px]"}`}>
                   <thead>
                     <tr className={`${t.tableHead} text-[10px] uppercase font-bold ${t.textMuted} tracking-wider`}>
-                      <th className="px-3 py-2.5 text-left w-[90px]">SR Code</th>
+                      <th className="px-3 py-2.5 text-left w-[90px] whitespace-nowrap">SR Code</th>
                       <th className="px-3 py-2.5 text-left">Subject</th>
-                      <th className="px-3 py-2.5 text-left w-[120px]">Client</th>
+                      <th className={`px-3 py-2.5 text-left w-[120px] ${selectedSr ? "hidden" : ""}`}>Client</th>
                       <th className="px-3 py-2.5 text-left w-[80px]">Priority</th>
                       <th className="px-3 py-2.5 text-left w-[100px]">Status</th>
                       <th className="px-3 py-2.5 text-left w-[120px]">SLA</th>
-                      <th className="px-3 py-2.5 text-left w-[100px]">Assigned To</th>
-                      <th className="px-3 py-2.5 text-left w-[90px]">Created</th>
+                      <th className={`px-3 py-2.5 text-left w-[100px] ${selectedSr ? "hidden" : ""}`}>Assigned To</th>
+                      <th className={`px-3 py-2.5 text-left w-[90px] ${selectedSr ? "hidden" : ""}`}>Created</th>
                       <th className="px-3 py-2.5 w-[40px]"></th>
                     </tr>
                   </thead>
@@ -1039,13 +1039,13 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
                         <tr key={sr.id} onClick={() => setSelectedSr(isSelected ? null : sr)}
                           className={`${t.rowHover} cursor-pointer transition-all ${isSelected ? "bg-blue-600/10 border-l-2 border-l-blue-500" : ""}`}>
                           <td className="px-3 py-2.5">
-                            <span className={`text-[11px] font-mono font-bold ${t.codeBlue || "text-blue-400"}`}>{sr.sr_code}</span>
+                            <span className={`text-[11px] font-mono font-bold whitespace-nowrap ${t.codeBlue || "text-blue-400"}`}>{sr.sr_code}</span>
                           </td>
                           <td className="px-3 py-2.5 max-w-[200px]">
                             <div className={`text-xs ${t.text} truncate font-medium`}>{sr.subject}</div>
                             <div className={`text-[9px] ${t.textMuted} mt-0.5`}>{sr.category}{sr.subcategory ? " › " + sr.subcategory : ""}</div>
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className={`px-3 py-2.5 ${selectedSr ? "hidden" : ""}`}>
                             {sr.client_name ? (
                               <div>
                                 <div className={`text-[11px] ${t.text} font-medium truncate max-w-[110px]`}>{sr.client_name}</div>
@@ -1054,22 +1054,22 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
                             ) : <span className={`text-[10px] ${t.textMuted}`}>—</span>}
                           </td>
                           <td className="px-3 py-2.5">
-                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-medium ${priorityBadge(sr.priority)}`}>
+                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${priorityBadge(sr.priority)}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${priorityDot(sr.priority)}`} />{sr.priority}
                             </span>
                           </td>
                           <td className="px-3 py-2.5">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${statusBadge(sr.status)}`}>{sr.status}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${statusBadge(sr.status)}`}>{sr.status}</span>
                           </td>
                           <td className="px-3 py-2.5">
                             <div className={`flex items-center gap-1 text-[10px] font-medium ${sla.color}`}>
                               <Clock className="w-3 h-3 flex-shrink-0" />{sla.text}
                             </div>
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className={`px-3 py-2.5 ${selectedSr ? "hidden" : ""}`}>
                             <div className={`text-[10px] ${t.text} truncate max-w-[90px]`}>{sr.assigned_to_name || <span className={`${t.textMuted} italic`}>Unassigned</span>}</div>
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className={`px-3 py-2.5 ${selectedSr ? "hidden" : ""}`}>
                             <div className={`text-[10px] ${t.textMuted}`}>{fmtDate(sr.created_at)}</div>
                           </td>
                           <td className="px-3 py-2.5 text-right">
@@ -1107,7 +1107,7 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
       {/* Right panel — detail */}
       {selectedSr && (
         <div className={`max-md:fixed max-md:inset-0 max-md:z-50 max-md:bg-white max-md:dark:bg-gray-950 max-md:animate-in max-md:slide-in-from-bottom-8 max-md:duration-300 md:w-[45%] flex-shrink-0 border-l ${t.border} overflow-hidden`}>
-          <SrDetailPanel sr={selectedSr} t={t} isDark={isDark} onClose={() => setSelectedSr(null)} onUpdate={onUpdate} loggedUser={loggedUser} />
+          <SrDetailPanel key={selectedSr.id} sr={selectedSr} t={t} isDark={isDark} onClose={() => setSelectedSr(null)} onUpdate={onUpdate} loggedUser={loggedUser} />
         </div>
       )}
 

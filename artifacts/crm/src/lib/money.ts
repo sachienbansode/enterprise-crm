@@ -43,6 +43,7 @@ export function parseINR(s: string | number | null | undefined): number {
 
 /** Rupees → text in the chosen unit: ₹1,23,45,678 · ₹123.5 L · ₹12.35 M · ₹1.23 Cr */
 export function fmtINR(amount: number | string | null | undefined, u: CurrUnit = unit): string {
+  if (!(u in MULT)) u = unit; // used as a chart callback, the 2nd argument is an index — ignore it
   const n = typeof amount === "string" ? parseINR(amount) : amount;
   if (n === null || n === undefined || !isFinite(n as number)) return "—";
   const sign = (n as number) < 0 ? "-" : "";
@@ -76,6 +77,8 @@ export function fmtINRStr(s: string | number | null | undefined): string {
 
 /** Short chart-axis label in the chosen unit (no decimals on big values). */
 export function fmtAxisINR(n: number, u: CurrUnit = unit): string {
+  if (!(u in MULT)) u = unit; // recharts calls tickFormatter(value, index)
+  n = Number(n);
   if (!isFinite(n)) return "";
   if (n === 0) return "₹0";
   const v = Math.abs(n) / MULT[u];

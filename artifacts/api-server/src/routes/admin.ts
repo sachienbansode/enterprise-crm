@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createHash } from "crypto";
 import { query } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 import { invalidateVisibility, MODULES } from "../lib/visibility";
@@ -257,9 +258,19 @@ router.get("/users", async (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// App sign-in passwords: at least 8 characters with a letter and a digit (same hash the sign-in check uses)
+const pwProblem = (pw: string) => (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) ? "Password must be at least 8 characters with a letter and a number." : "";
+const pwHash = (pw: string) => createHash("sha256").update(pw).digest("hex");
+
 router.put("/users/:id", async (req, res) => {
   try {
     const { name, role, vertical, status, auth_type, mfa_enabled, mobile, location } = req.body;
+    const password = String(req.body.password || "");
+    if (password) {
+      const bad = pwProblem(password); if (bad) return res.status(400).json({ error: bad });
+      await query("UPDATE users SET password_hash=$1 WHERE id=$2", [pwHash(password), req.params.id]);
+      await query("UPDATE user_sessions SET is_active=FALSE WHERE user_id=$1", [req.params.id]); // sign out everywhere after a reset
+    }
     const r = await query(
       "UPDATE users SET name=$1, role=$2, vertical=$3, status=$4, auth_type=$5, mfa_enabled=$6, mobile=$7, location=$8, updated_at=NOW() WHERE id=$9 RETURNING id,name,email,role,vertical,status,auth_type,mfa_enabled,mobile,location,last_login,created_at",
       [name, role, vertical, status, auth_type, mfa_enabled, mobile || null, location || null, req.params.id],
@@ -272,12 +283,17 @@ router.post("/users", async (req, res) => {
   try {
     const { name, email, role, vertical, auth_type, mfa_enabled, mobile, location } = req.body;
     if (!name || !email) return res.status(400).json({ error: "name and email are required" });
+    const password = String(req.body.password || "");
+    if ((auth_type || "app") === "app") {
+      if (!password) return res.status(400).json({ error: "Set a password for app sign-in users." });
+      const bad = pwProblem(password); if (bad) return res.status(400).json({ error: bad });
+    }
     // Check if email already exists
     const exists = await query("SELECT id FROM users WHERE email=$1", [email.trim().toLowerCase()]);
     if (exists.rows.length) return res.status(409).json({ error: "A user with this email already exists" });
     const r = await query(
-      "INSERT INTO users (name, email, role, vertical, auth_type, mfa_enabled, mobile, location, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Active') RETURNING id,name,email,role,vertical,status,auth_type,mfa_enabled,mobile,location,created_at",
-      [name.trim(), email.trim().toLowerCase(), role || "Junior RM", vertical || "All", auth_type || "app", mfa_enabled ?? false, mobile || null, location || null],
+      "INSERT INTO users (name, email, role, vertical, auth_type, mfa_enabled, mobile, location, status, password_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Active',$9) RETURNING id,name,email,role,vertical,status,auth_type,mfa_enabled,mobile,location,created_at",
+      [name.trim(), email.trim().toLowerCase(), role || "Junior RM", vertical || "All", auth_type || "app", mfa_enabled ?? false, mobile || null, location || null, password ? pwHash(password) : null],
     );
     res.status(201).json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
