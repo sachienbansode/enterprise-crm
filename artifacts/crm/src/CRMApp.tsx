@@ -21,7 +21,11 @@ import CardScanner from "./components/CardScanner";
 import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
+import GlobalSearch from "./components/GlobalSearch";
+import { useOpenRequest } from "./lib/openRecord";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
+// NC-26: opportunity vs linked deal value — "differs" when both are amounts and they are more than 0.5% apart
+const valuesDiffer = (a: any, b: any) => { const x = parseINR(a), y = parseINR(b); return isFinite(x) && isFinite(y) && Math.abs(x - y) > Math.max(1000, 0.005 * Math.max(x, y)); };
 import { MList, MCard } from "./components/MobileCard";
 import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
@@ -2600,10 +2604,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
         )}
       </div>
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2.5">
-        <div className={`hidden sm:flex items-center gap-2 ${isDark ? "bg-gray-800" : "bg-slate-100"} rounded-lg px-3 py-1.5`}>
-          <Search className={`w-3.5 h-3.5 ${t.textMuted}`} />
-          <input className={`bg-transparent text-xs ${t.text} placeholder:${t.textMuted} outline-none w-24 lg:w-32`} placeholder="Search…" />
-        </div>
+        <GlobalSearch isDark={isDark} className={`hidden sm:block ${t.text}`} />
         {/* Currency unit selector */}
         <div className={`hidden sm:flex items-center rounded-lg border ${t.border} overflow-hidden`} title="Display currency unit">
           {(["₹", "L", "M", "Cr"] as const).map((lbl, i) => {
@@ -2697,6 +2698,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
   }, [page, search, searchField, filterType, filterStatus, filterKyc]);
 
   useEffect(() => { load(); }, [load]);
+  useOpenRequest("client", id => { fetch(`${API_BASE}/api/clients/by-id/${id}`).then(r => r.ok ? r.json() : null).then(c => c && setSelected(c)).catch(() => {}); });
   // The Client 360 panel follows the list: close it when its client is filtered out (NC-08)
   useEffect(() => { if (selected && !clients.some((c: any) => c.id === selected.id)) setSelected(null); }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3315,6 +3317,18 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
     try { sessionStorage.setItem("niytri_open_deal", code); } catch { /* storage blocked */ }
     window.location.hash = `#/${vId}/deals`;
   };
+  useOpenRequest("lead", id => { fetch(`${API_BASE}/api/leads/${id}`).then(r => r.ok ? r.json() : null).then(l => l && setSelected(l)).catch(() => {}); });
+  const syncDealValue = async () => {
+    if (!selected) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/leads/${selected.id}/sync-deal-value`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { appToast(d.error || "Could not update the value", "error"); return; }
+      setSelected((s: any) => s ? { ...s, ...d } : s);
+      setActivityKey(k => k + 1); load();
+      appToast(`Value updated to match ${d.deal_code}`, "success");
+    } catch { appToast("Could not update the value", "error"); }
+  };
   const convertToDeal = async (lead: any) => {
     if (lead.deal_code) { openDeal(lead.deal_code); return; }
     const noun = vId === "ib" ? "mandate" : "deal";
@@ -3425,7 +3439,8 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                             <div className={`text-xs font-semibold ${t.text} leading-tight flex-1 min-w-0 truncate`}>{lead.name}</div>
                             <PriorityBadge p={lead.priority} />
                           </div>
-                          <div className={`text-sm font-bold ${t.text} mb-1`}>{lead.value_estimate ? fmtMoneyStr(lead.value_estimate) : "—"}</div>
+                          <div className={`text-sm font-bold ${t.text} mb-1 flex items-center gap-1.5`}>{lead.value_estimate ? fmtMoneyStr(lead.value_estimate) : "—"}
+                            {lead.deal_code && valuesDiffer(lead.value_estimate, lead.deal_value) && <span title={`${lead.deal_code} value is ${fmtMoneyStr(lead.deal_value)}`} className="text-[9px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">≠ deal</span>}</div>
                           <div className="flex items-center justify-between">
                             <span className={`text-[9px] ${t.textMuted}`}>{lead.source}</span>
                             <span className={`text-[9px] ${t.textMuted} font-mono`}>{lead.lead_code}</span>
@@ -3559,6 +3574,18 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               <div className={`text-xs font-semibold ${t.text}`}>{selected.name}</div>
               <code className="text-[10px] text-blue-400">{selected.lead_code}</code>
               <div className={`text-lg font-bold ${t.text} mt-1`}>{selected.value_estimate ? fmtMoneyStr(selected.value_estimate) : "TBD"}</div>
+              {selected.deal_code && selected.deal_value != null && String(selected.deal_value).trim() !== "" && (() => {
+                const diff = valuesDiffer(selected.value_estimate, selected.deal_value);
+                return (
+                  <div className="text-[11px] mt-0.5 mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className={t.textMuted}>{selected.deal_code} value <b className={t.text}>{fmtMoneyStr(selected.deal_value)}</b></span>
+                    {diff && <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold">Differs from deal</span>}
+                    {diff && (panelEdit
+                      ? <button onClick={syncDealValue} className="text-blue-500 hover:underline font-medium">Use deal value</button>
+                      : <span className={t.textMuted}>(Edit to update)</span>)}
+                  </div>
+                );
+              })()}
               <PriorityBadge p={selected.priority} />
             </div>
             {/* Stage path — click a stage then "Mark as Current Stage", or "Mark Stage as Complete" */}
@@ -3639,7 +3666,9 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
               { label: "Created by", value: selected.created_by_name || "—" },
               { label: "Opened on", value: selected.opened_at ? new Date(selected.opened_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
               ...(vId === "ib" ? [
-                { label: "Company", value: selected.client_name || "—" },
+                { label: "Company", value: selected.client_id && selected.client_name
+                    ? <button onClick={() => window.dispatchEvent(new CustomEvent("company:open", { detail: { id: selected.client_id } }))} className="text-blue-500 hover:underline text-right">{selected.client_name}</button>
+                    : "—" },
                 { label: "Opportunity Type", value: selected.opportunity_type || "—" },
                 { label: "Expected Fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
                 { label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" },
@@ -4046,7 +4075,9 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             <div className={`text-xl font-bold ${t.text} mt-1`}>{selected.value ? fmtMoneyStr(selected.value) : "—"}</div>
             {(selected.lead_code || selected.details?.expected_fee != null) && (
               <div className={`text-[11px] ${t.textMuted} mt-1 flex flex-wrap gap-x-3`}>
-                {selected.lead_code && <span>From opportunity <b className={t.text}>{selected.lead_code}</b></span>}
+                {selected.lead_code && <span>From opportunity <b className={t.text}>{selected.lead_code}</b>
+                  {selected.lead_value != null && String(selected.lead_value).trim() !== "" && <> · opportunity value <b className={t.text}>{fmtMoneyStr(selected.lead_value)}</b></>}
+                  {valuesDiffer(selected.value, selected.lead_value) && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold">Differs</span>}</span>}
                 {selected.details?.expected_fee != null && <span>Expected fee <b className={t.text}>{fmtMoney(Number(selected.details.expected_fee))}</b></span>}
               </div>
             )}
@@ -4188,6 +4219,11 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  // Filter lists = the values documents in this vertical actually have (plus the usual ones)
+  const [facets, setFacets] = useState<{ types: string[]; statuses: string[] }>({ types: [], statuses: [] });
+  const vNameDocs = VERTICAL_LABEL_FALLBACK[vId] || vId;
+  const loadFacets = useCallback(() => { fetch(`${API_BASE}/api/documents/facets?vertical=${encodeURIComponent(vNameDocs)}`).then(r => r.json()).then(d => setFacets({ types: d.types || [], statuses: d.statuses || [] })).catch(() => {}); }, [vNameDocs]);
+  useEffect(() => { loadFacets(); }, [loadFacets, total]); // refreshed after an upload changes the count
   const [showVersions, setShowVersions] = useState<string | null>(null);
   const [versions, setVersions] = useState<any[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
@@ -4308,11 +4344,11 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         <div className={`flex items-center gap-2 ${t.bgCard2} rounded-lg px-3 py-1.5 ml-2`}><Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className={`bg-transparent text-xs ${t.text} outline-none w-32`} placeholder="Search docs…" /></div>
         <select value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} outline-none`}>
           <option value="all">All Types</option>
-          {["KYC", "Agreement", "Report", "Mandate", "Subscription", "Compliance", "Trade"].map(tp => <option key={tp}>{tp}</option>)}
+          {Array.from(new Set([...facets.types, ...(facets.types.length ? [] : ["KYC", "Agreement", "Report", "Mandate", "Compliance", "Trade"])])).sort().map(tp => <option key={tp}>{tp}</option>)}
         </select>
         <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} outline-none`}>
           <option value="all">All Status</option>
-          {["Verified", "Pending", "Executed", "Draft", "Archived"].map(s => <option key={s}>{s}</option>)}
+          {Array.from(new Set([...facets.statuses, ...(facets.statuses.length ? [] : ["Active", "Pending"])])).sort().map(s => <option key={s}>{s}</option>)}
         </select>
         <div className="ml-auto flex gap-2"><button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button><button onClick={() => setShowUpload(true)} className={`text-xs px-3 py-1.5 rounded-lg ${v.color} text-white flex items-center gap-1.5`}><Upload className="w-3.5 h-3.5" /> Upload</button></div>
       </div>
@@ -4413,6 +4449,8 @@ function UserFormModal({
   const [error, setError] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [dbRoles, setDbRoles] = useState<string[]>([]);
+  useEffect(() => { fetch(`${API_BASE}/api/admin/user-roles`).then(r => r.json()).then(d => setDbRoles(Array.isArray(d) ? d.filter((r: any) => r.is_active !== false).map((r: any) => r.role_name) : [])).catch(() => {}); }, []);
 
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
   const inp = `w-full text-xs rounded-xl border px-3 py-2.5 ${t.inputBg} outline-none focus:ring-1 focus:ring-blue-500/50`;
@@ -4480,7 +4518,7 @@ function UserFormModal({
             <div>
               <label className={`text-[11px] font-medium ${t.textMuted} block mb-1`}>Role</label>
               <select value={form.role} onChange={e => set("role", e.target.value)} className={sel}>
-                {USER_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                {Array.from(new Set([...dbRoles, ...USER_ROLES, form.role].filter(Boolean))).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>
@@ -4690,11 +4728,43 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
     return pages;
   })();
   const PERM_KEYS = PERMS.map(p => p.key);
-  const [roles, setRoles] = useState(VERTICAL_ROLES.map((r, i) => ({
-    id: String(i), role_name: r.role, vertical: r.vertical, description: r.desc,
-    permissions: Object.fromEntries(PERM_KEYS.map(p => [p, r.access.includes("All Modules") || r.access.some(a => a.toLowerCase().includes(p.replace(/Vertical_|admin_/g, "").toLowerCase()))])),
-    is_active: true,
-  })));
+  // Roles live in the database (Admin API); page permissions stored per role. A role saved without
+  // page-level permissions yet gets the defaults of the built-in role with the same name.
+  const defaultsFor = (name: string) => {
+    const r = VERTICAL_ROLES.find(x => x.role === name);
+    return Object.fromEntries(PERM_KEYS.map(p => [p, !!r && (r.access.includes("All Modules") || r.access.some(a => a.toLowerCase().includes(p.replace(/Vertical_|admin_/g, "").toLowerCase())))]));
+  };
+  const toRow = (r: any) => ({ ...r, description: r.description || "", permissions: PERM_KEYS.some(k => r.permissions && k in r.permissions) ? { ...defaultsFor(r.role_name), ...r.permissions } : defaultsFor(r.role_name) });
+  const [roles, setRoles] = useState<any[]>([]);
+  const [loadingRoles, setLoadingRoles] = useState(true);
+  const [roleError, setRoleError] = useState("");
+  const [snapshot, setSnapshot] = useState<any>(null); // the role as it was before Edit, for Cancel
+  const loadRoles = () => {
+    setLoadingRoles(true);
+    fetch(`${API_BASE}/api/admin/user-roles`).then(r => r.json())
+      .then(d => setRoles(Array.isArray(d) ? d.map(toRow) : []))
+      .catch(() => setRoleError("Could not load roles."))
+      .finally(() => setLoadingRoles(false));
+  };
+  useEffect(() => { loadRoles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveRole = async (role: any) => {
+    const r = await fetch(`${API_BASE}/api/admin/user-roles/${role.id}`, { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_name: role.role_name.trim(), vertical: role.vertical, description: role.description, permissions: role.permissions, is_active: role.is_active }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { appToast(d.error || "Could not save the role", "error"); return; }
+    setRoles(rs => rs.map(x => x.id === role.id ? toRow(d) : x)); setEditing(null); setSnapshot(null);
+    appToast(`Role "${d.role_name}" saved`, "success");
+  };
+  const addRole = async () => {
+    if (!newRole.role_name.trim()) { setRoleError("Enter a role name."); return; }
+    const r = await fetch(`${API_BASE}/api/admin/user-roles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newRole) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setRoleError(d.error || "Could not add the role"); return; }
+    setRoles(rs => [...rs, toRow(d)].sort((a, b) => a.role_name.localeCompare(b.role_name)));
+    setShowAdd(false); setRoleError("");
+    setNewRole({ role_name: "", vertical: "All", description: "", permissions: Object.fromEntries(PERM_KEYS.map(p => [p, false])) });
+    appToast(`Role "${d.role_name}" added`, "success");
+  };
   const [editing, setEditing] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newRole, setNewRole] = useState({ role_name: "", vertical: "All", description: "", permissions: Object.fromEntries(PERM_KEYS.map(p => [p, false])) });
@@ -4713,6 +4783,7 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        {loadingRoles && <div className={`flex items-center justify-center h-24 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading roles…</div>}
         {showAdd && (
           <div className={`${t.bgCard} border-2 border-blue-500/40 rounded-xl p-4 space-y-3`}>
             <div className={`text-xs font-bold ${t.text}`}>New Role</div>
@@ -4740,8 +4811,9 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
               ))}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => { setRoles(r => [...r, { id: Date.now().toString(), ...newRole, is_active: true }]); setShowAdd(false); setNewRole({ role_name: "", vertical: "All", description: "", permissions: Object.fromEntries(PERM_KEYS.map(p => [p, false])) }); }} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white">Save Role</button>
-              <button onClick={() => setShowAdd(false)} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}>Cancel</button>
+              {roleError && <span className="text-xs text-red-500 self-center">{roleError}</span>}
+              <button onClick={addRole} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white">Save Role</button>
+              <button onClick={() => { setShowAdd(false); setRoleError(""); }} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}>Cancel</button>
             </div>
           </div>
         )}
@@ -4755,7 +4827,16 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
               </div>
               <div className="flex-1">
                 {editing === role.id
-                  ? <input value={role.description} onChange={e => setRoles(rs => rs.map(r => r.id === role.id ? { ...r, description: e.target.value } : r))} className={`w-full border rounded-lg px-2 py-1 text-xs mb-2 ${t.inputBg} outline-none`} />
+                  ? <div className="space-y-2 mb-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={role.role_name} onChange={e => setRoles(rs => rs.map(r => r.id === role.id ? { ...r, role_name: e.target.value } : r))} className={`w-full border rounded-lg px-2 py-1 text-xs ${t.inputBg} outline-none`} aria-label="Role name" />
+                        <select value={role.vertical} onChange={e => setRoles(rs => rs.map(r => r.id === role.id ? { ...r, vertical: e.target.value } : r))} className={`w-full border rounded-lg px-2 py-1 text-xs ${t.inputBg} outline-none`} aria-label="Vertical">
+                          {VERTICAL_OPTS.map(v => <option key={v}>{v}</option>)}
+                        </select>
+                      </div>
+                      <input value={role.description} onChange={e => setRoles(rs => rs.map(r => r.id === role.id ? { ...r, description: e.target.value } : r))} className={`w-full border rounded-lg px-2 py-1 text-xs ${t.inputBg} outline-none`} aria-label="Description" />
+                      <label className={`flex items-center gap-2 text-xs ${t.textSub}`}><input type="checkbox" checked={role.is_active !== false} onChange={e => setRoles(rs => rs.map(r => r.id === role.id ? { ...r, is_active: e.target.checked } : r))} /> Active</label>
+                    </div>
                   : <p className={`text-xs ${t.textSub} mb-2`}>{role.description}</p>}
                 {Object.entries(PERMS.reduce((acc, p) => { (acc[p.group] = acc[p.group] || []).push(p); return acc; }, {} as Record<string, typeof PERMS>)).map(([group, perms]) => (
                   <div key={group} className="mb-1.5">
@@ -4776,8 +4857,11 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
                 {editing === role.id
-                  ? <><button onClick={() => setEditing(null)} className="text-xs text-emerald-400 font-medium hover:underline">Done</button></>
-                  : <button onClick={() => setEditing(role.id)} className={`p-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-blue-400`}><Edit className="w-3.5 h-3.5" /></button>}
+                  ? <>
+                      <button onClick={() => saveRole(role)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium">Save</button>
+                      <button onClick={() => { if (snapshot) setRoles(rs => rs.map(r => r.id === snapshot.id ? snapshot : r)); setEditing(null); setSnapshot(null); }} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}>Cancel</button>
+                    </>
+                  : <button onClick={() => { if (editing && snapshot) setRoles(rs => rs.map(r => r.id === snapshot.id ? snapshot : r)); setSnapshot(role); setEditing(role.id); }} aria-label={`Edit ${role.role_name}`} className={`p-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-blue-400`}><Edit className="w-3.5 h-3.5" /></button>}
               </div>
             </div>
           </div>
@@ -4795,24 +4879,39 @@ function AdminRoleMapping({ t }: { t: ReturnType<typeof useTheme> }) {
   const [search, setSearch] = useState("");
   const [loadingMap, setLoadingMap] = useState(true);
 
+  const [roleNames, setRoleNames] = useState<string[]>(VERTICAL_ROLES.map(r => r.role));
+  const [snap, setSnap] = useState<Mapping | null>(null);
+  const [savingMap, setSavingMap] = useState(false);
   useEffect(() => {
     setLoadingMap(true);
-    fetch(`${API_BASE}/api/admin/users`)
-      .then(r => r.json())
-      .then((users: any[]) => {
-        if (Array.isArray(users)) {
-          setMappings(users.map(u => ({
-            userId: u.id, userName: u.name, email: u.email,
-            roles: [u.role].filter(Boolean), vertical: u.vertical || "All",
-            authType: u.auth_type || "app",
-          })));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingMap(false));
+    // Users (main role) + saved extra role mappings + the roles defined in User Roles
+    Promise.all([
+      fetch(`${API_BASE}/api/admin/users`).then(r => r.json()),
+      fetch(`${API_BASE}/api/admin/user-role-mapping`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/admin/user-roles`).then(r => r.json()).catch(() => []),
+    ]).then(([users, maps, roles]: any[]) => {
+      if (Array.isArray(roles) && roles.length) setRoleNames(roles.filter((r: any) => r.is_active !== false).map((r: any) => r.role_name));
+      if (Array.isArray(users)) {
+        setMappings(users.map((u: any) => {
+          const extra = (Array.isArray(maps) ? maps : []).filter((m: any) => m.user_id === u.id && m.is_active !== false).map((m: any) => m.role_name);
+          return { userId: u.id, userName: u.name, email: u.email, roles: Array.from(new Set([u.role, ...extra].filter(Boolean))), vertical: u.vertical || "All", authType: u.auth_type || "app" };
+        }));
+      }
+    }).catch(() => {}).finally(() => setLoadingMap(false));
   }, []);
+  const saveMapping = async (m: Mapping) => {
+    if (!m.roles.length) { appToast("Pick at least one role", "error"); return; }
+    setSavingMap(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/admin/user-role-mapping/user/${m.userId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roles: m.roles }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { appToast(d.error || "Could not save roles", "error"); return; }
+      setEditing(null); setSnap(null);
+      appToast(`Roles saved for ${m.userName} — main role: ${m.roles[0]}`, "success");
+    } finally { setSavingMap(false); }
+  };
   const filtered = mappings.filter(m => !search || m.userName.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase()));
-  const ALL_ROLE_NAMES = VERTICAL_ROLES.map(r => r.role);
+  const ALL_ROLE_NAMES = roleNames;
 
   const toggleRole = (userId: string, role: string) => {
     setMappings(ms => ms.map(m => m.userId === userId ? {
@@ -4851,9 +4950,9 @@ function AdminRoleMapping({ t }: { t: ReturnType<typeof useTheme> }) {
                 </div>
               </div>
               <div className="flex-1">
-                <div className={`text-[10px] font-bold ${t.textMuted} mb-2 uppercase tracking-wide`}>Assigned Roles ({m.roles.length})</div>
+                <div className={`text-[10px] font-bold ${t.textMuted} mb-2 uppercase tracking-wide`}>Assigned Roles ({m.roles.length}){m.roles[0] && <span className="normal-case font-normal tracking-normal"> · main role: <b>{m.roles[0]}</b> (controls access)</span>}</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {ALL_ROLE_NAMES.map(role => {
+                  {Array.from(new Set([...m.roles, ...ALL_ROLE_NAMES])).map(role => {
                     const assigned = m.roles.includes(role);
                     return (
                       <button key={role} onClick={() => editing === m.userId && toggleRole(m.userId, role)}
@@ -4867,8 +4966,11 @@ function AdminRoleMapping({ t }: { t: ReturnType<typeof useTheme> }) {
               </div>
               <div className="flex-shrink-0">
                 {editing === m.userId
-                  ? <button onClick={() => setEditing(null)} className="text-xs text-emerald-400 font-medium px-3 py-1.5 rounded-lg bg-emerald-900/30 border border-emerald-700/40">Done</button>
-                  : <button onClick={() => setEditing(m.userId)} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-blue-400 flex items-center gap-1.5`}><Edit className="w-3.5 h-3.5" />Edit</button>}
+                  ? <div className="flex gap-1.5">
+                      <button onClick={() => saveMapping(m)} disabled={savingMap} className="text-xs text-white font-medium px-3 py-1.5 rounded-lg bg-emerald-600 disabled:opacity-50">Save</button>
+                      <button onClick={() => { if (snap) setMappings(ms => ms.map(x => x.userId === snap.userId ? snap : x)); setEditing(null); setSnap(null); }} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}>Cancel</button>
+                    </div>
+                  : <button onClick={() => { if (editing && snap) setMappings(ms => ms.map(x => x.userId === snap.userId ? snap : x)); setSnap(m); setEditing(m.userId); }} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted} hover:text-blue-400 flex items-center gap-1.5`}><Edit className="w-3.5 h-3.5" />Edit</button>}
               </div>
             </div>
           </div>
@@ -8476,6 +8578,7 @@ export function CRMApp() {
       <MobileTabBar hidden={navHidden} tabs={mobileTabs} plusOpen={plusOpen} onPlus={() => { setMoreOpen(false); setPlusOpen(v => !v); }} />
       <MobileSheet open={plusOpen} onClose={() => setPlusOpen(false)} title="Quick Actions"><QuickActions onClose={() => setPlusOpen(false)} onAI={() => navTo(null, "ai")} /></MobileSheet>
       <MobileSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu" full>
+        <div className={`px-4 pb-3 ${t.text}`}><GlobalSearch isDark={darkMode} wide /></div>
         <MoreTopRow isDark={darkMode} setIsDark={setDarkMode} onPII={() => { setMoreOpen(false); setShowPIIRequests(true); }} piiCount={piiPendingCount} unit={currUnit} setUnit={setCurrUnit} />
         <Sidebar sheet open={true} onClose={() => setMoreOpen(false)} activeV={activeV} setActiveV={setActiveV} activePage={activePage} setPage={setActivePage} isDark={darkMode} isAdmin={isAdmin} setIsAdmin={setIsAdmin} loggedUser={loggedUser} onLogout={handleLogout} />
       </MobileSheet>

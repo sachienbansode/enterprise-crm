@@ -167,7 +167,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
         <div className={`${card} p-4 overflow-x-auto`}>
           <div className={`text-sm font-semibold ${t.text} mb-2`}>Team / RM performance</div>
           <table className="w-full text-xs">
-            <thead><tr className={t.textMuted}>{["RM", "Open", "Won", "Lost", "Pipeline", "Exp. fee", "Overdue"].map(h => <th key={h} className="text-left font-semibold py-1.5 pr-2">{h}</th>)}</tr></thead>
+            <thead><tr className={t.textMuted}>{["RM", "Open", "Won", "Lost", "Pipeline", "Exp. fee", "Overdue & due today"].map(h => <th key={h} className="text-left font-semibold py-1.5 pr-2">{h}</th>)}</tr></thead>
             <tbody>
               {data.rmPerformance.map((r: any) => (
                 <tr key={r.rm} className={`border-t ${t.border}`}>

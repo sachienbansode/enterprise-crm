@@ -42,7 +42,7 @@ router.get("/", async (req, res) => {
       else if (searchField === "demat") { params.push(`%${search}%`); where += ` AND c.demat_account ILIKE $${params.length}`; }
       else {
         params.push(`%${search}%`);
-        where += ` AND (c.name ILIKE $${params.length} OR c.client_code ILIKE $${params.length} OR c.pan ILIKE $${params.length} OR c.mobile ILIKE $${params.length} OR c.email ILIKE $${params.length})`;
+        where += ` AND (c.name ILIKE $${params.length} OR c.client_code ILIKE $${params.length} OR c.pan ILIKE $${params.length} OR c.mobile ILIKE $${params.length} OR c.email ILIKE $${params.length} OR c.cin ILIKE $${params.length} OR c.group_name ILIKE $${params.length})`;
       }
     }
     if (type) { params.push(type); where += ` AND c.type = $${params.length}`; }
@@ -118,6 +118,31 @@ router.get("/by-id/:id", async (req, res) => {
 });
 
 // ─── POST /api/clients — create client ────────────────────────────────────────
+// ─── Duplicate and KYC checks (NC-09 / NC-10) ─────────────────────────────────
+const normName = (n: string) => String(n || "").toLowerCase().replace(/&/g, " and ")
+  .replace(/\b(the|ltd|limited|pvt|private|llp|inc|co|company|corp|corporation)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+/** Returns an error response body, or null when the client data is acceptable. */
+async function clientCheck(c: { id?: string; name?: string; pan?: string | null; mobile?: string | null; email?: string | null; kyc_status?: string | null }, confirmDuplicate: boolean) {
+  const pan = c.pan ? String(c.pan).trim().toUpperCase() : "";
+  if (pan && !PAN_RE.test(pan)) return { status: 400, body: { error: "PAN must be 10 characters, e.g. ABCDE1234F.", code: "BAD_PAN" } };
+  if (pan) {
+    const dup = (await query("SELECT client_code, name FROM clients WHERE upper(pan)=$1 AND ($2::uuid IS NULL OR id <> $2::uuid) LIMIT 1", [pan, c.id || null])).rows[0];
+    if (dup) return { status: 409, body: { error: `PAN ${pan} already belongs to ${dup.name} (${dup.client_code}).`, code: "DUPLICATE_PAN", client_code: dup.client_code } };
+  }
+  if (/^verified$/i.test(String(c.kyc_status || "")) && (!pan || (!c.mobile && !c.email)))
+    return { status: 400, body: { error: "KYC can be marked Verified only when PAN and a mobile number or e-mail are filled in.", code: "KYC_INCOMPLETE" } };
+  if (c.name && !confirmDuplicate) {
+    const n = normName(c.name);
+    if (n) {
+      const rows = (await query("SELECT id, client_code, name FROM clients WHERE ($1::uuid IS NULL OR id <> $1::uuid)", [c.id || null])).rows;
+      const similar = rows.filter((r: any) => normName(r.name) === n).slice(0, 3);
+      if (similar.length) return { status: 409, body: { error: `A client with a similar name already exists: ${similar.map((r: any) => `${r.name} (${r.client_code})`).join(", ")}.`, code: "SIMILAR_NAME", matches: similar } };
+    }
+  }
+  return null;
+}
+
 router.post("/", async (req, res) => {
   try {
     const {
@@ -126,10 +151,12 @@ router.post("/", async (req, res) => {
       status = "Active", kyc_status = "Pending", fatca_status = "Pending",
       date_of_birth, date_of_incorporation, notes, landline, contacts = [],
     } = req.body;
+    const chk = await clientCheck({ name, pan, mobile, email, kyc_status }, !!req.body.confirm_duplicate);
+    if (chk) return res.status(chk.status).json(chk.body);
     const prefix = type === "Individual" ? "NIYT-I" : category === "Trust" ? "NIYT-T" : category?.includes("FPI") || category?.includes("FII") ? "NIYT-F" : category?.includes("Mutual Fund") ? "NIYT-M" : "NIYT-C";
-    const countResult = await query("SELECT COUNT(*) FROM clients WHERE client_code LIKE $1", [`${prefix}%`]);
-    const seq = String(parseInt(countResult.rows[0].count, 10) + 1).padStart(6, "0");
-    const client_code = `${prefix}-${seq}`;
+    // next number after the highest existing code (a count could repeat a code)
+    const mx = await query("SELECT COALESCE(MAX(substring(client_code FROM '^' || $1 || '-([0-9]+)$')::int), 0) AS n FROM clients", [prefix]);
+    const client_code = `${prefix}-${String(Number(mx.rows[0].n) + 1).padStart(6, "0")}`;
 
     let resolvedOwner = owner_id || created_by_id || null;
     if (!resolvedOwner) {
@@ -143,7 +170,7 @@ router.post("/", async (req, res) => {
         date_of_birth, date_of_incorporation, notes, landline, owner_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        RETURNING *`,
-      [client_code, name, type, category, pan || null, mobile || null, email || null, address || null,
+      [client_code, name, type, category, pan ? String(pan).trim().toUpperCase() : null, mobile || null, email || null, address || null,
        rm_id || null, risk_profile || null, demat_account || null, dp_id || null, ckyc_id || null,
        status, kyc_status, fatca_status, date_of_birth || null, date_of_incorporation || null,
        notes || null, landline || null, resolvedOwner],
@@ -193,6 +220,10 @@ router.patch("/:id", async (req, res) => {
     const prevResult = await query("SELECT * FROM clients WHERE id=$1", [req.params.id]);
     if (!prevResult.rows.length) return res.status(404).json({ error: "Client not found" });
     const prevClient = prevResult.rows[0];
+    const chk = await clientCheck({ id: req.params.id, name: name ?? undefined, pan: "pan" in req.body ? req.body.pan : prevClient.pan,
+      mobile: mobile ?? prevClient.mobile, email: email ?? prevClient.email, kyc_status: kyc_status ?? prevClient.kyc_status },
+      !!req.body.confirm_duplicate || !name || normName(name) === normName(prevClient.name));
+    if (chk) return res.status(chk.status).json(chk.body);
 
     const result = await query(
       `UPDATE clients SET

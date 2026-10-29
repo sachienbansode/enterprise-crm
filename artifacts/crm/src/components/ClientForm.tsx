@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { appConfirm } from "../lib/dialog";
 import { X, Plus, Trash2, User, Phone, Mail, MapPin, AlertCircle } from "lucide-react";
 
 
@@ -187,12 +188,21 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
 
       const url = isEdit ? `${API}/clients/${editClient.id}` : `${API}/clients`;
       const method = isEdit ? "PATCH" : "POST";
-      const res = await fetch(url, {
+      const send = (extra: any = {}) => fetch(url, {
         method,
         headers: { "Content-Type": "application/json" }, // session token added by lib/authFetch
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, ...extra }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to save client"); }
+      let res = await send();
+      if (res.status === 409) {
+        const e = await res.clone().json().catch(() => ({}));
+        if (e.code === "SIMILAR_NAME") { // possible duplicate: let the user decide
+          const go = await appConfirm({ title: "Possible duplicate client", message: `${e.error} Create this client anyway?`, confirmLabel: "Create anyway", cancelLabel: "Go back", tone: "danger" });
+          if (!go) { setSaving(false); return; }
+          res = await send({ confirm_duplicate: true });
+        }
+      }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed to save client"); }
       onSaved();
       onClose();
     } catch (err: any) {

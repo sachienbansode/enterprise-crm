@@ -26,6 +26,8 @@ export default function AdminMeetingRecording({ t }: { t: any }) {
     setKey(""); load();
   };
   const runTest = async () => { setBusy(true); setTest(await fetch("/api/admin/speech/test", { method: "POST" }).then(r => r.json()).catch(() => ({ ok: false, msg: "Request failed" }))); setBusy(false); };
+  const [lbusy, setLbusy] = useState(false); const [ltest, setLtest] = useState<any>(null); const [lmodel, setLmodel] = useState<string | null>(null);
+  const runLlmTest = async () => { setLbusy(true); setLtest(await fetch("/api/admin/speech/test-llm", { method: "POST" }).then(r => r.json()).catch(() => ({ ok: false, msg: "Request failed" }))); setLbusy(false); };
   const runGroqTest = async () => { setGbusy(true); setGtest(await fetch("/api/admin/speech/test-groq", { method: "POST" }).then(r => r.json()).catch(() => ({ ok: false, msg: "Request failed" }))); setGbusy(false); };
   const copy = (s: string) => navigator.clipboard?.writeText(s).catch(() => {});
 
@@ -55,7 +57,7 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
 
       <div className={card}>
         <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><Mic className="w-4 h-4" /> In-person recordings — Azure AI Speech</div>
-        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="Transcribe recordings" sub="Uses Azure AI Speech when a key is set (speakers separated by voice); otherwise, or if Azure fails, the free Groq Whisper fallback below." />
+        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="Transcribe recordings" sub="Tried in order: Azure AI Speech (speakers separated by voice) → free Groq Whisper → the LLM provider's key. If one isn't set up or fails, the next is used." />
         <div>
           <label className={`block text-xs ${t.textMuted} mb-1`}>Endpoint — Azure portal → your Speech resource → Keys and Endpoint (choose the Central India region for data residency)</label>
           <div className="flex gap-2">
@@ -96,7 +98,7 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
           </button>
           {test && <span className={`text-xs flex items-center gap-1 ${test.ok ? "text-emerald-500" : "text-red-500"}`}>{test.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{test.msg}</span>}
         </div>
-        <div className={`text-[11px] ${t.textMuted}`}>Status: {c.has_key && c.endpoint ? <span className="text-emerald-500">Azure Speech set up</span> : <span className="text-amber-500">Azure Speech not set up</span>}{c.has_groq_key ? <> · <span className="text-emerald-500">free fallback ready</span></> : null}</div>
+        <div className={`text-[11px] ${t.textMuted}`}>Status: {c.has_key && c.endpoint ? <span className="text-emerald-500">Azure Speech set up</span> : <span className="text-amber-500">Azure Speech not set up</span>}{c.has_groq_key ? <> · <span className="text-emerald-500">free fallback ready</span></> : null}{c.llm_transcribe ? <> · <span className="text-emerald-500">LLM fallback on</span></> : null}</div>
         <div className={`text-[11px] ${t.textMuted}`}>After the retention period only the audio file is deleted — the transcript and summary stay on the company record. A consent confirmation is recorded with every recording.</div>
       </div>
 
@@ -129,6 +131,34 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
             {gbusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Test connection
           </button>
           {gtest && <span className={`text-xs flex items-center gap-1 ${gtest.ok ? "text-emerald-500" : "text-red-500"}`}>{gtest.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{gtest.msg}</span>}
+        </div>
+      </div>
+
+      <div className={card}>
+        <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><Mic className="w-4 h-4" /> Second fallback — transcribe with the LLM key
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-400 font-semibold">Uses LLM Settings</span></div>
+        <Toggle on={!!c.llm_transcribe} onClick={() => save({ llm_transcribe: !c.llm_transcribe })} label="Transcribe with the LLM provider's key"
+          sub="Used when Azure and Groq aren't set up or both fail. No extra key: it uses the key in AI Settings → LLM Settings (and the fallback LLM if that fails)." />
+        <div className={`text-xs ${t.textMuted} space-y-1`}>
+          <div><b>OpenAI</b> (or an OpenAI-compatible endpoint): Whisper — model <code>whisper-1</code>, or <code>gpt-4o-transcribe</code> / <code>gpt-4o-mini-transcribe</code> (no timings).</div>
+          <div><b>Azure OpenAI</b>: needs a Whisper deployment in the same Azure OpenAI resource — enter its <b>deployment name</b> below.</div>
+          <div><b>Google Gemini</b>: the Gemini model listens to the audio and writes the transcript (model below is ignored unless it's a Gemini model).</div>
+          <div><b>Anthropic Claude</b> can't take audio — use one of the above as the main or fallback LLM.</div>
+          <div>Like Groq, voices aren't separated — the AI assigns lines to attendees; check the names on the transcript.</div>
+          <div className="text-amber-600 dark:text-amber-400">Audio goes to the LLM provider. Confirm this is acceptable for client meetings under your data-protection policy.</div>
+        </div>
+        <div>
+          <label className={`block text-xs ${t.textMuted} mb-1`}>Speech model / Azure deployment name</label>
+          <div className="flex gap-2">
+            <input value={lmodel ?? (c.llm_transcribe_model || "whisper-1")} onChange={e => setLmodel(e.target.value)} className={input} placeholder="whisper-1" />
+            <button onClick={() => { save({ llm_transcribe_model: (lmodel ?? c.llm_transcribe_model ?? "whisper-1").trim() }); setLmodel(null); }} disabled={lmodel === null} className="text-xs px-3 rounded-lg bg-blue-600 text-white disabled:opacity-40">Save</button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={runLlmTest} disabled={lbusy} className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white disabled:opacity-40 flex items-center gap-1.5">
+            {lbusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Test connection
+          </button>
+          {ltest && <span className={`text-xs flex items-center gap-1 ${ltest.ok ? "text-emerald-500" : "text-red-500"}`}>{ltest.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{ltest.msg}</span>}
         </div>
       </div>
 

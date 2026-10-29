@@ -118,67 +118,114 @@ function Footer({ error, saving, onClose, onSave, icon: Icon, label }: { error: 
   );
 }
 
-// ─── Client picker (searchable) ───────────────────────────────────────────────
-export function ClientPicker({ value, onChange, apiBase = "", initialName = "" }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string }) {
+// ─── Client / company picker (searchable) ─────────────────────────────────────
+// IB forms use it as a company picker: recent companies on focus, search by name / code / CIN / group,
+// "No match" message and a one-step "Add as new company" (NC-21).
+export function ClientPicker({ value, onChange, apiBase = "", initialName = "", company = false }: { value: string; onChange: (id: string, name: string) => void; apiBase?: string; initialName?: string; company?: boolean }) {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState("");
   const [selectedName, setSelectedName] = useState(initialName);
-  useEffect(() => { setSelectedName(value ? initialName : ""); }, [value, initialName]);
+  useEffect(() => { setSelectedName(value ? (initialName || selectedName) : ""); }, [value, initialName]); // eslint-disable-line react-hooks/exhaustive-deps
   const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const noun = company ? "company" : "client";
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const handler = (e: MouseEvent | TouchEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler); document.addEventListener("touchstart", handler, { passive: true });
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("touchstart", handler); };
   }, []);
 
   useEffect(() => {
-    if (!search || search.length < 2) { setResults([]); return; }
+    if (!open) return;
+    const q = search.trim();
+    if (q.length === 1) { setResults([]); return; }
+    setLoading(true);
     const timer = setTimeout(() => {
-      fetch(`${apiBase}/api/clients?search=${encodeURIComponent(search)}&limit=10`)
-        .then(r => r.json()).then(d => setResults(d.data || [])).catch(() => {});
-    }, 300);
+      const qs = q ? `search=${encodeURIComponent(q)}&limit=10` : "limit=8"; // empty box → most recent
+      fetch(`${apiBase}/api/clients?${qs}${company ? "&type=Non-Individual" : ""}`)
+        .then(r => r.json()).then(d => { setResults(d.data || []); setHi(0); }).catch(() => setResults([])).finally(() => setLoading(false));
+    }, q ? 250 : 0);
     return () => clearTimeout(timer);
-  }, [search, apiBase]);
+  }, [search, apiBase, open, company]);
 
   const select = (client: any) => {
     onChange(client.id, client.name);
-    setSelectedName(`${client.name} (${client.client_code})`);
-    setSearch("");
-    setResults([]);
-    setOpen(false);
+    setSelectedName(client.client_code ? `${client.name} (${client.client_code})` : client.name);
+    setSearch(""); setResults([]); setOpen(false); setErr("");
   };
+  const clear = () => { onChange("", ""); setSelectedName(""); setSearch(""); setOpen(true); };
 
-  const clear = () => { onChange("", ""); setSelectedName(""); };
+  const q = search.trim();
+  const exact = results.some(r => String(r.name || "").trim().toLowerCase() === q.toLowerCase());
+  const canAdd = company && q.length >= 2 && !exact && !loading;
+  const addNew = async () => {
+    setAdding(true); setErr("");
+    try {
+      const r = await fetch(`${apiBase}/api/ib/companies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: q }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not add the company");
+      select(d);
+      window.dispatchEvent(new CustomEvent("company:changed", { detail: d.id }));
+    } catch (e: any) { setErr(e.message); } finally { setAdding(false); }
+  };
+  const onKey = (e: any) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHi(h => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (results[hi]) select(results[hi]); else if (canAdd) addNew(); }
+    else if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+  };
 
   return (
     <div ref={ref} className="relative">
       {selectedName ? (
-        <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300">
+        <div className="flex items-center gap-2 px-3 py-2 min-h-[38px] text-sm rounded-lg border border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300">
           <span className="flex-1 truncate">{selectedName}</span>
-          <button onClick={clear} className="text-violet-400 hover:text-violet-600"><X size={12} /></button>
+          <button type="button" onClick={clear} aria-label={`Change ${noun}`} className="p-1 -m-1 text-violet-400 hover:text-violet-600"><X size={14} /></button>
         </div>
       ) : (
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input
             value={search}
             onChange={e => { setSearch(e.target.value); setOpen(true); }}
             onFocus={() => setOpen(true)}
+            onKeyDown={onKey}
+            autoComplete="off"
+            role="combobox" aria-expanded={open} aria-autocomplete="list"
             className={inputCls + " pl-8"}
-            placeholder="Search client by name or code…"
+            placeholder={company ? "Search company by name, code or CIN…" : "Search client by name or code…"}
           />
         </div>
       )}
-      {open && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg z-50 max-h-48 overflow-y-auto">
-          {results.map((c: any) => (
-            <button key={c.id} onClick={() => select(c)} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2">
-              <span className="font-medium text-gray-900 dark:text-white truncate">{c.name}</span>
-              <span className="text-xs text-gray-400">{c.client_code}</span>
+      {open && !selectedName && (
+        <div role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl z-[80] max-h-64 overflow-y-auto overscroll-contain" data-keep-nav>
+          {!q && results.length > 0 && <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-gray-400">Recent {company ? "companies" : "clients"}</div>}
+          {results.map((c: any, i: number) => (
+            <button type="button" key={c.id} role="option" aria-selected={i === hi} onMouseEnter={() => setHi(i)} onClick={() => select(c)}
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${i === hi ? "bg-gray-50 dark:bg-gray-800" : ""}`}>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-gray-900 dark:text-white truncate">{c.name}</span>
+                {(c.cin || c.group_name || c.hq_city) && <span className="block text-[11px] text-gray-400 truncate">{[c.cin, c.group_name, c.hq_city].filter(Boolean).join(" · ")}</span>}
+              </span>
+              <span className="text-xs text-gray-400 flex-shrink-0">{c.client_code}</span>
             </button>
           ))}
+          {q.length === 1 && <div className="px-3 py-2.5 text-xs text-gray-400">Type one more letter to search…</div>}
+          {loading && results.length === 0 && q.length !== 1 && <div className="px-3 py-2.5 text-xs text-gray-400">Searching…</div>}
+          {!loading && q.length >= 2 && results.length === 0 && <div className="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400">No {noun} matches “{q}”.</div>}
+          {!loading && !q && results.length === 0 && <div className="px-3 py-2.5 text-xs text-gray-400">No {company ? "companies" : "clients"} yet — type a name.</div>}
+          {canAdd && (
+            <button type="button" onClick={addNew} disabled={adding}
+              className="w-full text-left px-3 py-2.5 text-sm font-medium text-violet-600 dark:text-violet-400 border-t border-gray-100 dark:border-gray-800 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-60">
+              {adding ? "Adding…" : `+ Add “${q}” as a new company`}
+            </button>
+          )}
+          {err && <div className="px-3 py-2 text-xs text-red-500 border-t border-gray-100 dark:border-gray-800">{err}</div>}
         </div>
       )}
     </div>
@@ -369,7 +416,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
             className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`} placeholder={isIB ? "e.g. ABC Ltd — IPO" : "e.g. Mr. Rahul Sharma - Equity A/c Opening"} />
         </F>
         <F label={isIB ? "Company" : "Linked client"} span2>
-          <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
+          <ClientPicker company={isIB} value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
         </F>
         {isIB ? (
           <F label="Opportunity Type">
@@ -655,7 +702,7 @@ export function DealModal({ open, onClose, onSaved, vertical, verticalId, editDe
           <input value={form.name} onChange={e => set("name", e.target.value)} autoFocus={!isEdit} className={inputCls} placeholder={isIB ? "e.g. ABC Ltd — IPO (BRLM)" : "e.g. ABC Corp - IPO Subscription ₹50L"} />
         </F>
         <F label={isIB ? "Company" : "Linked client"} span2>
-          <ClientPicker value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
+          <ClientPicker company={isIB} value={form.client_id} onChange={(id, name) => setForm(f => ({ ...f, client_id: id, client_name: name }))} apiBase={apiBase} initialName={form.client_name} />
         </F>
         {!kind && (<>
         <F label="Deal Type">

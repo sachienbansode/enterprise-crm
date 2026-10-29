@@ -47,7 +47,8 @@ router.get("/", async (req, res) => {
     params.push(pageSize, offset);
     const result = await query(
       `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code,
-              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code
+              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code,
+              (SELECT l.value_estimate FROM leads l WHERE l.id = d.lead_id) AS lead_value, (SELECT l.id FROM leads l WHERE l.id = d.lead_id) AS lead_ref_id
         FROM deals d
         LEFT JOIN users u ON d.rm_id = u.id
         LEFT JOIN clients c ON d.client_id = c.id
@@ -86,7 +87,8 @@ router.get("/:id", async (req, res) => {
   try {
     const result = await query(
       `SELECT d.*, u.name as rm_name, c.name as client_name, c.client_code,
-              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code
+              (SELECT l.lead_code FROM leads l WHERE l.id = d.lead_id) AS lead_code,
+              (SELECT l.value_estimate FROM leads l WHERE l.id = d.lead_id) AS lead_value, (SELECT l.id FROM leads l WHERE l.id = d.lead_id) AS lead_ref_id
         FROM deals d
         LEFT JOIN users u ON d.rm_id = u.id
         LEFT JOIN clients c ON d.client_id = c.id
@@ -143,6 +145,12 @@ router.patch("/:id", async (req, res) => {
       [name, stage, notes, rm_id, value, type, deal_type, client_id, expected_close || null, deal_date || null, req.params.id, detailsJson(req.body.details), JSON.stringify(flow.path || {})],
     );
     if (stageChanged) await noteStageChange("deal", req.params.id, req.user, { from: await stageLabelOf("deal", prev.vertical, prev.stage), to: flow.target || await stageLabelOf("deal", prev.vertical, stage), skipped: flow.skipped, comment: req.body.stage_comment });
+    // NC-26: tell the linked opportunity when the deal value changes
+    const after = result.rows[0];
+    if (prev.lead_id && value != null && String(value).trim() !== String(prev.value ?? "").trim()) {
+      await query(`INSERT INTO entity_comments (entity_type, entity_id, user_id, user_name, body) VALUES ('lead', $1, $2, $3, $4)`,
+        [prev.lead_id, req.user?.id || null, req.user?.name || "System", `${prev.deal_code} value changed: ${prev.value || "—"} → ${after.value || "—"}`]).catch(() => {});
+    }
 
     await logAudit({
       entityType: "deal",

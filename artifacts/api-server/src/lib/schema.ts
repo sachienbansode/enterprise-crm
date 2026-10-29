@@ -116,6 +116,9 @@ export async function ensureAppSchema() {
     // Free fallback when Azure Speech isn't available: Groq-hosted Whisper (no speaker separation — the AI assigns speakers)
     "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS groq_api_key text",
     "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS groq_model varchar(60) DEFAULT 'whisper-large-v3'",
+    // Third fallback: transcribe with the LLM provider's key (OpenAI / Azure OpenAI Whisper, or Gemini)
+    "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS llm_transcribe boolean DEFAULT false",
+    "ALTER TABLE speech_config ADD COLUMN IF NOT EXISTS llm_transcribe_model varchar(80) DEFAULT 'whisper-1'",
     // ── Fireflies add-on (optional) ──
     `CREATE TABLE IF NOT EXISTS fireflies_config (
        id integer PRIMARY KEY DEFAULT 1, enabled boolean DEFAULT false, api_key text, webhook_secret text,

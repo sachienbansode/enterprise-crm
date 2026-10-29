@@ -86,8 +86,8 @@ export async function insertCompany(input: any, user: any, vertical = "ib") {
       const dup = await query("SELECT name FROM clients WHERE upper(cin)=$1", [cin]);
       if (dup.rows[0]) throw httpErr(409, `A company with this CIN already exists: ${dup.rows[0].name}`);
     }
-    const cnt = await query("SELECT COUNT(*) FROM clients WHERE client_code LIKE 'NIYT-C%'");
-    const code = `NIYT-C-${String(parseInt(cnt.rows[0].count, 10) + 1).padStart(6, "0")}`;
+    const mx = await query("SELECT COALESCE(MAX(substring(client_code FROM '^NIYT-C-([0-9]+)$')::int), 0) AS n FROM clients");
+    const code = `NIYT-C-${String(Number(mx.rows[0].n) + 1).padStart(6, "0")}`;
     const by = user.name;
     const hasFin = FIN_FIELDS.some(f => clean(b[f]) !== null);
     const r = await query(
@@ -343,6 +343,9 @@ router.get("/dashboard", async (req, res) => {
       const k = l.rm || "Unassigned"; const r = (rmPerf[k] ||= { rm: k, open: 0, won: 0, lost: 0, pipelineValue: 0, expectedFee: 0, overdueActions: 0 });
       if (isWon(l.stage)) r.won++; else if (isLost(l.stage)) r.lost++; else { r.open++; r.pipelineValue += val(l.value_estimate); r.expectedFee += Number(l.expected_fee || 0); if (l.next_action_date && new Date(l.next_action_date) < new Date(new Date().toDateString())) r.overdueActions++; }
     }
+    // "Overdue" per RM = the same items as the "Overdue & due today" list (open tasks due today or earlier, by owner)
+    for (const r of Object.values(rmPerf) as any[]) r.overdueActions = 0;
+    for (const t of overdue.rows) { const k = t.owner_name || "Unassigned"; (rmPerf[k] ||= { rm: k, open: 0, won: 0, lost: 0, pipelineValue: 0, expectedFee: 0, overdueActions: 0 }).overdueActions++; }
     const noNextAction = open.filter(l => !l.next_action).length;
     res.json({
       kpis: {

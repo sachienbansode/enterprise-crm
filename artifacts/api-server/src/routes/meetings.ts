@@ -7,7 +7,7 @@ import { query } from "../lib/db";
 import { encrypt, decrypt } from "../lib/crypto";
 import { requireAdmin } from "../lib/session";
 import { logAudit } from "../lib/audit";
-import { aiComplete } from "./ai";
+import { aiComplete, aiTranscribe } from "./ai";
 import { saveInteraction } from "./interactions";
 import { getGraphToken } from "./teams";
 
@@ -82,8 +82,8 @@ function run(cmd: string, args: string[]): Promise<void> {
   });
 }
 // Long recordings: compress to 16 kHz mono speech-quality Opus and cut into 20-minute parts (needs ffmpeg on the server)
-async function prepareForGroq(file: string): Promise<{ parts: { path: string; offset: number }[]; cleanup: () => void }> {
-  if (statSync(file).size <= GROQ_MAX) return { parts: [{ path: file, offset: 0 }], cleanup: () => {} };
+async function prepareForGroq(file: string, maxBytes = GROQ_MAX): Promise<{ parts: { path: string; offset: number }[]; cleanup: () => void }> {
+  if (statSync(file).size <= maxBytes) return { parts: [{ path: file, offset: 0 }], cleanup: () => {} };
   const dir = join(tmpdir(), `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`); mkdirSync(dir, { recursive: true });
   const cleanup = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } };
   const SEG = 1200;
@@ -138,6 +138,29 @@ async function transcribeGroq(file: string, mime: string): Promise<{ segments: S
   } finally { cleanup(); }
   return { segments, duration };
 }
+// Third fallback: the LLM provider's own speech-to-text (OpenAI / Azure OpenAI Whisper, or Gemini) with the LLM Settings key.
+// Long recordings are compressed / split like the Groq path (Gemini takes inline audio up to ~20 MB).
+async function transcribeLLM(file: string, mime: string): Promise<{ segments: Seg[]; duration: number; via: string }> {
+  const c = await speechCfg();
+  const locales: string[] = c.locales || [];
+  const { parts, cleanup } = await prepareForGroq(file, 19 * 1024 * 1024);
+  const segments: Seg[] = []; let duration = 0, via = "";
+  try {
+    for (const part of parts) {
+      const pm = part.path === file ? (mime || "audio/webm") : "audio/ogg";
+      const out = await aiTranscribe(readFileSync(part.path), pm, `meeting.${part.path === file ? extFor(mime) : "ogg"}`, {
+        model: c.llm_transcribe_model || "whisper-1",
+        prompt: "Business meeting between an Indian investment bank and a client company. English with some Hindi.",
+        language: locales.length === 1 ? locales[0].slice(0, 2) : null,
+      });
+      via = out.via;
+      for (const x of out.segments) segments.push({ s: "?", t0: Math.round(x.start + part.offset), t1: Math.round(x.end + part.offset), text: x.text });
+      duration = Math.max(duration, Math.round((out.duration || 0) + part.offset));
+    }
+  } finally { cleanup(); }
+  return { segments, duration, via };
+}
+
 // Without speaker separation, the AI decides who said each line from the attendee list and the conversation itself
 async function assignSpeakers(segs: Seg[], attendees: Attendee[], recorderName: string): Promise<{ segs: Seg[]; speakers: Record<string, any> }> {
   const single = () => ({ segs: mergeSegs(segs.map(x => ({ ...x, s: "1" }))), speakers: { "1": { name: attendees.length === 1 ? attendees[0].name : "Speaker 1", attendee: attendees.length === 1 ? attendees[0].key : null, confidence: 0.3, confirmed: false, why: "No speaker separation in the free transcription" } } });
@@ -291,16 +314,28 @@ async function processRecording(id: string) {
   // Azure AI Speech (speakers separated by voice) when configured; otherwise — or if Azure fails — the free Groq Whisper fallback
   const c = await speechCfg();
   if (!c.enabled) throw new Error("Meeting transcription is switched off (Admin → Integrations → Meeting Recording)");
-  const azureReady = !!(c.endpoint && c.api_key), groqReady = !!c.groq_api_key;
-  if (!azureReady && !groqReady) throw new Error("Meeting transcription is not set up — add an Azure Speech key or a free Groq key (Admin → Integrations → Meeting Recording)");
+  const azureReady = !!(c.endpoint && c.api_key), groqReady = !!c.groq_api_key, llmReady = !!c.llm_transcribe;
+  if (!azureReady && !groqReady && !llmReady) throw new Error("Meeting transcription is not set up — add an Azure Speech key, a free Groq key, or switch on 'Transcribe with the LLM key' (Admin → Integrations → Meeting Recording)");
+  // Order: Azure AI Speech (voices separated) → Groq Whisper (free) → the LLM provider's key. Each failure falls through to the next.
   let result: { segments: Seg[]; duration: number } | null = null, source = "";
+  const failures: string[] = [];
   if (azureReady) {
     try { result = await transcribeAzure(m.audio_path, m.audio_mime); source = "azure-speech"; }
-    catch (e: any) { if (!groqReady) throw e; console.warn("[meetings] Azure failed, using Groq fallback:", e.message); }
+    catch (e: any) { failures.push(`Azure: ${e.message}`); console.warn("[meetings] Azure failed:", e.message); }
   }
   let segments: Seg[], speakers: Record<string, any>;
+  let unlabelled: { segments: Seg[]; duration: number } | null = null;
+  if (!result && groqReady) {
+    try { unlabelled = await transcribeGroq(m.audio_path, m.audio_mime); source = "groq-whisper"; }
+    catch (e: any) { failures.push(`Groq: ${e.message}`); console.warn("[meetings] Groq failed:", e.message); }
+  }
+  if (!result && !unlabelled && llmReady) {
+    try { const l = await transcribeLLM(m.audio_path, m.audio_mime); unlabelled = l; source = `llm:${l.via}`; }
+    catch (e: any) { failures.push(`LLM: ${e.message}`); }
+  }
+  if (!result && !unlabelled) throw new Error(failures.join(" · ") || "Transcription failed");
   if (!result) {
-    const g = await transcribeGroq(m.audio_path, m.audio_mime); source = "groq-whisper";
+    const g = unlabelled!;
     if (!g.segments.length) throw new Error("No speech was detected in the recording");
     const a = await assignSpeakers(g.segments, m.attendees || [], m.created_by_name || "the recorder");
     segments = a.segs; speakers = a.speakers; result = g;
@@ -649,7 +684,8 @@ speechAdminRouter.get("/", async (_req, res) => {
   const c = await speechCfg();
   res.json({ enabled: !!c.enabled, endpoint: c.endpoint || "", api_version: c.api_version, locales: c.locales || [], max_speakers: c.max_speakers,
     teams_auto_fetch: c.teams_auto_fetch !== false, keep_audio_days: c.keep_audio_days, has_key: !!c.api_key, updated_by: c.updated_by, updated_at: c.updated_at,
-    has_groq_key: !!c.groq_api_key, groq_model: c.groq_model || "whisper-large-v3" });
+    has_groq_key: !!c.groq_api_key, groq_model: c.groq_model || "whisper-large-v3",
+    llm_transcribe: !!c.llm_transcribe, llm_transcribe_model: c.llm_transcribe_model || "whisper-1" });
 });
 speechAdminRouter.put("/", async (req, res) => {
   const b = req.body || {};
@@ -660,13 +696,16 @@ speechAdminRouter.put("/", async (req, res) => {
         keep_audio_days=COALESCE($7,keep_audio_days),
         api_key=CASE WHEN $8::text IS NULL THEN api_key WHEN $8='' THEN NULL ELSE $8 END,
         groq_api_key=CASE WHEN $10::text IS NULL THEN groq_api_key WHEN $10='' THEN NULL ELSE $10 END, groq_model=COALESCE($11,groq_model),
+        llm_transcribe=COALESCE($12,llm_transcribe), llm_transcribe_model=COALESCE($13,llm_transcribe_model),
         updated_by=$9, updated_at=NOW() WHERE id=1`,
       [typeof b.enabled === "boolean" ? b.enabled : null, typeof b.endpoint === "string" ? b.endpoint.trim().replace(/\/+$/, "") : null,
        clean(b.api_version), locales && locales.length ? locales : null, b.max_speakers ? Math.min(Math.max(Number(b.max_speakers), 2), 35) : null,
        typeof b.teams_auto_fetch === "boolean" ? b.teams_auto_fetch : null, b.keep_audio_days !== undefined && b.keep_audio_days !== "" ? Math.max(0, Number(b.keep_audio_days) || 0) : null,
        typeof b.api_key === "string" ? (b.api_key.trim() ? encrypt(b.api_key.trim()) : "") : null, req.user!.name,
        typeof b.groq_api_key === "string" ? (b.groq_api_key.trim() ? encrypt(b.groq_api_key.trim()) : "") : null,
-       ["whisper-large-v3", "whisper-large-v3-turbo"].includes(b.groq_model) ? b.groq_model : null]);
+       ["whisper-large-v3", "whisper-large-v3-turbo"].includes(b.groq_model) ? b.groq_model : null,
+       typeof b.llm_transcribe === "boolean" ? b.llm_transcribe : null,
+       typeof b.llm_transcribe_model === "string" && /^[\w.:-]{2,80}$/.test(b.llm_transcribe_model.trim()) ? b.llm_transcribe_model.trim() : null]);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -676,6 +715,13 @@ const silentWav = () => {
   buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write("data", 36); buf.writeUInt32LE(n * 2, 40);
   return buf;
 };
+speechAdminRouter.post("/test-llm", async (_req, res) => {
+  const c = await speechCfg();
+  try {
+    const out = await aiTranscribe(silentWav(), "audio/wav", "test.wav", { model: c.llm_transcribe_model || "whisper-1" });
+    res.json({ ok: true, msg: `Connected — transcription via ${out.via}` });
+  } catch (e: any) { res.json({ ok: false, msg: e.message }); }
+});
 speechAdminRouter.post("/test-groq", async (_req, res) => {
   const c = await speechCfg();
   if (!c.groq_api_key) return res.json({ ok: false, msg: "Enter the Groq API key first" });

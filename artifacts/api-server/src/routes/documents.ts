@@ -14,6 +14,21 @@ const fmtSize = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 // GET /api/documents — list documents
+// GET /api/documents/facets?vertical= — the types and statuses documents actually have (for the filter lists)
+router.get("/facets", async (req, res) => {
+  try {
+    const vertical = String(req.query.vertical || "");
+    const names = await visibleNames("documents");
+    const p: any[] = [names]; let w = "WHERE (d.vertical IS NULL OR d.vertical = ANY($1))";
+    if (vertical) { p.push(vertical); w += ` AND d.vertical = $${p.length}`; }
+    const [types, statuses] = await Promise.all([
+      query(`SELECT DISTINCT d.type AS v FROM documents d ${w} AND d.type IS NOT NULL AND d.type <> '' ORDER BY 1`, p),
+      query(`SELECT DISTINCT d.status AS v FROM documents d ${w} AND d.status IS NOT NULL AND d.status <> '' ORDER BY 1`, p),
+    ]);
+    res.json({ types: types.rows.map(r => r.v), statuses: statuses.rows.map(r => r.v) });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.get("/", async (req, res) => {
   try {
     const { client_id, sr_id, lead_id, deal_id, vertical, type, status, search, page = "1", limit = "15" } = req.query as Record<string, string>;

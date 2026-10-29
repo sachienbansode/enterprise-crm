@@ -1,5 +1,6 @@
 import { MList, MCard } from "../components/MobileCard";
 import { appToast } from "../lib/dialog";
+import { useOpenRequest } from "../lib/openRecord";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, ChevronLeft,
@@ -908,6 +909,8 @@ export function ServiceRequestModule({ t, isDark, loggedUser }: { t: any; isDark
 
   const hasFilters = statusFilter.length || priorityFilter.length || categoryFilter.length || verticalFilter.length || channelFilter.length || mySrsOnly || dateFrom || dateTo || search;
   const clearFilters = () => { setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]); setVerticalFilter([]); setChannelFilter([]); setMySrsOnly(false); setDateFrom(""); setDateTo(""); setSearch(""); setSortBy("created_at_desc"); setPage(1); };
+
+  useOpenRequest("sr", id => { fetch(`${API_BASE}/api/service-requests/${id}`).then(r => r.ok ? r.json() : null).then(sr => sr && setSelectedSr(sr)).catch(() => {}); });
 
   const exportCsv = () => {
     const params = new URLSearchParams();

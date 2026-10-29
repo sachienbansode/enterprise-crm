@@ -137,6 +137,7 @@ export default function AdminRecordings({ t }: { t: any }) {
                         <div className={`font-medium ${t.text} flex items-center gap-1.5`}>{r.source === "teams" ? <Video className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" /> : <Mic className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}<span className="truncate">{r.title || "Meeting"}</span></div>
                         {r.status === "failed" && r.error && <div className="text-[10px] text-red-500 truncate max-w-[280px]" title={r.error}>{r.error}</div>}
                         {r.transcript_source === "groq-whisper" && <div className={`text-[10px] ${t.textMuted}`}>free transcription · speakers assigned by AI</div>}
+                        {String(r.transcript_source || "").startsWith("llm:") && <div className={`text-[10px] ${t.textMuted}`}>transcribed with the LLM key · speakers assigned by AI</div>}
                       </td>
                       <td className={`px-3 py-2.5 hidden sm:table-cell ${t.textSub}`}>{r.company || <span className={t.textMuted}>No company</span>}</td>
                       <td className={`px-3 py-2.5 hidden lg:table-cell ${t.textSub}`}>{r.opportunity ? <><div className="truncate max-w-[180px]">{r.opportunity}</div><div className="text-[10px] font-mono text-blue-400">{r.lead_code}</div></> : <span className={t.textMuted}>—</span>}</td>

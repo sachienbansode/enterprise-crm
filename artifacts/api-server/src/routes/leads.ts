@@ -37,7 +37,8 @@ router.get("/", async (req, res) => {
     const result = await query(
       `SELECT l.*, u.name as rm_name, c.name as client_name, c.client_code,
         EXTRACT(DAY FROM COALESCE(l.closed_at, NOW()) - l.opened_at)::int as days_open,
-        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code
+        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code,
+        (SELECT d.value FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_value
         FROM leads l
         LEFT JOIN users u ON l.assigned_rm_id = u.id
         LEFT JOIN clients c ON l.client_id = c.id
@@ -81,7 +82,8 @@ router.get("/:id", async (req, res) => {
     const result = await query(
       `SELECT l.*, u.name as rm_name, c.name as client_name, c.client_code,
         EXTRACT(DAY FROM COALESCE(l.closed_at, NOW()) - l.opened_at)::int as days_open,
-        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code
+        (SELECT d.deal_code FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_code,
+        (SELECT d.value FROM deals d WHERE d.lead_id = l.id AND d.stage <> 'deleted' ORDER BY d.created_at LIMIT 1) AS deal_value
         FROM leads l
         LEFT JOIN users u ON l.assigned_rm_id = u.id
         LEFT JOIN clients c ON l.client_id = c.id
@@ -342,6 +344,25 @@ router.post("/:id/convert", async (req, res) => {
     await logAudit({ entityType: "deal", entityId: d.id, entityCode: deal_code, action: "CREATE", userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role,
       recordDisplay: `${d.name} (${deal_code}) — converted from ${l.lead_code}`, after: d });
     res.status(201).json(d);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// NC-26: copy the linked deal's current value onto the opportunity (keeps a note of the old value)
+router.post("/:id/sync-deal-value", async (req, res) => {
+  try {
+    const l = (await query("SELECT id, lead_code, value_estimate FROM leads WHERE id=$1", [req.params.id])).rows[0];
+    if (!l) return res.status(404).json({ error: "Opportunity not found" });
+    const d = (await query("SELECT deal_code, value FROM deals WHERE lead_id=$1 AND stage <> 'deleted' ORDER BY created_at LIMIT 1", [l.id])).rows[0];
+    if (!d) return res.status(400).json({ error: "This opportunity has no linked deal" });
+    if (d.value == null || String(d.value).trim() === "") return res.status(400).json({ error: `${d.deal_code} has no value` });
+    const r = (await query("UPDATE leads SET value_estimate=$1, updated_at=NOW() WHERE id=$2 RETURNING *", [d.value, l.id])).rows[0];
+    await query(`INSERT INTO entity_comments (entity_type, entity_id, user_id, user_name, body) VALUES ('lead', $1, $2, $3, $4)`,
+      [l.id, req.user?.id || null, req.user?.name || "System", `Value updated to match ${d.deal_code}: ${l.value_estimate || "—"} → ${d.value}`]).catch(() => {});
+    await logAudit({ entityType: "lead", entityId: l.id, entityCode: l.lead_code, action: "UPDATE", userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role,
+      recordDisplay: `${l.lead_code} value synced from ${d.deal_code}`, before: { value_estimate: l.value_estimate }, after: { value_estimate: d.value } });
+    res.json({ ...r, deal_code: d.deal_code, deal_value: d.value });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

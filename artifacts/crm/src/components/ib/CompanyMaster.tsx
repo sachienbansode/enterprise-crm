@@ -324,7 +324,10 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   useEffect(() => { fetch("/api/users").then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : d?.data || [])).catch(() => {}); }, []);
 
   const c = data?.company;
-  const openOpps = useMemo(() => (data?.opportunities || []).filter((o: any) => !["closed", "lost", "won"].includes(o.stage)), [data]);
+  // Open = not Won / Lost. The headline figures cover Investment Banking (as in the Companies table); other verticals are shown separately.
+  const allOpen = useMemo(() => (data?.opportunities || []).filter((o: any) => !["closed", "lost", "won"].includes(o.stage) && !["Won", "Lost"].includes(o.status)), [data]);
+  const openOpps = useMemo(() => allOpen.filter((o: any) => !o.vertical || o.vertical === "Investment Banking"), [allOpen]);
+  const otherOpen = allOpen.length - openOpps.length;
   const openTasks = (data?.tasks || []).filter((x: any) => x.status === "Open");
   const today = new Date(new Date().toDateString());
 
@@ -401,8 +404,8 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
           {tab === "overview" && (<>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                ["Open opportunities", openOpps.length], ["Pipeline value", money(openOpps.reduce((s: number, o: any) => s + rupees(o.value_estimate), 0))],
-                ["Expected fee", money(openOpps.reduce((s: number, o: any) => s + Number(o.expected_fee || 0), 0))], ["Last contact", ago(data.interactions[0]?.occurred_at)],
+                ["Open IB opportunities", otherOpen ? `${openOpps.length}  (+${otherOpen} other vertical${otherOpen === 1 ? "" : "s"})` : openOpps.length], ["IB pipeline value", money(openOpps.reduce((s: number, o: any) => s + rupees(o.value_estimate), 0))],
+                ["IB expected fee", money(openOpps.reduce((s: number, o: any) => s + Number(o.expected_fee || 0), 0))], ["Last contact", ago(data.interactions[0]?.occurred_at)],
               ].map(([l, v]) => (
                 <div key={l as string} className={card}><div className={`text-[10px] uppercase ${t.textMuted}`}>{l}</div><div className={`text-sm font-bold ${t.text} mt-0.5`}>{v}</div></div>
               ))}

@@ -559,3 +559,75 @@ export async function aiVision(system: string, prompt: string, images: { mime: s
     return one({ ...config, provider: config.fallback_provider, model: config.fallback_model, endpoint_url: config.fallback_endpoint_url || null }, decrypt(config.fallback_api_key));
   }
 }
+
+/** Speech-to-text with the configured LLM provider's key (meeting transcription fallback).
+ *  OpenAI / OpenAI-compatible: /audio/transcriptions (Whisper) · Azure OpenAI: a Whisper deployment ·
+ *  Gemini: audio understanding (returns timed segments as JSON). Anthropic models can't take audio.
+ *  Tries the main LLM, then the fallback LLM. Throws a readable error when neither can transcribe. */
+export type LlmSeg = { start: number; end: number; text: string };
+export async function aiTranscribe(audio: Buffer, mime: string, filename: string, opts: { model?: string; prompt?: string; language?: string | null } = {}): Promise<{ segments: LlmSeg[]; duration: number; via: string }> {
+  const r = await query("SELECT * FROM ai_config LIMIT 1");
+  const config = r.rows[0];
+  if (!config?.api_key) throw new Error("No LLM API key is set (Admin → AI Settings → LLM Settings)");
+  const cands: { cfg: any; key: string }[] = [];
+  try { cands.push({ cfg: config, key: decrypt(config.api_key) }); } catch { /* bad key */ }
+  if (config.fallback_enabled && config.fallback_api_key) {
+    try { cands.push({ cfg: { provider: config.fallback_provider, model: config.fallback_model, endpoint_url: config.fallback_endpoint_url }, key: decrypt(config.fallback_api_key) }); } catch { /* ignore */ }
+  }
+  const errors: string[] = [];
+  for (const { cfg, key } of cands) {
+    try {
+      if (cfg.provider === "anthropic") throw new Error("Claude models can't transcribe audio — use an OpenAI, Azure OpenAI or Gemini key");
+      if (cfg.provider === "gemini") {
+        const model = /gemini/i.test(opts.model || "") ? opts.model : (cfg.model || "gemini-2.0-flash");
+        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: "application/json" },
+            contents: [{ role: "user", parts: [
+              { inline_data: { mime_type: mime || "audio/webm", data: audio.toString("base64") } },
+              { text: `Transcribe this meeting recording word for word (${opts.prompt || "English with some Hindi"}). Split it into segments of one or two sentences, in order, with start and end times in seconds from the beginning. Do not summarise, translate or add anything. Return JSON only: {"duration": <seconds>, "segments": [{"start": 0.0, "end": 4.2, "text": "..."}]}` },
+            ] }],
+          }),
+        });
+        const d: any = await resp.json().catch(() => ({}));
+        const text = (d.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("");
+        if (!resp.ok || !text) throw new Error(`Gemini ${resp.status}: ${d.error?.message || "no transcript"}`);
+        const j = JSON.parse(text.replace(/^```(json)?|```$/g, "").trim());
+        const segments: LlmSeg[] = (j.segments || []).map((x: any) => ({ start: Number(x.start) || 0, end: Number(x.end) || Number(x.start) || 0, text: String(x.text || "").trim() })).filter((x: LlmSeg) => x.text);
+        return { segments, duration: Number(j.duration) || (segments.length ? segments[segments.length - 1].end : 0), via: `gemini:${model}` };
+      }
+      // OpenAI, OpenAI-compatible ("custom") and Azure OpenAI
+      const model = opts.model || "whisper-1";
+      let url: string; const headers: Record<string, string> = {};
+      const ep = String(cfg.endpoint_url || "");
+      if (cfg.provider === "azure") {
+        // https://<res>.openai.azure.com/openai/deployments/<chat-deployment>/chat/completions?api-version=… → the Whisper deployment
+        const base = ep.match(/^(https:\/\/[^/]+)/)?.[1];
+        if (!base) throw new Error("Azure OpenAI endpoint is not set in LLM Settings");
+        url = `${base}/openai/deployments/${encodeURIComponent(model)}/audio/transcriptions?api-version=2024-06-01`;
+        headers["api-key"] = key;
+      } else {
+        const root = ep ? ep.replace(/\/chat\/completions.*$/, "").replace(/\/+$/, "") : "https://api.openai.com/v1";
+        url = `${root}/audio/transcriptions`;
+        headers["Authorization"] = `Bearer ${key}`;
+      }
+      const form = new FormData();
+      form.append("file", new Blob([audio], { type: mime || "audio/webm" }), filename);
+      form.append("model", model);
+      form.append("response_format", /gpt-4o/i.test(model) ? "json" : "verbose_json"); // gpt-4o-*-transcribe returns text only (no timings)
+      form.append("temperature", "0");
+      if (opts.prompt) form.append("prompt", opts.prompt);
+      if (opts.language) form.append("language", opts.language);
+      const resp = await fetch(url, { method: "POST", headers, body: form });
+      const d: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(`${cfg.provider === "azure" ? "Azure OpenAI" : "OpenAI"} ${resp.status}: ${d.error?.message || "transcription failed"}${cfg.provider === "azure" && resp.status === 404 ? ` — create a Whisper deployment named "${model}" or set its name in Meeting Recording` : ""}`);
+      let segments: LlmSeg[] = (d.segments || []).map((x: any) => ({ start: Number(x.start) || 0, end: Number(x.end) || 0, text: String(x.text || "").trim() })).filter((x: LlmSeg) => x.text);
+      if (!segments.length && d.text) { // text-only models: split into sentences without timings
+        segments = String(d.text).split(/(?<=[.?!।])\s+/).map(t => t.trim()).filter(Boolean).map(text => ({ start: 0, end: 0, text }));
+      }
+      return { segments, duration: Number(d.duration) || 0, via: `${cfg.provider}:${model}` };
+    } catch (e: any) { errors.push(e.message); }
+  }
+  throw new Error(errors.join(" · ") || "LLM transcription failed");
+}

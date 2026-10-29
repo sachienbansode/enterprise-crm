@@ -17,9 +17,12 @@ router.get("/user-roles", async (_req, res) => {
 router.post("/user-roles", async (req, res) => {
   try {
     const { role_name, vertical, description, permissions, auth_required } = req.body;
+    if (!String(role_name || "").trim()) return res.status(400).json({ error: "Role name is required." });
+    const dup = await query("SELECT 1 FROM user_roles WHERE lower(role_name)=lower($1)", [String(role_name).trim()]);
+    if (dup.rows.length) return res.status(409).json({ error: "A role with this name already exists." });
     const r = await query(
       "INSERT INTO user_roles (role_name, vertical, description, permissions, auth_required) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-      [role_name, vertical || "All", description || "", permissions || {}, auth_required || "any"],
+      [String(role_name).trim(), vertical || "All", description || "", JSON.stringify(permissions || {}), auth_required || "any"],
     );
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -28,10 +31,14 @@ router.post("/user-roles", async (req, res) => {
 router.put("/user-roles/:id", async (req, res) => {
   try {
     const { role_name, vertical, description, permissions, auth_required, is_active } = req.body;
+    const before = (await query("SELECT role_name FROM user_roles WHERE id=$1", [req.params.id])).rows[0];
+    if (!before) return res.status(404).json({ error: "Role not found" });
     const r = await query(
-      "UPDATE user_roles SET role_name=$1, vertical=$2, description=$3, permissions=$4, auth_required=$5, is_active=$6 WHERE id=$7 RETURNING *",
-      [role_name, vertical, description, permissions, auth_required, is_active ?? true, req.params.id],
+      `UPDATE user_roles SET role_name=COALESCE($1, role_name), vertical=COALESCE($2, vertical), description=COALESCE($3, description),
+              permissions=COALESCE($4::jsonb, permissions), auth_required=COALESCE($5, auth_required), is_active=COALESCE($6, is_active) WHERE id=$7 RETURNING *`,
+      [role_name ?? null, vertical ?? null, description ?? null, permissions ? JSON.stringify(permissions) : null, auth_required ?? null, is_active ?? null, req.params.id],
     );
+    if (role_name && role_name !== before.role_name) await query("UPDATE users SET role=$1 WHERE role=$2", [role_name, before.role_name]); // renamed role follows its users
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -67,6 +74,28 @@ router.post("/user-role-mapping", async (req, res) => {
       [user_id, role_id, assigned_by || "admin"],
     );
     res.json(r.rows[0]);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/admin/user-role-mapping/user/:userId { roles: ["Senior RM", …] }
+// Saves all of a user's roles at once: the first is the user's main role (drives access), the rest are extra mappings.
+router.put("/user-role-mapping/user/:userId", async (req, res) => {
+  try {
+    const names: string[] = Array.isArray(req.body?.roles) ? req.body.roles.map((x: any) => String(x)).filter(Boolean) : [];
+    if (!names.length) return res.status(400).json({ error: "Pick at least one role." });
+    const roles = (await query("SELECT id, role_name FROM user_roles WHERE role_name = ANY($1)", [names])).rows;
+    const current = (await query("SELECT role FROM users WHERE id=$1", [req.params.userId])).rows[0]?.role;
+    // A user's existing role that isn't defined under User Roles (older data) may be kept, but no new undefined roles
+    const missing = names.filter(n => !roles.some((r: any) => r.role_name === n) && n !== current);
+    if (missing.length) return res.status(400).json({ error: `Unknown role: ${missing.join(", ")} — add it under User Roles first.` });
+    const u = (await query("UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING id, name, role", [names[0], req.params.userId])).rows[0];
+    if (!u) return res.status(404).json({ error: "User not found" });
+    const ids = names.map(n => roles.find((r: any) => r.role_name === n)?.id).filter(Boolean);
+    await query("DELETE FROM user_role_mapping WHERE user_id=$1 AND NOT (role_id = ANY($2::uuid[]))", [req.params.userId, ids]);
+    for (const id of ids)
+      await query(`INSERT INTO user_role_mapping (user_id, role_id, assigned_by, assigned_at, is_active) VALUES ($1,$2,$3,NOW(),TRUE)
+                   ON CONFLICT (user_id, role_id) DO UPDATE SET is_active=TRUE`, [req.params.userId, id, req.user?.id || null]);
+    res.json({ ok: true, user: u, roles: names });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
