@@ -258,7 +258,7 @@ router.post("/", async (req, res) => {
         result = await query(
           `INSERT INTO service_requests (sr_code, subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to, sla_deadline, status)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Open') RETURNING *`,
-          [sr_code, String(subject || "").trim(), description || null, category, subcategory || null, channel || null, priority || "Medium",
+          [sr_code, String(subject || "").trim(), description || null, category, subcategory || null, channel || "Portal", priority || "Medium",
            client_id || null, srVertical, creator, assigned_to || creator, slaDeadline],
         );
       } catch (e: any) { if (e.code !== "23505") throw e; } // code taken meanwhile → next number
