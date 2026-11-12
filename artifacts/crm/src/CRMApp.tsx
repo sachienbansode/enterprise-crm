@@ -26,7 +26,7 @@ import AIAssistant from "./components/AIAssistant";
 import GlobalSearch from "./components/GlobalSearch";
 import AboutPage from "./components/AboutPage";
 import UpdateBanner from "./components/UpdateBanner";
-import { versionLabel } from "./lib/version";
+import { versionLabel, APP_VERSION } from "./lib/version";
 import { useOpenRequest } from "./lib/openRecord";
 import { useAppSettings, saveAppSettings } from "./lib/appSettings";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
@@ -2013,8 +2013,8 @@ function StatusBadge({ s }: { s: string }) {
 }
 function AuthBadge({ method }: { method: AuthMethod }) {
   return method === "m365"
-    ? <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${isDark ? "bg-blue-900/60 text-blue-300" : "bg-blue-100 text-blue-700"}`}><span className="font-black">⊞</span>M365</span>
-    : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${isDark ? "bg-gray-800 text-gray-400" : "bg-slate-100 text-slate-600"}`}>App Auth</span>;
+    ? <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 whitespace-nowrap ${isDark ? "bg-blue-900/60 text-blue-300" : "bg-blue-100 text-blue-700"}`}><span className="font-black">⊞</span>M365</span>
+    : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${isDark ? "bg-gray-800 text-gray-400" : "bg-slate-100 text-slate-600"}`}>App Auth</span>;
 }
 
 // ─── TOOLTIP WRAPPER ─────────────────────────────────────────────────────────
@@ -2542,7 +2542,8 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-[10px] font-bold text-white">{initials}</div>
             <div className="flex-1 min-w-0">
               <div className={`text-xs font-medium ${sb.text} truncate`}>{loggedUser?.name || "User"}</div>
-              <div className="flex items-center gap-1.5"><AuthBadge method={loggedUser?.authType || "m365"} /><span className={`text-[9px] ${sb.muted} truncate`} title="App version — changes on every deploy">{versionLabel()}</span></div>
+              <div className="flex items-center gap-1.5 mt-0.5"><AuthBadge method={loggedUser?.authType || "m365"} /></div>
+              <div className={`text-[10px] leading-tight mt-1 ${sb.muted} whitespace-nowrap`} title={`App version — changes on every deploy (${versionLabel()})`}>v{APP_VERSION}</div>
             </div>
             <button onClick={onLogout} title="Sign out" className={`p-1.5 rounded-lg ${sb.muted} hover:text-red-400 hover:bg-red-900/20 transition-colors`}>
               <LogOut className="w-3.5 h-3.5" />
