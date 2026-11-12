@@ -527,3 +527,6 @@ html { touch-action: manipulation; }
   table:not([data-no-stack]) tbody tr > td:first-child:has(> input[type=checkbox]:only-child) { display: none; }
   table:not([data-no-stack]) td { font-size: 13px; }
 }
+
+/* QR scanner sweep line */
+@keyframes qrscan { 0%, 100% { top: 6%; } 50% { top: 92%; } }

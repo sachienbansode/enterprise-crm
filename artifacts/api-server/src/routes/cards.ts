@@ -142,6 +142,7 @@ cardsRouter.post("/save", async (req, res) => {
   const front = b.image ? decodeImage(b.image) : null;
   const back = b.back ? decodeImage(b.back) : null;
   const p = b.person || {}, c = b.company || {};
+  const viaQr = b.source === "qr";
   if (!String(p.name || "").trim()) return res.status(400).json({ error: "The person's name is required." });
   if (!b.company_id && !String(c.name || "").trim()) return res.status(400).json({ error: "Choose an existing company or enter the company name." });
   if (b.company_id && !UUID.test(b.company_id)) return res.status(400).json({ error: "Invalid company" });
@@ -160,7 +161,7 @@ cardsRouter.post("/save", async (req, res) => {
       const co = await insertCompany({
         name: String(c.name).trim(), website: clean(c.website), address: clean(c.address), hq_city: clean(c.city), mobile: clean(c.phone), email: clean(c.email),
         cin: clean(c.cin), sector: clean(c.sector), relationship_strength: "Cold",
-        info_source: "Business card", info_as_of: new Date().toISOString().slice(0, 10),
+        info_source: viaQr ? "QR code" : "Business card", info_as_of: new Date().toISOString().slice(0, 10),
         notes: [c.gstin ? `GSTIN: ${c.gstin}` : "", clean(b.notes) || ""].filter(Boolean).join("\n") || null,
       }, user, vertical);
       companyId = co.id; createdCompany = true;
@@ -174,7 +175,7 @@ cardsRouter.post("/save", async (req, res) => {
         [personId, companyId, clean(p.designation), clean(p.email), clean(p.mobile), clean(p.landline), clean(p.linkedin)]);
       if (!r.rows[0]) return res.status(404).json({ error: "Person not found" });
     } else {
-      const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: clean(c.address) }, user, "card_scan");
+      const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: clean(c.address) }, user, viaQr ? "qr_scan" : "card_scan");
       personId = ps.id; createdPerson = true;
     }
     if (front) { const f = join(DIR, `${personId}.jpg`); writeFileSync(f, front.buf); await query("UPDATE company_people SET card_path=$2 WHERE id=$1", [personId, f]); }

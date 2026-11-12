@@ -2627,7 +2627,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
           </button>
         </Tip>
         <Tip label="Scan a business card — creates the company and contact">
-          <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan Business Card" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
+          <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan Business Card or QR" title="Scan business card or QR code" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
             <ScanIcon className="w-4 h-4" />
           </button>
         </Tip>

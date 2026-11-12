@@ -267,7 +267,7 @@ router.get("/people/:pid", async (req, res) => {
       ...ints.rows.map(i => ({ kind: "interaction", at: i.occurred_at, by: i.created_by_name, title: i.title, summary: i.summary, type: i.type, source: i.source, id: i.id, meeting_id: i.meeting_id })),
       ...meets.rows.map(m => ({ kind: "meeting", at: m.start_at, title: m.title, status: m.status, source: m.source, meeting_id: m.id })),
       ...tasks.rows.map(t => ({ kind: "task", at: t.status === "Done" ? (t.completed_at || t.created_at) : t.created_at, by: t.owner_name, title: t.title, status: t.status, due_date: t.due_date, id: t.id })),
-      { kind: "created", at: p.created_at, by: p.created_by_name, title: p.source === "card_scan" ? "Added from a business card" : "Added to the CRM" },
+      { kind: "created", at: p.created_at, by: p.created_by_name, title: p.source === "card_scan" ? "Added from a business card" : p.source === "qr_scan" ? "Added from a QR code" : "Added to the CRM" },
     ].sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
     const { card_path, card_back_path, ...rest } = p;
     res.json({ ...rest, has_card: !!card_path, has_card_back: !!card_back_path, history, open_tasks: tasks.rows.filter(t => t.status !== "Done").length });

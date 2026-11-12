@@ -84,7 +84,7 @@ export function QuickActions({ onClose, onAI }: { onClose: () => void; onAI: () 
   const acts = [
     { label: "Quick Log", sub: "Speak or type a call / meeting note", icon: Mic, tone: "from-violet-500 to-purple-600", go: () => fire("quicklog:open") },
     { label: "Record Meeting", sub: "Transcript with each person named", icon: CalendarDays, tone: "from-rose-500 to-red-600", go: () => fire("recorder:open") },
-    { label: "Scan a Card", sub: "Creates the company and contact", icon: ScanLine, tone: "from-sky-500 to-blue-600", go: () => fire("cardscan:open") },
+    { label: "Scan Card / QR", sub: "Draft company + contact to approve", icon: ScanLine, tone: "from-sky-500 to-blue-600", go: () => fire("cardscan:open") },
     { label: "Ask NIYTRI AI", sub: "Pipeline, clients, SRs, tasks", icon: Sparkles, tone: "from-fuchsia-500 to-violet-600", go: () => { onClose(); onAI(); } },
   ];
   return (
