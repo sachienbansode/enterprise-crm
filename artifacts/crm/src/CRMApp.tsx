@@ -1659,7 +1659,7 @@ function Client360Panel({ client, t, onClose, loggedUser }: { client: any; t: Re
     {showAccessReq && <AccessRequestModal clientId={client.id} clientName={client.name} requesterId={loggedUser?.id || ""} requesterName={loggedUser?.name || ""} t={t} onClose={() => setShowAccessReq(false)} onSuccess={() => { setShowAccessReq(false); setAccessReqSent(true); }} />}
     {showChangeOwner && <ChangeOwnerModal clientId={client.id} clientName={client.name} currentOwnerId={client.owner_id} changedBy={loggedUser} t={t} onClose={() => setShowChangeOwner(false)} onSuccess={() => setShowChangeOwner(false)} />}
     {showExpand && <ClientExpandModal client={client} loggedUser={loggedUser} canViewPII={canViewPII} t={t} isDark={isDark} onClose={() => setShowExpand(false)} onDownloadPDF={downloadMaskedPDF} onScheduleMeeting={() => { setShowExpand(false); setShowTeams(true); }} />}
-    <div className={`w-96 border-l ${t.border} ${t.bgCard} flex flex-col flex-shrink-0 overflow-hidden`}>
+    <div className={`w-96 max-w-full border-l ${t.border} ${t.bgCard} flex flex-col flex-shrink-0 overflow-hidden max-xl:absolute max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:shadow-[-12px_0_32px_rgba(0,0,0,0.35)] animate-in slide-in-from-right-8 fade-in duration-300`}>
       {/* Header */}
       <div className={`p-4 border-b ${t.border} flex-shrink-0`}>
         <div className="flex items-center justify-between mb-3">
@@ -2750,7 +2750,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
   useEffect(() => { if (selected && !clients.some((c: any) => c.id === selected.id)) setSelected(null); }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="relative flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className={`m-toolbar px-4 py-3 border-b ${t.border} flex items-center gap-2 flex-shrink-0 flex-wrap`}>
           <div className="m-title flex items-center gap-2">
@@ -3394,7 +3394,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="relative flex h-full overflow-hidden">
       <LeadModal
         open={showCreate || !!editingLead}
         onClose={() => { setShowCreate(false); setEditingLead(null); }}
@@ -3456,11 +3456,11 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
           <div className={`flex items-center justify-center flex-1 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading leads…</div>
         ) : viewMode === "board" ? (
           /* ── Board View ── */
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-            {/* One row, no horizontal scroll: empty stages collapse to a slim strip (click to open),
-                stages with leads share the remaining width. Phones: stages stack vertically. */}
+          <div className="flex-1 overflow-y-auto overflow-x-auto p-3 sm:p-4">
+            {/* One row: empty stages collapse to a slim strip (click to open), stages with leads share the width
+                (never narrower than 170 px — a narrow window scrolls sideways instead of squashing cards). Phones: stacked. */}
             <div className="grid gap-2.5 grid-cols-1 sm:[grid-template-columns:var(--cols)] items-start"
-              style={{ ["--cols" as any]: boardStages.map((st: any) => (stageLeads(st.id).length || openEmpty.has(st.id) ? "minmax(0,1fr)" : "40px")).join(" ") }}>
+              style={{ ["--cols" as any]: boardStages.map((st: any) => (stageLeads(st.id).length || openEmpty.has(st.id) ? "minmax(170px,1fr)" : "40px")).join(" ") }}>
               {boardStages.map((stage: any) => {
                 const sl = stageLeads(stage.id);
                 if (!sl.length && !openEmpty.has(stage.id)) return (
@@ -3593,7 +3593,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
       )}
       {/* Detail Side Panel */}
       {selected && (
-        <div className={panelWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
+        <div className={panelWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:absolute sm:inset-y-0 sm:left-auto sm:right-0 sm:z-30 sm:w-[440px] lg:w-[500px] sm:shadow-[-12px_0_32px_rgba(0,0,0,0.35)] xl:static xl:z-auto xl:shadow-none border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
           onMouseDown={e => { if (panelWide && e.target === e.currentTarget) setPanelWide(false); }}>
           <div className={panelWide ? `w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border ${t.border} ${t.bgCard} shadow-2xl p-5 animate-in zoom-in-95 fade-in duration-200` : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -3950,7 +3950,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="relative flex h-full overflow-hidden">
       <DealModal
         open={showCreate || !!editingDeal}
         onClose={() => { setShowCreate(false); setEditingDeal(null); }}
@@ -4095,7 +4095,7 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
       )}
       {/* Side Panel */}
       {selected && (
-        <div className={dealWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:static sm:z-auto sm:w-[440px] lg:w-[500px] border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
+        <div className={dealWide ? "fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" : `fixed inset-0 z-40 sm:absolute sm:inset-y-0 sm:left-auto sm:right-0 sm:z-30 sm:w-[440px] lg:w-[500px] sm:shadow-[-12px_0_32px_rgba(0,0,0,0.35)] xl:static xl:z-auto xl:shadow-none border-l ${t.border} ${t.bgCard} p-4 overflow-y-auto flex-shrink-0 animate-in slide-in-from-right-8 fade-in duration-300`}
           onMouseDown={e => { if (dealWide && e.target === e.currentTarget) setDealWide(false); }}>
           <div className={dealWide ? `w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border ${t.border} ${t.bgCard} shadow-2xl p-5 animate-in zoom-in-95 fade-in duration-200` : ""}>
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -4206,7 +4206,7 @@ function CustomersView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="relative flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className={`m-toolbar px-5 py-3 border-b ${t.border} flex items-center gap-3 flex-shrink-0`}>
           <div className={`m-title w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Users className="w-3.5 h-3.5 text-white" /></div>

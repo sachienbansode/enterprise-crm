@@ -6,7 +6,9 @@ import { APP_VERSION, useServerVersion } from "../lib/version";
 export default function UpdateBanner() {
   const server = useServerVersion();
   const [hidden, setHidden] = useState("");
-  if (!server || server.version === "dev" || APP_VERSION === "dev" || server.version === APP_VERSION || hidden === server.version) return null;
+  // Only when the server is ahead of this page (a page built moments before the server restarts must not nag)
+  const newer = (a: string, b: string) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+  if (!server || server.version === "dev" || APP_VERSION === "dev" || !newer(server.version, APP_VERSION) || hidden === server.version) return null;
   return (
     <div role="status" className="fixed z-[90] left-1/2 -translate-x-1/2 bottom-24 md:bottom-5 w-[calc(100%-24px)] max-w-md rounded-2xl bg-blue-600 text-white shadow-2xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-bottom-4 fade-in duration-300">
       <RefreshCw className="w-5 h-5 flex-shrink-0" />
