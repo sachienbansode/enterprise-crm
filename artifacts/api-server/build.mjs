@@ -13,7 +13,9 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
   // Build the CRM frontend first so the API server can serve it as static files
+  // (skipped when scripts/build-prod.sh has already built it — SKIP_CRM_BUILD=1)
   const workspaceRoot = path.resolve(artifactDir, "../..");
+  if (process.env.SKIP_CRM_BUILD !== "1") {
   console.log("Building CRM frontend…");
   execSync("pnpm --filter @workspace/crm run build", {
     cwd: workspaceRoot,
@@ -26,6 +28,7 @@ async function buildAll() {
     },
   });
   console.log("CRM frontend built.");
+  }
 
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });

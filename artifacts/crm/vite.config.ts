@@ -55,7 +55,7 @@ export default defineConfig({
   },
   root: path.resolve(import.meta.dirname),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: process.env.CRM_OUT_DIR || path.resolve(import.meta.dirname, "dist/public"), // build-prod.sh builds into a temp folder and swaps on success
     emptyOutDir: true,
   },
   server: {
