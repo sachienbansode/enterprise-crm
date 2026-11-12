@@ -24,6 +24,8 @@ async function shrink(file: File): Promise<string> {
   } finally { URL.revokeObjectURL(url); }
 }
 
+const isPhone = () => { try { return window.matchMedia("(max-width: 767px)").matches; } catch { return false; } };
+
 const L = ({ label, req, children, hint }: any) => (
   <label className="block"><span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}{req && <span className="text-red-500"> *</span>}</span>{children}{hint && <span className="block text-[11px] mt-1 text-gray-400">{hint}</span>}</label>
 );
@@ -48,13 +50,14 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   const [via, setVia] = useState<"" | "link" | "text">("");   // draft filled from a pasted website link / pasted text
   const [siteNote, setSiteNote] = useState("");
   const [vert, setVert] = useState("ib");
+  const [full, setFull] = useState(false);   // phones show a short summary first; "Edit details" opens the full form
   const video = useRef<HTMLVideoElement>(null); const stream = useRef<MediaStream | null>(null); const qrGal = useRef<HTMLInputElement>(null);
   const frontCam = useRef<HTMLInputElement>(null); const frontGal = useRef<HTMLInputElement>(null); const backCam = useRef<HTMLInputElement>(null);
   const fixed = !!defaults?.client_id;
 
   useEffect(() => {
     if (!open) return;
-    setStep(defaults?.mode === "qr" ? "qr" : "capture"); setLink(""); setVia(""); setSiteNote(""); setVert(defaults?.vertical || defaults?.verticals?.[0]?.id || "ib"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
+    setStep(defaults?.mode === "qr" ? "qr" : "capture"); setLink(""); setVia(""); setSiteNote(""); setFull(!isPhone()); setVert(defaults?.vertical || defaults?.verticals?.[0]?.id || "ib"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
     setPerson({ name: "", designation: "", role_type: "Management", mobile: "", landline: "", email: "", linkedin: "" });
     setCompany({ name: defaults?.client_name || "", website: "", phone: "", email: "", address: "", city: "", cin: "", sector: "" });
     setMatches({ companies: defaults?.client_id ? [{ id: defaults.client_id, name: defaults.client_name, why: "Opened from this company" }] : [], people: [] });
@@ -109,6 +112,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   }, [open, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
+  const showFull = full || !!bad || (!person.name?.trim() && !company.name?.trim());
 
   // Matches found for the draft → pre-select: same e-mail / mobile = update that contact; CIN / e-mail domain = that company
   const applyMatches = (m: any) => {
@@ -172,16 +176,20 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
     if (!f) return;
     if (!f.type.startsWith("image/")) return setErr("Choose a photo (JPEG or PNG).");
     setErr("");
-    try { const d = await shrink(f); side === "front" ? setFront(d) : setBack(d); }
+    try {
+      const d = await shrink(f);
+      if (side === "front") { setFront(d); if (isPhone()) read(d); } // phones: read straight away — one tap from photo to draft
+      else setBack(d);
+    }
     catch { setErr("Couldn't open that photo — try taking it again."); }
   };
 
-  const read = async () => {
+  const read = async (frontImg: string = front) => {
     setStep("reading"); setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText("");
-    // A QR printed on the card (front or back) is read exactly — its e-mail / phone / LinkedIn win over the AI reading
-    const qrText = decodeQRFromDataUrl(front).then(t => t || (back ? decodeQRFromDataUrl(back) : null)).catch(() => null);
+    // A QR printed on the card (frontImg or back) is read exactly — its e-mail / phone / LinkedIn win over the AI reading
+    const qrText = decodeQRFromDataUrl(frontImg).then(t => t || (back ? decodeQRFromDataUrl(back) : null)).catch(() => null);
     try {
-      const r = await fetch("/api/cards/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: front, back: back || undefined }) });
+      const r = await fetch("/api/cards/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: frontImg, back: back || undefined }) });
       const d = await r.json().catch(() => ({}));
       const t = await qrText; const q = t ? parseContactQR(t) : null;
       if (q) setQr(q);
@@ -192,7 +200,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
         // No AI model (or it failed) → read the card on this device with OCR, then the QR (if any) corrects e-mail / phone / web
         let o: any = null;
         setReadMsg("Reading on this device…");
-        try { o = await ocrCard([front, back], pr => setReadMsg(`Reading on this device… ${Math.round(pr * 100)}%`)); } catch (e) { console.warn("OCR failed", e); }
+        try { o = await ocrCard([frontImg, back], pr => setReadMsg(`Reading on this device… ${Math.round(pr * 100)}%`)); } catch (e) { console.warn("OCR failed", e); }
         setReadMsg("Reading the card…");
         const got = o && (o.person.name || o.person.email || o.person.mobile || o.company.name);
         if (!got) {
@@ -306,7 +314,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
                 )}
               </div>
               {err && <div className="text-sm text-red-500 flex gap-1.5"><AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />{err}</div>}
-              <button onClick={read} disabled={!front} className="w-full py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2"><ScanLine className="w-4 h-4" /> Read card</button>
+              <button onClick={() => read()} disabled={!front} className="w-full py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2"><ScanLine className="w-4 h-4" /> Read card</button>
               <div className="flex items-center gap-3 text-[11px] text-gray-400"><span className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />or<span className="flex-1 h-px bg-gray-200 dark:bg-gray-800" /></div>
               <button onClick={() => { setErr(""); setStep("qr"); }} className="w-full py-3.5 rounded-xl border-2 border-sky-500/60 text-sky-700 dark:text-sky-300 bg-sky-500/5 text-sm font-semibold flex items-center justify-center gap-2"><QrCode className="w-5 h-5" /> Scan a QR code</button>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2.5 space-y-2">
@@ -337,6 +345,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
             )}
             {warn && <div className="text-sm rounded-xl px-3 py-2 bg-amber-500/10 text-amber-700 dark:text-amber-300 flex gap-1.5"><AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />{warn}</div>}
 
+{showFull ? (<>
             <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-3.5 space-y-3">
               <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-violet-500" /> Person</div>
               <L label="Name" hint={!person.name ? "Leave the contact blank to save just the company" : undefined}><input value={person.name || ""} onChange={e => P("name", e.target.value)} className={`${input} ${bad === "pname" ? "border-red-500 ring-2 ring-red-500/30" : ok}`} /></L>
@@ -384,6 +393,28 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
                 <div className="text-xs text-gray-500 dark:text-gray-400">Website, address and phone from the card fill only the blanks on this company.</div>
               )}
             </section>
+            </>) : (
+              <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-300 flex items-center justify-center font-bold flex-shrink-0">{(person.name || company.name || "?").trim().charAt(0).toUpperCase()}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[17px] font-bold text-gray-900 dark:text-white leading-tight">{person.name || <span className="text-gray-400 font-medium">No contact person</span>}</div>
+                    {person.designation && <div className="text-sm text-gray-500 dark:text-gray-400">{person.designation}</div>}
+                    <div className="text-sm font-medium text-gray-800 dark:text-gray-200 mt-0.5 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                      <span className="truncate">{companyChoice === "new" ? company.name : (matches.companies.find(c => c.id === companyChoice)?.name || company.name)}</span></div>
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  {person.mobile && <div className="text-gray-700 dark:text-gray-200">📱 {person.mobile}</div>}
+                  {person.email && <div className="text-gray-700 dark:text-gray-200 break-all">✉️ {person.email}</div>}
+                  {!person.email && company.website && <div className="text-gray-700 dark:text-gray-200 break-all">🌐 {company.website}</div>}
+                </div>
+                <div className="text-[12px] rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300">
+                  {personChoice !== "new" ? "Already in the CRM — the contact will be updated, not duplicated." : companyChoice !== "new" ? "Will be added to this existing company." : "A new company and contact will be created."}
+                </div>
+                <button type="button" onClick={() => setFull(true)} className="w-full py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200">Edit details</button>
+              </section>
+            )}
             {err && <div className="text-sm text-red-500 flex gap-1.5"><AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />{err}</div>}
           </>)}
 
