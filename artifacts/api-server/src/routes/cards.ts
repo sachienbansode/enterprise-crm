@@ -113,11 +113,13 @@ cardsRouter.post("/scan", async (req, res) => {
       mobile: normPhone(p.mobile) || "", landline: normPhone(p.landline) || "", linkedin: clean(p.linkedin) || "",
     };
     const company = {
-      name: String(c.name || "").trim(), website: clean(c.website) || "", email: String(c.email || "").trim().toLowerCase(), phone: normPhone(c.phone) || "",
+      name: titleCase(String(c.name || "").trim()).replace(/\b(Ltd|Pvt|Llp)\b/g, m => m === "Llp" ? "LLP" : m), website: clean(c.website) || "", email: String(c.email || "").trim().toLowerCase(), phone: normPhone(c.phone) || "",
       address: clean(c.address) || "", city: clean(c.city) || "", cin: String(c.cin || "").replace(/\s/g, "").toUpperCase(), gstin: String(c.gstin || "").replace(/\s/g, "").toUpperCase(),
       sector_hint: clean(c.sector_hint) || "",
     };
     if (!/^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/.test(company.cin)) company.cin = "";
+    // No website printed: use the company e-mail domain (not for gmail / yahoo …)
+    if (!company.website) { const dom = domainOf(person.email || company.email, ""); if (dom) company.website = `www.${dom}`; }
     // Landline with no mobile on the card: if it's a mobile-format number, move it
     if (!person.mobile && /^\+91 [6-9]\d{4} \d{5}$/.test(person.landline)) { person.mobile = person.landline; person.landline = ""; }
     res.json({ fields: { person, company, confidence: Number(j.confidence) || null, notes: clean(j.notes) || "" }, matches: await findMatches(company, person) });

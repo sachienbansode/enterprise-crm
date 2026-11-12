@@ -24,6 +24,25 @@ async function shrink(file: File): Promise<string> {
   } finally { URL.revokeObjectURL(url); }
 }
 
+const SEP = "  ·  "; // pasted multi-line text (an e-mail signature) is shown on one line, split back into lines when read
+// Pick the CRM sector that fits the AI's hint / company name ("Private Equity", "Meridian Pharmaceuticals" …)
+const SECTOR_WORDS: [RegExp, string[]][] = [
+  [/pharma|health|hospital|diagnost|medic|life ?science/i, ["pharma", "health"]],
+  [/bank|financ|capital|securit|ventur|equity|invest|advis|broking|wealth|asset|insur|nbfc|fund/i, ["financ", "bfsi", "bank", "capital", "insur"]],
+  [/infra|construct|cement|engineer|epc/i, ["infra", "construct", "engineer"]],
+  [/power|energy|solar|renewable|oil|gas/i, ["energy", "power"]],
+  [/tech|software|digital|\bit\b|data|cloud|saas/i, ["tech", "it"]],
+  [/agro|agri|food|beverage|fmcg|consumer/i, ["agri", "food", "fmcg", "consumer"]],
+  [/real ?estate|propert|realty|housing/i, ["real estate", "realty"]],
+  [/auto|motor|vehicle/i, ["auto"]], [/textile|apparel|garment/i, ["textile"]], [/chemical/i, ["chemical"]],
+  [/logistic|shipping|transport/i, ["logistic"]], [/metal|steel|mining/i, ["metal", "steel", "mining"]], [/telecom|media/i, ["telecom", "media"]],
+];
+function guessSector(options: string[], text: string): string {
+  const t = text.toLowerCase().trim(); if (!t || !options.length) return "";
+  const direct = options.find(o => t.includes(o.toLowerCase()) || o.toLowerCase().includes(t)); if (direct) return direct;
+  for (const [re, keys] of SECTOR_WORDS) if (re.test(t)) { const hit = options.find(o => keys.some(k => o.toLowerCase().includes(k))); if (hit) return hit; }
+  return "";
+}
 const isPhone = () => { try { return window.matchMedia("(max-width: 767px)").matches; } catch { return false; } };
 
 const L = ({ label, req, children, hint }: any) => (
@@ -152,13 +171,18 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
         const r = await fetch("/api/cards/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: v }) });
         const d = await r.json().catch(() => ({}));
         if (r.ok) { p = d.person || {}; c = d.company || {}; m = d.matches; setSiteNote(d.description || ""); setWarn(`Company details read from ${new URL(d.url).hostname} — check them and add the contact person if you have one.`); }
-        else { c = { website: /^https?:/i.test(v) ? v : `https://${v}` }; setWarn(d.error || "Couldn't read that website — fill in the details below."); }
+        else { c = { website: /^https?:/i.test(v) ? v : `https://${v}` }; setWarn(d.error || (r.status === 404 ? "Website lookup isn't available on this server yet — the website is filled in; add the other details below." : "Couldn't read that website — the website is filled in; add the other details below.")); }
       } catch { c = { website: v }; setWarn("Couldn't reach the server — fill in the details below."); }
       finally { setLinkBusy(false); }
       setVia("link");
     } else {
-      const f = parseCardText(v); p = f.person; c = f.company; setVia("text");
-      setWarn("Filled from the pasted text — please check every field.");
+      const f = parseCardText(v.split(SEP).join("\n")); p = f.person; c = f.company; setVia("text");
+      const found = Object.keys(p).length + Object.keys(c).length > 0;
+      if (!found || (!v.includes(SEP) && !/[@\d]/.test(v) && v.split(/\s+/).length <= 6)) {
+        // A bare name ("niytri", "Lotus Infra") → treat it as the company name and look for it in the CRM
+        p = {}; c = { name: v.replace(/\b([a-z])/g, m => m.toUpperCase()) };
+        setWarn("Treated as a company name — pick the company if it's already in the CRM, or add its website for more details.");
+      } else setWarn("Filled from the pasted text — please check every field.");
     }
     const p2 = { ...person, ...p }, c2 = { ...company, ...c, name: c.name || company.name };
     setPerson(p2); setCompany(c2); setBad(!c2.name && !fixed ? "cname" : "");
@@ -221,7 +245,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
       const p = q ? { ...fillBlanks(p0, q.person), ...exact(q.person) } : p0;
       const c = q ? { ...fillBlanks(c0, q.company), ...exact(q.company) } : c0;
       const p2 = { ...person, ...p };
-      const c2 = { ...company, ...c, name: c.name || company.name, sector: sectors.find(s => c.sector_hint && s.toLowerCase().includes(String(c.sector_hint).toLowerCase())) || "" };
+      const c2 = { ...company, ...c, name: c.name || company.name, sector: guessSector(sectors, `${c.sector_hint || ""} ${c.name || ""}`) };
       setPerson(p2); setCompany(c2);
       if (confidence !== null && confidence < 0.7) setWarn("The photo was hard to read — please check the details.");
       if (q) {
@@ -320,11 +344,17 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
               <button onClick={() => { setErr(""); setStep("qr"); }} className="w-full py-3.5 rounded-xl border-2 border-sky-500/60 text-sky-700 dark:text-sky-300 bg-sky-500/5 text-sm font-semibold flex items-center justify-center gap-2"><QrCode className="w-5 h-5" /> Scan a QR code</button>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2.5 space-y-2">
                 <div className="text-[12px] font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" /> Or paste a link or contact details</div>
-                <textarea value={link} onChange={e => setLink(e.target.value)} rows={2} placeholder="Company website (www.example.com), LinkedIn profile link, or an e-mail signature"
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !link.includes("\n")) { e.preventDefault(); applyLink(); } }}
-                  className={`${input} ${ok} resize-none`} aria-label="Link or contact details" />
-                <button onClick={() => applyLink()} disabled={!link.trim() || linkBusy} className="w-full py-2.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
-                  {linkBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Reading the website…</> : <>Fill the details</>}</button>
+                <div className="flex gap-2">
+                  <input value={link} onChange={e => setLink(e.target.value)} type="text" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="go"
+                    placeholder="Website, LinkedIn link or company name"
+                    onPaste={e => { const t = e.clipboardData.getData("text"); if (/\r?\n/.test(t.trim())) { e.preventDefault(); setLink(t.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean).join(SEP)); } }}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyLink(); } }}
+                    className={`${input} ${ok} flex-1 min-w-0`} aria-label="Website, LinkedIn link, company name or pasted contact details" />
+                  <button onClick={() => applyLink()} disabled={!link.trim() || linkBusy} aria-label="Fill the details"
+                    className="px-4 rounded-xl bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap">
+                    {linkBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Reading…</> : <>Fill</>}</button>
+                </div>
+                <div className="text-[11px] text-gray-400">Tip: paste an e-mail signature too — it's read line by line.</div>
               </div>
               <button onClick={() => { setWarn(""); setStep("review"); }} className="w-full text-xs text-gray-500 dark:text-gray-400 underline">No card? Enter the details by hand</button>
             </>)}

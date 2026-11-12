@@ -20,6 +20,17 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+// Wait for PostgreSQL (e.g. after a server reboot the app can start before the database) — up to 2 minutes,
+// instead of crashing and letting PM2 restart it in a loop
+for (let attempt = 1; ; attempt++) {
+  try { await query("SELECT 1"); break; }
+  catch (e: any) {
+    if (attempt >= 24) throw e;
+    logger.warn({ attempt, code: e.code }, "Database not reachable yet — retrying in 5 s");
+    await new Promise(r => setTimeout(r, 5000));
+  }
+}
+
 // Seed with UAT data if the database is empty (no-op when data already exists)
 await seedIfEmpty();
 
