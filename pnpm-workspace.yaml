@@ -74,12 +74,16 @@ allowBuilds:
   esbuild: true
   msw: true
   unrs-resolver: true
+  tesseract.js: false   # its install script only prints a donation message
 
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
   - msw
   - unrs-resolver
+
+ignoredBuiltDependencies:
+  - tesseract.js
 
 overrides:
   # replit uses linux-x64 only, we can exclude all other platforms

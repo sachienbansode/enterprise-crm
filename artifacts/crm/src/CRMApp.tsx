@@ -24,6 +24,7 @@ import AdminPipelineStagesV2 from "./components/AdminPipelineStages";
 import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
 import GlobalSearch from "./components/GlobalSearch";
+import AboutPage from "./components/AboutPage";
 import { useOpenRequest } from "./lib/openRecord";
 import { useAppSettings, saveAppSettings } from "./lib/appSettings";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
@@ -57,7 +58,7 @@ const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 // If logo.png is missing, fall back to the bundled favicon instead of a broken image
 const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
-type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar"
+type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about"
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
@@ -2455,6 +2456,9 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
               <button title="My Calendar" onClick={() => { setIsAdmin(false); nav(null, "calendar"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "calendar" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
                 <Calendar className="w-4 h-4 flex-shrink-0" />{open && <span>My Calendar</span>}
               </button>
+              <button title="About & What's New" onClick={() => { setIsAdmin(false); nav(null, "about"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "about" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
+                <Info className="w-4 h-4 flex-shrink-0" />{open && <span>About & What's New</span>}
+              </button>
             </div>
           )}
         </div>
@@ -2554,6 +2558,38 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
 }
 
 // ─── HEADER ───────────────────────────────────────────────────────────────────
+function HeaderMoreMenu({ isDark, t, onQuickLog, onAI, onTheme, onPII, piiCount, unit, setUnit }: any) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
+  const item = `w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm ${t.text} ${isDark ? "hover:bg-gray-800" : "hover:bg-slate-100"}`;
+  const pick = (fn: () => void) => () => { setOpen(false); fn(); };
+  return (
+    <div ref={ref} className="relative xl:hidden">
+      <button onClick={() => setOpen(o => !o)} aria-label="More actions" aria-expanded={open} className={`relative p-2 rounded-lg ${isDark ? "bg-gray-800 text-gray-300 hover:bg-gray-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+        <MoreHorizontal className="w-4 h-4" />
+        {piiCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500" />}
+      </button>
+      {open && (
+        <div className={`absolute right-0 top-full mt-1.5 w-60 rounded-xl border shadow-2xl z-[80] p-1.5 ${isDark ? "bg-gray-900 border-gray-700" : "bg-white border-slate-200"} animate-in fade-in zoom-in-95 duration-150`}>
+          <button onClick={pick(onQuickLog)} className={item}><Mic className="w-4 h-4 text-violet-500" /> Quick Log</button>
+          <button onClick={pick(onAI)} className={item}><Sparkles className="w-4 h-4 text-violet-500" /> NIYTRI AI</button>
+          <button onClick={pick(onPII)} className={item}><KeyRound className="w-4 h-4 text-amber-500" /> Access Requests{piiCount > 0 && <span className="ml-auto text-[11px] font-bold text-amber-500">{piiCount}</span>}</button>
+          <button onClick={pick(onTheme)} className={item}>{isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />} {isDark ? "Light Mode" : "Dark Mode"}</button>
+          <div className="lg:hidden px-3 pt-2 pb-1">
+            <div className={`text-[11px] ${t.textMuted} mb-1`}>Show Amounts In</div>
+            <div className="grid grid-cols-4 gap-1">
+              {([["rupee", "₹"], ["lakh", "L"], ["million", "M"], ["crore", "Cr"]] as const).map(([u, l]) => (
+                <button key={u} onClick={() => setUnit(u)} className={`py-1.5 rounded-md text-xs font-bold ${unit === u ? "bg-blue-600 text-white" : `${t.textMuted} ${isDark ? "bg-gray-800" : "bg-slate-100"}`}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage, isDark, setIsDark, t, loggedUser, onNavAI, onPIIRequests, piiPendingCount, currUnit, setCurrUnit }: any) {
   const vInfo = activeV ? VERTICALS.find((v: any) => v.id === activeV) : null;
   const ADMIN_PAGE_LABELS: Record<string, string> = {
@@ -2576,7 +2612,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-dropdown-config":   "Dropdown Values",
     "admin-pipeline-stages":   "Pipeline Stages",
     "admin-pii-masking":       "PII Data Masking",
-    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar",
+    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar", about: "About & What's New",
   };
   const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || (activeV ? SUBMENU.find(s => s.id === activePage)?.label : null)
     || ADMIN_PAGE_LABELS[activePage] || SUBMENU.find(s => s.id === activePage)?.label
@@ -2594,23 +2630,23 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
       <div className="hidden md:flex items-center gap-1.5 text-xs min-w-0">
         {vInfo ? (
           <>
-            <span className={`${t.textMuted} hidden sm:inline`}>NIYTRI CRM</span>
-            <ChevronRight className={`w-3 h-3 ${t.textMuted} hidden sm:block`} />
+            <span className={`${t.textMuted} hidden xl:inline`}>NIYTRI CRM</span>
+            <ChevronRight className={`w-3 h-3 ${t.textMuted} hidden xl:block`} />
             <span className={`font-semibold ${verticalAccent(vInfo.id)} truncate uppercase tracking-wide`}>{vInfo.label}</span>
             {activePage !== "dashboard" && <><ChevronRight className={`w-3 h-3 ${t.textMuted}`} /><span className={`${t.textSub} truncate hidden sm:inline`}>{pageLabel}</span></>}
           </>
         ) : (
           <>
-            <span className={`${t.textMuted} hidden sm:inline`}>NIYTRI CRM</span>
-            <ChevronRight className={`w-3 h-3 ${t.textMuted} hidden sm:block`} />
+            <span className={`${t.textMuted} hidden xl:inline`}>NIYTRI CRM</span>
+            <ChevronRight className={`w-3 h-3 ${t.textMuted} hidden xl:block`} />
             <span className={`font-semibold ${t.text} truncate`}>{pageLabel || "Dashboard"}</span>
           </>
         )}
       </div>
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2.5">
         <GlobalSearch isDark={isDark} className={`hidden sm:block ${t.text}`} />
-        {/* Currency unit selector */}
-        <div className={`hidden sm:flex items-center rounded-lg border ${t.border} overflow-hidden`} title="Display currency unit">
+        {/* Currency unit selector (in the ⋯ menu on tablet-width windows) */}
+        <div className={`hidden md:hidden lg:flex items-center rounded-lg border ${t.border} overflow-hidden`} title="Display currency unit">
           {(["₹", "L", "M", "Cr"] as const).map((lbl, i) => {
             const units = ["rupee", "lakh", "million", "crore"];
             const unit = units[i];
@@ -2635,6 +2671,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             <ScanIcon className="w-4 h-4" />
           </button>
         </Tip>
+        <div className="hidden xl:flex items-center gap-2.5">
         <Tip label="Quick Log — speak or type a call / meeting note">
           <button onClick={() => openQuickLog({})} aria-label="Quick Log" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-violet-300 hover:bg-gray-700" : "bg-slate-100 text-violet-700 hover:bg-slate-200"} transition-colors`}>
             <Mic className="w-4 h-4" />
@@ -2656,6 +2693,10 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             {piiPendingCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold flex items-center justify-center">{piiPendingCount > 9 ? "9+" : piiPendingCount}</span>}
           </button>
         </Tip>
+        </div>
+        {/* Tablet-width windows: the same actions in one menu */}
+        <HeaderMoreMenu isDark={isDark} t={t} onQuickLog={() => openQuickLog({})} onAI={onNavAI} onTheme={() => setIsDark(!isDark)} onPII={onPIIRequests}
+          piiCount={piiPendingCount} unit={currUnit} setUnit={setCurrUnit} />
         </div>
         <NotificationBell loggedUser={loggedUser} t={t} />
         <MeetingReminders email={loggedUser?.email} apiBase={API_BASE} />
@@ -2781,7 +2822,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
                   <tr key={c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)} className={`border-b ${t.border} last:border-0 ${t.rowHover} cursor-pointer text-xs ${selected?.id === c.id ? (isDark ? "bg-blue-950/40" : "bg-blue-50") : ""}`}>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <code className="text-blue-400 font-mono text-[10px]">{c.client_code}</code>
+                        <code className="text-blue-400 font-mono text-[10px] whitespace-nowrap">{c.client_code}</code>
                         <button onClick={e => { e.stopPropagation(); copyText(c.client_code, `Copied ${c.client_code}`); }} className={`${t.textMuted} hover:text-blue-500 p-1 -m-1 rounded`} title="Copy client code" aria-label={`Copy ${c.client_code}`}><Copy className="w-3 h-3" /></button>
                       </div>
                     </td>
@@ -8228,7 +8269,7 @@ export function CRMApp() {
   const [loginEmail, setLoginEmail] = useState("");
   const [activeV, setActiveV] = useState<Vertical>(null);
   const [activePage, setActivePage] = useState<Page>("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1100); // tablets start with the slim sidebar
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("niytri_theme") !== "light"; } catch { return true; } });
   const [currUnit, setCurrUnitState] = useState<string>(getUnit());
@@ -8540,6 +8581,7 @@ export function CRMApp() {
     if (!activeV && activePage === "clients")  return <ClientsModule t={t} loggedUser={loggedUser} />;
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
+    if (!activeV && activePage === "about") return <AboutPage t={t} isDark={darkMode} />;
     if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
     // Hidden vertical or hidden module (Admin → Verticals Config) — never render it, even via a saved link
     if (!VERTICALS.some(v => v.id === activeV) || !moduleVisible(activeV, activePage)) {

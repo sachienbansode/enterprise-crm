@@ -102,7 +102,8 @@ cardsRouter.post("/scan", async (req, res) => {
   if (!front) return res.status(400).json({ error: "Send a JPEG or PNG photo of the card (up to 8 MB)." });
   const back = req.body?.back ? decodeImage(req.body.back) : null;
   try {
-    const text = await aiVision(SYSTEM, back ? "Front and back of one business card." : "Read this business card.", [front, ...(back ? [back] : [])]);
+    const engine: { provider?: string; model?: string; fallback?: boolean } = {};
+    const text = await aiVision(SYSTEM, back ? "Front and back of one business card." : "Read this business card.", [front, ...(back ? [back] : [])], engine);
     if (text === null) return res.status(409).json({ error: "The AI Assistant isn't switched on, so the card can't be read automatically — fill in the details below. An admin can turn it on under Administration → LLM Settings.", code: "AI_OFF" });
     const j = parseJson(text);
     if (!j) return res.status(502).json({ error: "Couldn't read the card — try again with the card flat, filling the frame, in good light." });
@@ -122,7 +123,7 @@ cardsRouter.post("/scan", async (req, res) => {
     if (!company.website) { const dom = domainOf(person.email || company.email, ""); if (dom) company.website = `www.${dom}`; }
     // Landline with no mobile on the card: if it's a mobile-format number, move it
     if (!person.mobile && /^\+91 [6-9]\d{4} \d{5}$/.test(person.landline)) { person.mobile = person.landline; person.landline = ""; }
-    res.json({ fields: { person, company, confidence: Number(j.confidence) || null, notes: clean(j.notes) || "" }, matches: await findMatches(company, person) });
+    res.json({ fields: { person, company, confidence: Number(j.confidence) || null, notes: clean(j.notes) || "" }, engine, matches: await findMatches(company, person) });
   } catch (e: any) {
     console.error("[cards] scan failed:", e.message);
     const msg = /401|invalid.*key|authentication/i.test(e.message) ? "The AI provider rejected the API key — an admin can check it under Administration → LLM Settings."

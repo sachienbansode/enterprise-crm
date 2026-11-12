@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Camera, Image as ImageIcon, RefreshCw, CheckCircle2, AlertTriangle, Building2, User, Plus, ScanLine, RotateCcw, ArrowLeft, QrCode, Link2 } from "lucide-react";
+import { X, Camera, Image as ImageIcon, RefreshCw, CheckCircle2, AlertTriangle, Building2, User, Plus, ScanLine, RotateCcw, ArrowLeft, QrCode, Link2, Sparkles, Cpu, Globe, Type } from "lucide-react";
 import { ocrCard, parseCardText } from "../lib/cardOcr";
 import { decodeQR, decodeQRFromDataUrl, parseContactQR, QR_KIND_LABEL, type QrResult } from "../lib/qr";
 
@@ -65,6 +65,8 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   const [readMsg, setReadMsg] = useState("Reading the card…");
   const [ocrUsed, setOcrUsed] = useState(false);       // fields came from on-device OCR (no AI)
   const [ocrText, setOcrText] = useState("");
+  // How the draft was filled — shown on the review screen (AI model, on-device OCR, QR code, website, pasted text)
+  const [readBy, setReadBy] = useState<{ kind: "ai" | "ocr" | "qr" | "web" | "text" | "name"; label: string; conf?: number | null } | null>(null);
   const [link, setLink] = useState(""); const [linkBusy, setLinkBusy] = useState(false);
   const [via, setVia] = useState<"" | "link" | "text">("");   // draft filled from a pasted website link / pasted text
   const [siteNote, setSiteNote] = useState("");
@@ -76,7 +78,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
 
   useEffect(() => {
     if (!open) return;
-    setStep(defaults?.mode === "qr" ? "qr" : "capture"); setLink(""); setVia(""); setSiteNote(""); setFull(!isPhone()); setVert(defaults?.vertical || defaults?.verticals?.[0]?.id || "ib"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
+    setStep(defaults?.mode === "qr" ? "qr" : "capture"); setReadBy(null); setLink(""); setVia(""); setSiteNote(""); setFull(!isPhone()); setVert(defaults?.vertical || defaults?.verticals?.[0]?.id || "ib"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
     setPerson({ name: "", designation: "", role_type: "Management", mobile: "", landline: "", email: "", linkedin: "" });
     setCompany({ name: defaults?.client_name || "", website: "", phone: "", email: "", address: "", city: "", cin: "", sector: "" });
     setMatches({ companies: defaults?.client_id ? [{ id: defaults.client_id, name: defaults.client_name, why: "Opened from this company" }] : [], people: [] });
@@ -149,6 +151,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
     const q = parseContactQR(text);
     if (q.kind === "url" && q.company.website) { await applyLink(q.company.website); setQr(q); return; } // website QR → read the company's site
     setQr(q); setErr("");
+    setReadBy(r => r?.kind === "text" ? r : { kind: "qr", label: q.kind === "linkedin" ? "LinkedIn link" : "QR code — read exactly, no AI" });
     const gotSomething = Object.keys(q.person).length + Object.keys(q.company).length > 0;
     const p2 = { ...person, ...q.person }, c2 = { ...company, ...q.company, name: q.company.name || company.name };
     setPerson(p2); setCompany(c2);
@@ -174,15 +177,15 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
         else { c = { website: /^https?:/i.test(v) ? v : `https://${v}` }; setWarn(d.error || (r.status === 404 ? "Website lookup isn't available on this server yet — the website is filled in; add the other details below." : "Couldn't read that website — the website is filled in; add the other details below.")); }
       } catch { c = { website: v }; setWarn("Couldn't reach the server — fill in the details below."); }
       finally { setLinkBusy(false); }
-      setVia("link");
+      setVia("link"); setReadBy({ kind: "web", label: `Website — ${(() => { try { return new URL(/^https?:/i.test(v) ? v : `https://${v}`).hostname; } catch { return v; } })()}` });
     } else {
       const f = parseCardText(v.split(SEP).join("\n")); p = f.person; c = f.company; setVia("text");
       const found = Object.keys(p).length + Object.keys(c).length > 0;
       if (!found || (!v.includes(SEP) && !/[@\d]/.test(v) && v.split(/\s+/).length <= 6)) {
         // A bare name ("niytri", "Lotus Infra") → treat it as the company name and look for it in the CRM
-        p = {}; c = { name: v.replace(/\b([a-z])/g, m => m.toUpperCase()) };
+        p = {}; c = { name: v.replace(/\b([a-z])/g, m => m.toUpperCase()) }; setReadBy({ kind: "name", label: "Company name — matched against the CRM" });
         setWarn("Treated as a company name — pick the company if it's already in the CRM, or add its website for more details.");
-      } else setWarn("Filled from the pasted text — please check every field.");
+      } else { setWarn("Filled from the pasted text — please check every field."); setReadBy({ kind: "text", label: "Pasted text — read on this device, no AI" }); }
     }
     const p2 = { ...person, ...p }, c2 = { ...company, ...c, name: c.name || company.name };
     setPerson(p2); setCompany(c2); setBad(!c2.name && !fixed ? "cname" : "");
@@ -210,7 +213,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   };
 
   const read = async (frontImg: string = front) => {
-    setStep("reading"); setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText("");
+    setStep("reading"); setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText(""); setReadBy(null);
     // A QR printed on the card (frontImg or back) is read exactly — its e-mail / phone / LinkedIn win over the AI reading
     const qrText = decodeQRFromDataUrl(frontImg).then(t => t || (back ? decodeQRFromDataUrl(back) : null)).catch(() => null);
     try {
@@ -236,6 +239,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
         const c = q ? { ...fillBlanks(o.company, q.company), ...exact(q.company) } : o.company;
         const p2 = { ...person, ...p }, c2 = { ...company, ...c, name: c.name || company.name };
         setPerson(p2); setCompany(c2); setOcrUsed(true); setOcrText(o.text || "");
+        setReadBy({ kind: "ocr", label: `On-device OCR — no AI${q ? " + QR code" : ""}`, conf: o.confidence });
         setWarn(`Read on this device without AI${d.code === "AI_OFF" ? "" : " (the AI couldn't be reached)"} — please check every field before approving.`);
         setBad(!p2.name ? "pname" : !c2.name && !fixed ? "cname" : "");
         const m = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }).then(x => x.json()).catch(() => null);
@@ -248,6 +252,9 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
       const c2 = { ...company, ...c, name: c.name || company.name, sector: guessSector(sectors, `${c.sector_hint || ""} ${c.name || ""}`) };
       setPerson(p2); setCompany(c2);
       if (confidence !== null && confidence < 0.7) setWarn("The photo was hard to read — please check the details.");
+      const PROV: Record<string, string> = { openai: "OpenAI", azure: "Azure OpenAI", anthropic: "Claude", gemini: "Gemini", custom: "AI" };
+      const e = d.engine || {};
+      setReadBy({ kind: "ai", label: `AI — ${PROV[e.provider] || e.provider || "LLM"}${e.model ? ` ${e.model}` : ""}${e.fallback ? " (backup model)" : ""}${q ? " + QR code" : ""}`, conf: confidence });
       if (q) {
         const m = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }).then(x => x.json()).catch(() => d.matches);
         applyMatches(m);
@@ -362,6 +369,13 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
 
           {(step === "review" || step === "saving") && (<>
             {front && <img src={front} alt="Card" className="w-full max-h-40 object-contain rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900" />}
+            {readBy && (
+              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-medium ${readBy.kind === "ai" ? "bg-violet-500/10 text-violet-700 dark:text-violet-300" : readBy.kind === "ocr" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-sky-500/10 text-sky-700 dark:text-sky-300"}`}>
+                {readBy.kind === "ai" ? <Sparkles className="w-4 h-4 flex-shrink-0" /> : readBy.kind === "ocr" ? <Cpu className="w-4 h-4 flex-shrink-0" /> : readBy.kind === "qr" ? <QrCode className="w-4 h-4 flex-shrink-0" /> : readBy.kind === "web" ? <Globe className="w-4 h-4 flex-shrink-0" /> : <Type className="w-4 h-4 flex-shrink-0" />}
+                <span className="flex-1 min-w-0 truncate">Read by: {readBy.label}</span>
+                {readBy.conf != null && <span className="text-[11px] opacity-80 whitespace-nowrap">{Math.round(Number(readBy.conf) * 100)}% sure</span>}
+              </div>
+            )}
             {ocrUsed && ocrText.trim() && (
               <details className="rounded-xl px-3 py-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 text-[13px]">
                 <summary className="cursor-pointer font-medium">Text read from the card — copy anything that was missed</summary>

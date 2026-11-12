@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Search, X, User, TrendingUp, Briefcase, MessageSquare, Loader2 } from "lucide-react";
 import { openRecord, type RecordKind } from "../lib/openRecord";
 import { fmtINRStr } from "../lib/money";
@@ -14,6 +14,19 @@ export default function GlobalSearch({ isDark, className = "", wide = false }: {
   const [open, setOpen] = useState(false);
   const [act, setAct] = useState(0);
   const box = useRef<HTMLDivElement>(null), inp = useRef<HTMLInputElement>(null);
+  // Results panel is placed on screen (fixed): never runs off the left edge or under the sidebar on narrow windows
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const place = () => {
+    const r = box.current?.getBoundingClientRect(); if (!r) return;
+    const vw = window.innerWidth, width = wide ? r.width : Math.min(420, vw - 16);
+    const left = wide ? r.left : Math.max(8, Math.min(r.left, vw - width - 8));
+    setPos({ left, top: r.bottom + 6, width });
+  };
+  useLayoutEffect(() => {
+    if (!open) return; place();
+    window.addEventListener("resize", place); window.addEventListener("scroll", place, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
+  }, [open, hits]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inp.current?.focus(); setOpen(true); } };
@@ -62,7 +75,8 @@ export default function GlobalSearch({ isDark, className = "", wide = false }: {
         {q && <button onClick={() => { setQ(""); setHits(null); }} aria-label="Clear search" className="opacity-60 hover:opacity-100"><X className="w-3 h-3" /></button>}
       </div>
       {open && hits && (
-        <div className={`absolute right-0 top-full mt-1.5 ${wide ? "left-0 w-auto" : "w-[380px]"} max-w-[92vw] max-h-[70vh] overflow-y-auto rounded-xl border shadow-2xl z-[60] ${panel} animate-in fade-in zoom-in-95 duration-150`}>
+        <div style={pos ? { position: "fixed", left: pos.left, top: pos.top, width: pos.width } : undefined}
+          className={`${pos ? "" : "absolute left-0 top-full mt-1.5 w-[380px]"} max-w-[calc(100vw-16px)] max-h-[70vh] overflow-y-auto rounded-xl border shadow-2xl z-[80] ${panel} animate-in fade-in zoom-in-95 duration-150`}>
           {!flat.length && <div className="px-4 py-6 text-center text-xs opacity-60">No matches for "{q.trim()}"</div>}
           {groups.map(g => { const [title, Icon] = label[g.k]; return (
             <div key={g.k} className="py-1">

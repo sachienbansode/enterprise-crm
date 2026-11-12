@@ -510,7 +510,7 @@ export async function aiComplete(system: string, user: string): Promise<string |
 /** Vision call (business-card reading etc.). images = [{ mime, b64 }].
  *  Uses the configured LLM (Anthropic / Gemini / OpenAI / Azure OpenAI — all vision-capable models), with the fallback LLM on failure.
  *  Returns null when the AI Assistant is disabled or has no key. */
-export async function aiVision(system: string, prompt: string, images: { mime: string; b64: string }[]): Promise<string | null> {
+export async function aiVision(system: string, prompt: string, images: { mime: string; b64: string }[], meta?: { provider?: string; model?: string; fallback?: boolean }): Promise<string | null> {
   const r = await query("SELECT * FROM ai_config LIMIT 1");
   const config = r.rows[0];
   if (!config?.enabled || !config?.api_key) return null;
@@ -553,10 +553,12 @@ export async function aiVision(system: string, prompt: string, images: { mime: s
     if (!resp.ok || !text) throw new Error(`${cfg.provider || "openai"} ${resp.status}: ${d.error?.message || "no content"}`);
     return text;
   };
-  try { return await one(config, decrypt(config.api_key)); }
+  try { const t = await one(config, decrypt(config.api_key)); if (meta) Object.assign(meta, { provider: config.provider, model: config.model, fallback: false }); return t; }
   catch (e: any) {
     if (!config.fallback_enabled || !config.fallback_provider || !config.fallback_api_key) throw e;
-    return one({ ...config, provider: config.fallback_provider, model: config.fallback_model, endpoint_url: config.fallback_endpoint_url || null }, decrypt(config.fallback_api_key));
+    const t = await one({ ...config, provider: config.fallback_provider, model: config.fallback_model, endpoint_url: config.fallback_endpoint_url || null }, decrypt(config.fallback_api_key));
+    if (meta) Object.assign(meta, { provider: config.fallback_provider, model: config.fallback_model, fallback: true });
+    return t;
   }
 }
 
