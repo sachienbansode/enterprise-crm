@@ -166,4 +166,26 @@ router.delete("/pipeline-stages/:id", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── App-wide options (anyone signed in reads; admins change — writes are admin-only via index.ts) ──
+const APP_SETTING_KEYS: Record<string, "boolean"> = { show_probability: "boolean" };
+router.get("/app-settings", async (_req, res) => {
+  try {
+    const r = await query("SELECT key, value FROM app_settings");
+    const out: Record<string, any> = { show_probability: true };
+    for (const row of r.rows) if (row.key in APP_SETTING_KEYS) out[row.key] = row.value;
+    res.json(out);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.put("/app-settings", async (req, res) => {
+  try {
+    for (const [k, v] of Object.entries(req.body || {})) {
+      if (!(k in APP_SETTING_KEYS) || typeof v !== APP_SETTING_KEYS[k]) continue;
+      await query(`INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ($1, $2::jsonb, $3, NOW())
+                   ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by, updated_at=NOW()`, [k, JSON.stringify(v), req.user?.name || null]);
+    }
+    const r = await query("SELECT key, value FROM app_settings");
+    res.json(Object.fromEntries(r.rows.map((x: any) => [x.key, x.value])));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

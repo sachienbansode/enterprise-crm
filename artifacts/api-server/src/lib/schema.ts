@@ -91,6 +91,35 @@ export async function ensureAppSchema() {
        updated_by varchar(255), updated_at timestamptz DEFAULT now()
      )`,
     "INSERT INTO speech_config (id) VALUES (1) ON CONFLICT DO NOTHING",
+    // App-wide options (Admin → Pipeline Stages → Options)
+    "CREATE TABLE IF NOT EXISTS app_settings (key varchar(60) PRIMARY KEY, value jsonb NOT NULL, updated_by varchar(255), updated_at timestamptz DEFAULT now())",
+    `INSERT INTO app_settings (key, value) VALUES ('show_probability', 'true') ON CONFLICT DO NOTHING`,
+    // IB Phase 2 — mandate milestones, investor database, roadshow / NDR meetings
+    `CREATE TABLE IF NOT EXISTS deal_milestones (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), deal_id uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+       title varchar(200) NOT NULL, sort_order integer DEFAULT 0, due_date date, status varchar(20) DEFAULT 'Pending',
+       owner_name varchar(120), notes text, done_at timestamptz,
+       created_by uuid, created_by_name varchar(255), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS ix_deal_milestones_deal ON deal_milestones (deal_id)",
+    `CREATE TABLE IF NOT EXISTS investors (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar(200) NOT NULL, investor_type varchar(40) DEFAULT 'Other',
+       city varchar(80), country varchar(60) DEFAULT 'India', aum_cr numeric, ticket_min_cr numeric, ticket_max_cr numeric,
+       sectors text[] DEFAULT '{}', deal_types text[] DEFAULT '{}',
+       contact_name varchar(120), contact_designation varchar(120), contact_email varchar(160), contact_phone varchar(40), website varchar(200),
+       relationship varchar(10) DEFAULT 'Warm', notes text, is_active boolean DEFAULT true,
+       created_by uuid, created_by_name varchar(255), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS ix_investors_name ON investors (lower(name))",
+    `CREATE TABLE IF NOT EXISTS roadshow_meetings (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), deal_id uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+       investor_id uuid NOT NULL REFERENCES investors(id), meeting_date timestamptz, mode varchar(30) DEFAULT 'One-on-one',
+       location varchar(160), attendees text, status varchar(20) DEFAULT 'Planned', interest varchar(20) DEFAULT 'Not yet known',
+       indicative_cr numeric, feedback text, next_step text,
+       created_by uuid, created_by_name varchar(255), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS ix_roadshow_deal ON roadshow_meetings (deal_id)",
+    "CREATE INDEX IF NOT EXISTS ix_roadshow_investor ON roadshow_meetings (investor_id)",
     // Convert to Deal keeps the link between an opportunity and the deal created from it
     "ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_id uuid",
     "CREATE INDEX IF NOT EXISTS idx_deals_lead ON deals (lead_id)",

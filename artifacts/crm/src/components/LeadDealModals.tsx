@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { X, Maximize2, Minimize2, TrendingUp, Briefcase, Search, AlertCircle, ArrowRight, Flag, IndianRupee, User, ArrowLeft, ChevronRight, Layers, FileText } from "lucide-react";
 import { DEAL_KINDS, kindOf, type DealKind, type KindField } from "./dealKinds";
 import { StageFlowPrompt } from "./StagePath";
+import { useAppSettings } from "../lib/appSettings";
 
 
 
@@ -282,6 +283,7 @@ const BLANK_LEAD = {
 
 export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLead, currentUser, apiBase = "", defaultClientId, defaultClientName }: LeadModalProps) {
   const isIB = verticalId === "ib"; // Investment Banking / ECM opportunity fields
+  const { show_probability } = useAppSettings();
   const [oppTypes, setOppTypes] = useState<string[]>([]);
   const [lostReasons, setLostReasons] = useState<string[]>([]);
   const [form, setForm] = useState({ ...BLANK_LEAD });
@@ -499,7 +501,7 @@ export function LeadModal({ open, onClose, onSaved, vertical, verticalId, editLe
             <input type="date" value={form.expected_close} onChange={e => set("expected_close", e.target.value)} className={inputCls} />
           </F>
         )}
-        {isIB && (
+        {isIB && show_probability && (
           <F label={`Probability — ${form.probability === "" ? "auto from stage" : `${form.probability}%`}`} span2>
             <div className="flex items-center gap-3">
               <input type="range" min={0} max={100} step={5} value={form.probability === "" ? 0 : Number(form.probability)}

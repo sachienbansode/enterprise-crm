@@ -190,7 +190,7 @@ async function callProvider(config: any, apiKey: string, system: string, rawMess
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: config.model || "claude-3-5-sonnet-20241022", max_tokens: maxTokens, temperature, system, messages }),
+      body: JSON.stringify({ model: config.model || "claude-sonnet-5-5", max_tokens: maxTokens, temperature, system, messages }),
     });
     const d: any = await r.json().catch(() => ({}));
     const text = (d.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
@@ -518,7 +518,7 @@ export async function aiVision(system: string, prompt: string, images: { mime: s
     if (cfg.provider === "anthropic") {
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: cfg.model || "claude-3-5-sonnet-20241022", max_tokens: 2048, temperature: 0, system,
+        body: JSON.stringify({ model: cfg.model || "claude-sonnet-5-5", max_tokens: 2048, temperature: 0, system,
           messages: [{ role: "user", content: [...images.map(i => ({ type: "image", source: { type: "base64", media_type: i.mime, data: i.b64 } })), { type: "text", text: prompt }] }] }),
       });
       const d: any = await resp.json().catch(() => ({}));

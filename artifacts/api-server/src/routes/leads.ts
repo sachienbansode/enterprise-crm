@@ -3,12 +3,23 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
 import { checkStageMove, noteStageChange, stageLabelOf } from "../lib/stageFlow";
-import { visibleNames, visibleIds } from "../lib/visibility";
+import { visibleNames, visibleIds, ownRecordsUserId } from "../lib/visibility";
 
 
 const router = Router();
 
 // GET /api/leads — list with filters and pagination
+// Junior RM: only their own records — any /:id route on someone else's record answers "not found"
+router.param("id", async (req, res, next, id) => {
+  const own = ownRecordsUserId();
+  if (!own || !/^[0-9a-f-]{36}$/i.test(String(id))) return next();
+  try {
+    const r = await query("SELECT 1 FROM leads WHERE id=$1 AND (assigned_rm_id=$2 OR created_by=$2)", [id, own]);
+    if (!r.rows.length) return res.status(404).json({ error: "Not found, or not one of your records" });
+    next();
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.get("/", async (req, res) => {
   try {
     const { vertical, stage, priority, status, search, client_id, sort_by = "created_at_desc", page = "1", limit = "50" } = req.query as Record<string, string>;
@@ -19,6 +30,8 @@ router.get("/", async (req, res) => {
     let where = "WHERE 1=1";
     const params: any[] = [];
     params.push(await visibleNames("leads")); where += ` AND l.vertical = ANY($${params.length})`; // hidden verticals/modules
+    const own = ownRecordsUserId(); // Junior RM: own records only
+    if (own) { params.push(own); where += ` AND (l.assigned_rm_id = $${params.length} OR l.created_by = $${params.length})`; }
 
     if (vertical) { params.push(vertical); where += ` AND l.vertical = $${params.length}`; }
     if (stage) { params.push(stage); where += ` AND l.stage = $${params.length}`; }

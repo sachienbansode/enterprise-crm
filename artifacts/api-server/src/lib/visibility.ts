@@ -5,7 +5,19 @@ import { query } from "./db";
 // users.vertical = "All" (everything) or one or more verticals ("Investment Banking" / "ib", comma-separated).
 // The signed-in user is kept for the duration of each request, so every list, dashboard, export and AI
 // query below is limited to the user's verticals without each route having to pass the user around.
-export const requestUser = new AsyncLocalStorage<{ role?: string; vertical?: string } | undefined>();
+export const requestUser = new AsyncLocalStorage<{ id?: string; role?: string; vertical?: string } | undefined>();
+
+// ── Role limits ──
+/** Roles that can look at everything in their verticals but change nothing (server refuses writes). */
+export const READ_ONLY_ROLE = /^(compliance( officer)?|business head|auditor|read[- ]?only|viewer)$/i;
+export const isReadOnlyRole = (role?: string) => READ_ONLY_ROLE.test(String(role || "").trim());
+/** Roles that see only their own opportunities, deals and service requests (assigned to them or created by them). */
+export const OWN_RECORDS_ROLE = /^(junior rm|jr\.? rm|relationship executive|trainee rm)$/i;
+/** The signed-in user's id when their role is limited to their own records; otherwise null (no limit). */
+export function ownRecordsUserId(): string | null {
+  const u = requestUser.getStore();
+  return u?.id && OWN_RECORDS_ROLE.test(String(u.role || "").trim()) ? u.id : null;
+}
 export function userVerticalIds(u?: { role?: string; vertical?: string }): string[] | null {
   if (!u) return null;                                            // background jobs: no limit
   if (/super admin/i.test(u.role || "")) return null;

@@ -57,7 +57,7 @@ Grant-CsApplicationAccessPolicy -PolicyName "NIYTRI-CRM-Meetings" -Global`;
 
       <div className={card}>
         <div className={`text-sm font-semibold ${t.text} flex items-center gap-2`}><Mic className="w-4 h-4" /> In-person recordings — Azure AI Speech</div>
-        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="Transcribe recordings" sub="Tried in order: Azure AI Speech (speakers separated by voice) → free Groq Whisper → the LLM provider's key. If one isn't set up or fails, the next is used." />
+        <Toggle on={c.enabled} onClick={() => save({ enabled: !c.enabled })} label="AI transcription" sub={c.enabled ? "On — tried in order: Azure AI Speech (speakers separated by voice) → free Groq Whisper → the LLM provider's key. If one isn't set up or fails, the next is used." : "Off — meetings are still recorded and the audio kept, but no audio is sent to any AI service. Users add their own notes. Switch on to get transcripts, speakers and summaries."} />
         <div>
           <label className={`block text-xs ${t.textMuted} mb-1`}>Endpoint — Azure portal → your Speech resource → Keys and Endpoint (choose the Central India region for data residency)</label>
           <div className="flex gap-2">

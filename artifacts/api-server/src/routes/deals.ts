@@ -2,7 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
 import { checkStageMove, noteStageChange, stageLabelOf } from "../lib/stageFlow";
-import { visibleNames, visibleIds } from "../lib/visibility";
+import { visibleNames, visibleIds, ownRecordsUserId } from "../lib/visibility";
 
 
 // "₹4,800 Cr" / "₹85 L" / "12 M" / "50000000" → rupees, so value sorts numerically (text sort put ₹500 Cr above ₹1,200 Cr)
@@ -20,6 +20,17 @@ export async function nextDealCode(vertical: string): Promise<string> {
 
 const router = Router();
 
+// Junior RM: only their own records — any /:id route on someone else's record answers "not found"
+router.param("id", async (req, res, next, id) => {
+  const own = ownRecordsUserId();
+  if (!own || !/^[0-9a-f-]{36}$/i.test(String(id))) return next();
+  try {
+    const r = await query("SELECT 1 FROM deals WHERE id=$1 AND (rm_id=$2 OR created_by=$2)", [id, own]);
+    if (!r.rows.length) return res.status(404).json({ error: "Not found, or not one of your records" });
+    next();
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/deals — list with filters and pagination
 router.get("/", async (req, res) => {
   try {
@@ -31,6 +42,8 @@ router.get("/", async (req, res) => {
     let where = "WHERE 1=1";
     const params: any[] = [];
     params.push(await visibleNames("deals")); where += ` AND d.vertical = ANY($${params.length})`; // hidden verticals/modules
+    const own = ownRecordsUserId(); // Junior RM: own records only
+    if (own) { params.push(own); where += ` AND (d.rm_id = $${params.length} OR d.created_by = $${params.length})`; }
 
     if (vertical) { params.push(vertical); where += ` AND d.vertical = $${params.length}`; }
     if (stage) { params.push(stage); where += ` AND d.stage = $${params.length}`; }

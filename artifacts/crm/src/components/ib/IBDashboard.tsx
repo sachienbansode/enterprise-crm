@@ -1,6 +1,7 @@
 import { fmtINR, fmtAxisINR, useCurrUnit } from "../../lib/money";
 import { useEffect, useState } from "react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { useAppSettings } from "../../lib/appSettings";
 import { CalendarClock, AlertTriangle, CheckSquare, Star, RefreshCw, Mic, TrendingUp, ArrowRight } from "lucide-react";
 
 // Investment Banking / ECM dashboard. Top: "My Day" — today's meetings, pending next actions, overdue tasks,
@@ -18,6 +19,7 @@ const time = (v: any) => new Date(v).toLocaleTimeString("en-IN", { hour: "2-digi
 const quickLog = (detail: any = {}) => window.dispatchEvent(new CustomEvent("quicklog:open", { detail }));
 
 export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: boolean; onNav: (v: any, p: any) => void }) {
+  const showProb = useAppSettings().show_probability;
   useCurrUnit();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
@@ -118,7 +120,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
         <Kpi label="Open Pipeline" value={k.openOpportunities} sub={k.noNextAction ? `${k.noNextAction} without a next action` : "all have a next action"} onClick={toLeads} />
         <Kpi label="Transaction Value" value={money(k.pipelineValue)} sub="open opportunities" onClick={toLeads} />
         <Kpi label="Expected Fee" value={money(k.expectedFee)} sub="open opportunities" onClick={toLeads} />
-        <Kpi label="Probability-weighted Fee" value={money(k.weightedFee)} sub="fee × probability" onClick={toLeads} />
+        {showProb && <Kpi label="Probability-weighted Fee" value={money(k.weightedFee)} sub="fee × probability" onClick={toLeads} />}
         <Kpi label="Mandates Won / Lost" value={`${k.mandatesWon} / ${k.mandatesLost}`} sub="closed vs lost" onClick={toLeads} />
         <Kpi label="Win Rate" value={k.winRate === null ? "—" : `${k.winRate}%`} sub="of decided opportunities" onClick={toLeads} />
       </div>
@@ -184,7 +186,7 @@ export default function IBDashboard({ t, isDark, onNav }: { t: any; isDark: bool
           </table>
         </div>
       </div>
-      <div className={`text-[11px] ${t.textMuted} flex items-center gap-1`}><CheckSquare className="w-3 h-3" /> Probability is taken from each opportunity, or from its stage when not set.</div>
+      {showProb && <div className={`text-[11px] ${t.textMuted} flex items-center gap-1`}><CheckSquare className="w-3 h-3" /> Probability is taken from each opportunity, or from its stage when not set.</div>}
     </div>
   );
 }

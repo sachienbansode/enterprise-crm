@@ -106,7 +106,7 @@ async function anthropicTurn(cfg: any, key: string, system: string, msgs: AgentM
   }
   while (messages.length && messages[0].role !== "user") messages.shift();
   const body: any = {
-    model: cfg.model || "claude-3-5-sonnet-20241022", system, messages,
+    model: cfg.model || "claude-sonnet-5-5", system, messages,
     max_tokens: Math.max(Number(cfg.max_tokens) || 0, 2048),
     temperature: Number.isFinite(parseFloat(String(cfg.temperature))) ? Math.min(parseFloat(String(cfg.temperature)), 0.4) : 0.2,
   };

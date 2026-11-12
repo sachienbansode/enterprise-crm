@@ -1,10 +1,21 @@
 import { Router } from "express";
 import { query } from "../lib/db";
-import { visibleNames, visibleIds, userVerticalIds, VERTICALS } from "../lib/visibility";
+import { visibleNames, visibleIds, userVerticalIds, VERTICALS, ownRecordsUserId } from "../lib/visibility";
 
 import { logAudit } from "../lib/audit";
 
 const router = Router();
+
+// Junior RM: only their own records — any /:id route on someone else's record answers "not found"
+router.param("id", async (req, res, next, id) => {
+  const own = ownRecordsUserId();
+  if (!own || !/^[0-9a-f-]{36}$/i.test(String(id))) return next();
+  try {
+    const r = await query("SELECT 1 FROM service_requests WHERE id=$1 AND (assigned_to=$2 OR created_by=$2)", [id, own]);
+    if (!r.rows.length) return res.status(404).json({ error: "Not found, or not one of your records" });
+    next();
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
 
 // GET /api/service-requests/stats — summary counts
 router.get("/stats", async (req, res) => {
@@ -15,6 +26,7 @@ router.get("/stats", async (req, res) => {
     params.push(await visibleNames()); where += ` AND (vertical IS NULL OR vertical = ANY($${params.length}))`; // hidden verticals
     if (vertical) { params.push(vertical); where += ` AND vertical = $${params.length}`; }
     if (assigned_to) { params.push(assigned_to); where += ` AND assigned_to = $${params.length}`; }
+    { const own = ownRecordsUserId(); if (own) { params.push(own); where += ` AND (assigned_to = $${params.length} OR created_by = $${params.length})`; } }
 
     const r = await query(
       `SELECT
@@ -42,6 +54,7 @@ router.get("/export.csv", async (req, res) => {
     const params: any[] = [];
     let where = "WHERE 1=1";
     params.push(await visibleNames()); where += ` AND (sr.vertical IS NULL OR sr.vertical = ANY($${params.length}))`; // hidden verticals
+    { const own = ownRecordsUserId(); if (own) { params.push(own); where += ` AND (sr.assigned_to = $${params.length} OR sr.created_by = $${params.length})`; } }
     if (status)    { params.push(status);     where += ` AND sr.status = $${params.length}`; }
     if (category)  { params.push(category);   where += ` AND sr.category = $${params.length}`; }
     if (priority)  { params.push(priority);   where += ` AND sr.priority = $${params.length}`; }
@@ -103,6 +116,7 @@ router.get("/", async (req, res) => {
     let where = "WHERE 1=1";
     const params: any[] = [];
     params.push(await visibleNames()); where += ` AND (sr.vertical IS NULL OR sr.vertical = ANY($${params.length}))`; // hidden verticals
+    { const own = ownRecordsUserId(); if (own) { params.push(own); where += ` AND (sr.assigned_to = $${params.length} OR sr.created_by = $${params.length})`; } }
 
     if (status) {
       const vals = status.split(",").filter(Boolean);

@@ -1,3 +1,4 @@
+import { appToast } from "./dialog";
 // Adds the session token to every /api call and handles expired sessions centrally,
 // so the hundreds of fetch() calls across the app don't each need to know about auth.
 //
@@ -9,6 +10,7 @@
 const IDLE_LIMIT_MS = 30 * 60_000;
 let lastActivity = Date.now();
 let redirecting = false;
+let lastReadOnlyToast = 0;
 
 function expire(message: string) {
   if (redirecting) return;
@@ -42,6 +44,15 @@ export function installAuthFetch() {
       if (["SESSION_EXPIRED", "SESSION_INVALID", "NO_SESSION"].includes(body.code)) {
         expire(body.code === "SESSION_EXPIRED" ? "Your session expired after 30 minutes of inactivity — please sign in again." : "Please sign in again.");
       }
+    }
+    if (res.status === 403) {
+      // Read-only roles: one clear message instead of each screen's own error text
+      res.clone().json().then((b: any) => {
+        if (b?.code === "READ_ONLY" && Date.now() - lastReadOnlyToast > 4000) {
+          lastReadOnlyToast = Date.now();
+          appToast("View only — your role can't make changes.", "error");
+        }
+      }).catch(() => {});
     }
     return res;
   };

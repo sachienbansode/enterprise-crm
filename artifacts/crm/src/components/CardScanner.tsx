@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Camera, Image as ImageIcon, RefreshCw, CheckCircle2, AlertTriangle, Building2, User, Plus, ScanLine, RotateCcw, ArrowLeft, QrCode } from "lucide-react";
+import { X, Camera, Image as ImageIcon, RefreshCw, CheckCircle2, AlertTriangle, Building2, User, Plus, ScanLine, RotateCcw, ArrowLeft, QrCode, Link2 } from "lucide-react";
+import { ocrCard, parseCardText } from "../lib/cardOcr";
 import { decodeQR, decodeQRFromDataUrl, parseContactQR, QR_KIND_LABEL, type QrResult } from "../lib/qr";
 
 // Scan a business card or a QR code (vCard / MeCard / LinkedIn / website) → draft person + company on screen →
@@ -27,7 +28,7 @@ const L = ({ label, req, children, hint }: any) => (
   <label className="block"><span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}{req && <span className="text-red-500"> *</span>}</span>{children}{hint && <span className="block text-[11px] mt-1 text-gray-400">{hint}</span>}</label>
 );
 
-export default function CardScanner({ open, defaults, onClose }: { open: boolean; defaults?: { client_id?: string; client_name?: string; vertical?: string }; onClose: () => void }) {
+export default function CardScanner({ open, defaults, onClose }: { open: boolean; defaults?: { client_id?: string; client_name?: string; vertical?: string; verticals?: { id: string; label: string }[]; mode?: string }; onClose: () => void }) {
   const [step, setStep] = useState<Step>("capture");
   const [front, setFront] = useState(""); const [back, setBack] = useState("");
   const [err, setErr] = useState(""); const [warn, setWarn] = useState("");
@@ -40,13 +41,20 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   const [bad, setBad] = useState("");
   const [qr, setQr] = useState<QrResult | null>(null);       // QR that filled the draft (shown as a chip; raw text kept in notes)
   const [qrMsg, setQrMsg] = useState("");
+  const [readMsg, setReadMsg] = useState("Reading the card…");
+  const [ocrUsed, setOcrUsed] = useState(false);       // fields came from on-device OCR (no AI)
+  const [ocrText, setOcrText] = useState("");
+  const [link, setLink] = useState(""); const [linkBusy, setLinkBusy] = useState(false);
+  const [via, setVia] = useState<"" | "link" | "text">("");   // draft filled from a pasted website link / pasted text
+  const [siteNote, setSiteNote] = useState("");
+  const [vert, setVert] = useState("ib");
   const video = useRef<HTMLVideoElement>(null); const stream = useRef<MediaStream | null>(null); const qrGal = useRef<HTMLInputElement>(null);
   const frontCam = useRef<HTMLInputElement>(null); const frontGal = useRef<HTMLInputElement>(null); const backCam = useRef<HTMLInputElement>(null);
   const fixed = !!defaults?.client_id;
 
   useEffect(() => {
     if (!open) return;
-    setStep(defaults && (defaults as any).mode === "qr" ? "qr" : "capture"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
+    setStep(defaults?.mode === "qr" ? "qr" : "capture"); setLink(""); setVia(""); setSiteNote(""); setVert(defaults?.vertical || defaults?.verticals?.[0]?.id || "ib"); setFront(""); setBack(""); setErr(""); setWarn(""); setResult(null); setBad(""); setQr(null); setQrMsg("");
     setPerson({ name: "", designation: "", role_type: "Management", mobile: "", landline: "", email: "", linkedin: "" });
     setCompany({ name: defaults?.client_name || "", website: "", phone: "", email: "", address: "", city: "", cin: "", sector: "" });
     setMatches({ companies: defaults?.client_id ? [{ id: defaults.client_id, name: defaults.client_name, why: "Opened from this company" }] : [], people: [] });
@@ -125,6 +133,33 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
     setStep("review");
     try { const r = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }); applyMatches(await r.json()); } catch { /* matching is a convenience */ }
   };
+  // Pasted link or text: contact QR text / LinkedIn / WhatsApp → like a QR; a website → company details read from the site;
+  // anything else (e.g. an e-mail signature) → the same rules used for reading a card
+  const applyLink = async () => {
+    const v = link.trim(); if (!v) return;
+    setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText(""); setSiteNote("");
+    if (/^(BEGIN:VCARD|MECARD:|BIZCARD:|mailto:|tel:)/i.test(v) || /linkedin\.com\/(in|pub)\//i.test(v) || /wa\.me\/|whatsapp\.com\/send/i.test(v)) { setVia("link"); await applyQr(v); return; }
+    const isUrl = !/\s/.test(v) && !v.includes("@") && /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(v);
+    let p: any = {}, c: any = {}, m: any = null;
+    if (isUrl) {
+      setLinkBusy(true);
+      try {
+        const r = await fetch("/api/cards/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: v }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) { p = d.person || {}; c = d.company || {}; m = d.matches; setSiteNote(d.description || ""); setWarn(`Company details read from ${new URL(d.url).hostname} — check them and add the contact person if you have one.`); }
+        else { c = { website: /^https?:/i.test(v) ? v : `https://${v}` }; setWarn(d.error || "Couldn't read that website — fill in the details below."); }
+      } catch { c = { website: v }; setWarn("Couldn't reach the server — fill in the details below."); }
+      finally { setLinkBusy(false); }
+      setVia("link");
+    } else {
+      const f = parseCardText(v); p = f.person; c = f.company; setVia("text");
+      setWarn("Filled from the pasted text — please check every field.");
+    }
+    const p2 = { ...person, ...p }, c2 = { ...company, ...c, name: c.name || company.name };
+    setPerson(p2); setCompany(c2); setBad(!c2.name && !fixed ? "cname" : "");
+    if (!m) m = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }).then(x => x.json()).catch(() => null);
+    applyMatches(m); setStep("review");
+  };
   const pickQrPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
     setQrMsg("Reading the QR code…");
@@ -142,7 +177,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   };
 
   const read = async () => {
-    setStep("reading"); setErr(""); setWarn(""); setQr(null);
+    setStep("reading"); setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText("");
     // A QR printed on the card (front or back) is read exactly — its e-mail / phone / LinkedIn win over the AI reading
     const qrText = decodeQRFromDataUrl(front).then(t => t || (back ? decodeQRFromDataUrl(back) : null)).catch(() => null);
     try {
@@ -151,13 +186,29 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
       const t = await qrText; const q = t ? parseContactQR(t) : null;
       if (q) setQr(q);
       if (r.status === 422 && !q) { setErr(d.error); setStep("capture"); return; }
-      if (!r.ok) {
-        if (q) { await applyQr(t!); setWarn("The AI couldn't read the card, so the details come from its QR code — please check them."); return; }
-        setWarn(d.error || "Couldn't read the card — fill in the details below."); setStep("review"); return;
-      }
-      const { person: p0, company: c0, confidence } = d.fields;
       const exact = (o: any) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => ["email", "mobile", "linkedin", "website"].includes(k)));
       const fillBlanks = (base: any, extra: any) => { const o = { ...base }; for (const [k, v] of Object.entries(extra || {})) if (!o[k]) o[k] = v; return o; };
+      if (!r.ok) {
+        // No AI model (or it failed) → read the card on this device with OCR, then the QR (if any) corrects e-mail / phone / web
+        let o: any = null;
+        setReadMsg("Reading on this device…");
+        try { o = await ocrCard([front, back], pr => setReadMsg(`Reading on this device… ${Math.round(pr * 100)}%`)); } catch (e) { console.warn("OCR failed", e); }
+        setReadMsg("Reading the card…");
+        const got = o && (o.person.name || o.person.email || o.person.mobile || o.company.name);
+        if (!got) {
+          if (q) { await applyQr(t!); setWarn("The card text couldn't be read, so the details come from its QR code — please check them."); return; }
+          setWarn(d.error || "Couldn't read the card — fill in the details below."); setStep("review"); return;
+        }
+        const p = q ? { ...fillBlanks(o.person, q.person), ...exact(q.person) } : o.person;
+        const c = q ? { ...fillBlanks(o.company, q.company), ...exact(q.company) } : o.company;
+        const p2 = { ...person, ...p }, c2 = { ...company, ...c, name: c.name || company.name };
+        setPerson(p2); setCompany(c2); setOcrUsed(true); setOcrText(o.text || "");
+        setWarn(`Read on this device without AI${d.code === "AI_OFF" ? "" : " (the AI couldn't be reached)"} — please check every field before approving.`);
+        setBad(!p2.name ? "pname" : !c2.name && !fixed ? "cname" : "");
+        const m = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }).then(x => x.json()).catch(() => null);
+        applyMatches(m); setStep("review"); return;
+      }
+      const { person: p0, company: c0, confidence } = d.fields;
       const p = q ? { ...fillBlanks(p0, q.person), ...exact(q.person) } : p0;
       const c = q ? { ...fillBlanks(c0, q.company), ...exact(q.company) } : c0;
       const p2 = { ...person, ...p };
@@ -174,15 +225,15 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
 
   const save = async () => {
     setErr("");
-    if (!person.name?.trim()) { setBad("pname"); return setErr("Enter the person's name."); }
+    if (!person.name?.trim() && (person.email || person.mobile || person.designation)) { setBad("pname"); return setErr("Enter the person's name, or clear the contact fields to save the company only."); }
     if (companyChoice === "new" && !company.name?.trim()) { setBad("cname"); return setErr("Enter the company name, or pick an existing company."); }
     if (person.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email)) return setErr("The e-mail looks incomplete.");
     setStep("saving");
     try {
       const r = await fetch("/api/cards/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: companyChoice !== "new" ? companyChoice : undefined, company, person_id: personChoice !== "new" ? personChoice : undefined, person, vertical: defaults?.vertical || "ib", image: front || undefined, back: back || undefined,
-          source: qr && !front ? "qr" : "card", notes: qr?.notes || undefined }),
+        body: JSON.stringify({ company_id: companyChoice !== "new" ? companyChoice : undefined, company, person_id: personChoice !== "new" ? personChoice : undefined, person, vertical: vert, image: front || undefined, back: back || undefined,
+          source: via || (qr && !front ? "qr" : ocrUsed ? "ocr" : "card"), notes: qr?.notes || siteNote || undefined }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Could not save");
@@ -205,7 +256,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
       <div onClick={e => e.stopPropagation()} className="w-full sm:max-w-xl bg-gray-50 dark:bg-gray-950 sm:rounded-2xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 fade-in duration-200 max-h-full sm:max-h-[92vh] overflow-hidden">
         <div className="flex items-center gap-2 px-3 h-14 bg-slate-800 text-white flex-shrink-0">
           {step === "review" || step === "qr" ? <button onClick={() => setStep("capture")} aria-label="Back" className="p-2 rounded-lg hover:bg-white/10"><ArrowLeft className="w-5 h-5" /></button> : <ScanLine className="w-5 h-5 ml-2" />}
-          <div className="flex-1 font-semibold">{step === "review" ? "Review & approve" : step === "done" ? "Saved" : step === "qr" ? "Scan QR code" : "Scan card or QR"}</div>
+          <div className="flex-1 font-semibold">{step === "review" ? "Review & approve" : step === "done" ? "Saved" : step === "qr" ? "Scan QR code" : "Scan Card, QR or Link"}</div>
           <button onClick={onClose} disabled={step === "saving"} aria-label="Close" className="p-2 rounded-lg hover:bg-white/10"><X className="w-5 h-5" /></button>
         </div>
 
@@ -240,7 +291,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
             ) : (
               <div className="relative">
                 <img src={front} alt="Front of the card" className="w-full rounded-2xl border border-gray-200 dark:border-gray-800" />
-                {step === "reading" && <div className="absolute inset-0 rounded-2xl bg-black/50 flex flex-col items-center justify-center text-white gap-2"><RefreshCw className="w-7 h-7 animate-spin" /><span className="text-sm font-medium">Reading the card…</span></div>}
+                {step === "reading" && <div className="absolute inset-0 rounded-2xl bg-black/50 flex flex-col items-center justify-center text-white gap-2"><RefreshCw className="w-7 h-7 animate-spin" /><span className="text-sm font-medium">{readMsg}</span></div>}
                 {step === "capture" && <button onClick={() => frontCam.current?.click()} className="absolute top-2 right-2 text-xs px-2.5 py-1.5 rounded-full bg-black/60 text-white flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" /> Retake</button>}
               </div>
             )}
@@ -258,12 +309,26 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
               <button onClick={read} disabled={!front} className="w-full py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2"><ScanLine className="w-4 h-4" /> Read card</button>
               <div className="flex items-center gap-3 text-[11px] text-gray-400"><span className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />or<span className="flex-1 h-px bg-gray-200 dark:bg-gray-800" /></div>
               <button onClick={() => { setErr(""); setStep("qr"); }} className="w-full py-3.5 rounded-xl border-2 border-sky-500/60 text-sky-700 dark:text-sky-300 bg-sky-500/5 text-sm font-semibold flex items-center justify-center gap-2"><QrCode className="w-5 h-5" /> Scan a QR code</button>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2.5 space-y-2">
+                <div className="text-[12px] font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" /> Or paste a link or contact details</div>
+                <textarea value={link} onChange={e => setLink(e.target.value)} rows={2} placeholder="Company website (www.example.com), LinkedIn profile link, or an e-mail signature"
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !link.includes("\n")) { e.preventDefault(); applyLink(); } }}
+                  className={`${input} ${ok} resize-none`} aria-label="Link or contact details" />
+                <button onClick={applyLink} disabled={!link.trim() || linkBusy} className="w-full py-2.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
+                  {linkBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Reading the website…</> : <>Fill the details</>}</button>
+              </div>
               <button onClick={() => { setWarn(""); setStep("review"); }} className="w-full text-xs text-gray-500 dark:text-gray-400 underline">No card? Enter the details by hand</button>
             </>)}
           </>)}
 
           {(step === "review" || step === "saving") && (<>
             {front && <img src={front} alt="Card" className="w-full max-h-40 object-contain rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900" />}
+            {ocrUsed && ocrText.trim() && (
+              <details className="rounded-xl px-3 py-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 text-[13px]">
+                <summary className="cursor-pointer font-medium">Text read from the card — copy anything that was missed</summary>
+                <pre data-ocr-text className="mt-2 text-[12px] whitespace-pre-wrap break-words max-h-40 overflow-y-auto select-text">{ocrText.trim()}</pre>
+              </details>
+            )}
             {qr && (
               <details className="rounded-xl px-3 py-2 bg-sky-500/10 text-sky-800 dark:text-sky-200 text-[13px]">
                 <summary className="cursor-pointer flex items-center gap-1.5 font-medium list-none"><QrCode className="w-4 h-4" /> {front ? "Card QR code read — " : ""}{QR_KIND_LABEL[qr.kind]} · draft filled, please review</summary>
@@ -274,7 +339,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
 
             <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-3.5 space-y-3">
               <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-violet-500" /> Person</div>
-              <L label="Name" req><input value={person.name || ""} onChange={e => P("name", e.target.value)} className={`${input} ${bad === "pname" ? "border-red-500 ring-2 ring-red-500/30" : ok}`} /></L>
+              <L label="Name" hint={!person.name ? "Leave the contact blank to save just the company" : undefined}><input value={person.name || ""} onChange={e => P("name", e.target.value)} className={`${input} ${bad === "pname" ? "border-red-500 ring-2 ring-red-500/30" : ok}`} /></L>
               <div className="grid grid-cols-2 gap-2">
                 <L label="Designation"><input value={person.designation || ""} onChange={e => P("designation", e.target.value)} className={`${input} ${ok}`} /></L>
                 <L label="Role"><select value={person.role_type || "Management"} onChange={e => P("role_type", e.target.value)} className={`${input} ${ok}`}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></L>
@@ -294,7 +359,11 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
             </section>
 
             <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-3.5 space-y-3">
-              <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2"><Building2 className="w-4 h-4 text-amber-500" /> Company</div>
+              <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2"><Building2 className="w-4 h-4 text-amber-500" /> Company / Client</div>
+              {companyChoice === "new" && !defaults?.vertical && (defaults?.verticals?.length || 0) > 1 && (
+                <L label="Business Vertical"><select value={vert} onChange={e => setVert(e.target.value)} className={`${input} ${ok}`}>{defaults!.verticals!.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></L>
+              )}
+              {siteNote && <div className="text-[12px] text-gray-500 dark:text-gray-400 italic">“{siteNote}”</div>}
               {matches.companies.length > 0 && (
                 <div className="space-y-1.5">
                   {matches.companies.map(m => <Choice key={m.id} id={m.id} on={companyChoice === m.id} onPick={setCompanyChoice} title={`Use ${m.name}`} sub={[m.client_code, m.hq_city, m.why].filter(Boolean).join(" · ")} />)}
@@ -321,14 +390,14 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
           {step === "done" && result && (
             <div className="text-center py-6 space-y-3">
               <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto" />
-              <div className="text-lg font-bold text-gray-900 dark:text-white">{person.name}</div>
+              <div className="text-lg font-bold text-gray-900 dark:text-white">{person.name || result.company_name}</div>
               <div className="text-sm text-gray-600 dark:text-gray-300">
-                {result.created_person ? "added" : "updated"} at <b>{result.company_name}</b>{result.created_company ? " — new company created" : ""}
+                {result.person_id ? <>{result.created_person ? "added" : "updated"} at <b>{result.company_name}</b>{result.created_company ? " — new company created" : ""}</> : result.created_company ? "New company / client created" : "Company updated"}
               </div>
               <div className="grid grid-cols-1 gap-2 pt-2">
-                <button onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("person:open", { detail: { id: result.person_id } })); }} className="py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold">Open contact</button>
+                {result.person_id && <button onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("person:open", { detail: { id: result.person_id } })); }} className="py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold">Open contact</button>}
                 <button onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("company:open", { detail: { id: result.company_id } })); }} className="py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200">Open company</button>
-                <button onClick={() => { setStep(qr && !front ? "qr" : "capture"); setFront(""); setBack(""); setResult(null); setQr(null); setPerson({ name: "", role_type: "Management" }); setCompany({ name: "" }); setMatches({ companies: [], people: [] }); setCompanyChoice(defaults?.client_id || "new"); }} className="py-2 text-sm text-blue-600 dark:text-blue-400 flex items-center justify-center gap-1.5"><Camera className="w-4 h-4" /> Scan another</button>
+                <button onClick={() => { setStep(qr && !front && !via ? "qr" : "capture"); setFront(""); setBack(""); setResult(null); setQr(null); setVia(""); setLink(""); setSiteNote(""); setPerson({ name: "", role_type: "Management" }); setCompany({ name: "" }); setMatches({ companies: [], people: [] }); setCompanyChoice(defaults?.client_id || "new"); }} className="py-2 text-sm text-blue-600 dark:text-blue-400 flex items-center justify-center gap-1.5"><Camera className="w-4 h-4" /> Scan another</button>
               </div>
             </div>
           )}
@@ -337,7 +406,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
         {(step === "review" || step === "saving") && (
           <div className="p-3 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex-shrink-0">
             <button onClick={save} disabled={step === "saving"} className="w-full py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
-              {step === "saving" ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><CheckCircle2 className="w-4 h-4" /> {companyChoice === "new" ? "Create company & contact" : personChoice !== "new" ? "Update contact" : "Add contact"}</>}
+              {step === "saving" ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><CheckCircle2 className="w-4 h-4" /> {!person.name?.trim() ? (companyChoice === "new" ? "Create company" : "Update company") : companyChoice === "new" ? "Create company & contact" : personChoice !== "new" ? "Update contact" : "Add contact"}</>}
             </button>
           </div>
         )}

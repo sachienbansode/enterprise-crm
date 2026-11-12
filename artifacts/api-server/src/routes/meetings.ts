@@ -313,7 +313,11 @@ async function processRecording(id: string) {
   await query("UPDATE meetings SET status='transcribing', attempts=attempts+1, updated_at=NOW() WHERE id=$1", [id]);
   // Azure AI Speech (speakers separated by voice) when configured; otherwise — or if Azure fails — the free Groq Whisper fallback
   const c = await speechCfg();
-  if (!c.enabled) throw new Error("Meeting transcription is switched off (Admin → Integrations → Meeting Recording)");
+  if (!c.enabled) {
+    // AI transcription switched off: keep the audio, send nothing to any AI service; users add their own notes
+    await query("UPDATE meetings SET status='audio_only', error=NULL, updated_at=NOW() WHERE id=$1", [id]);
+    return;
+  }
   const azureReady = !!(c.endpoint && c.api_key), groqReady = !!c.groq_api_key, llmReady = !!c.llm_transcribe;
   if (!azureReady && !groqReady && !llmReady) throw new Error("Meeting transcription is not set up — add an Azure Speech key, a free Groq key, or switch on 'Transcribe with the LLM key' (Admin → Integrations → Meeting Recording)");
   // Order: Azure AI Speech (voices separated) → Groq Whisper (free) → the LLM provider's key. Each failure falls through to the next.

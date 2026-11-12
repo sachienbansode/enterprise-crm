@@ -12,6 +12,8 @@ import { RecordActivity, RecordDocuments } from "./components/RecordActivity";
 import { QuickLog } from "./components/QuickLog";
 import CompanyMaster from "./components/ib/CompanyMaster";
 import IBDashboard from "./components/ib/IBDashboard";
+import MandateWorkspace from "./components/ib/MandateWorkspace";
+import InvestorsPage from "./components/ib/InvestorsPage";
 import AdminFireflies from "./components/AdminFireflies";
 import AdminMeetingRecording from "./components/AdminMeetingRecording";
 import { MeetingRecorder } from "./components/MeetingRecorder";
@@ -23,6 +25,7 @@ import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
 import GlobalSearch from "./components/GlobalSearch";
 import { useOpenRequest } from "./lib/openRecord";
+import { useAppSettings, saveAppSettings } from "./lib/appSettings";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
 // NC-26: opportunity vs linked deal value — "differs" when both are amounts and they are more than 0.5% apart
 const valuesDiffer = (a: any, b: any) => { const x = parseINR(a), y = parseINR(b); return isFinite(x) && isFinite(y) && Math.abs(x - y) > Math.max(1000, 0.005 * Math.max(x, y)); };
@@ -30,7 +33,7 @@ import { MList, MCard } from "./components/MobileCard";
 import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
-import { ScanLine as ScanIcon } from "lucide-react";
+import { ScanLine as ScanIcon, Eye as EyeIcon } from "lucide-react";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -54,7 +57,7 @@ const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 // If logo.png is missing, fall back to the bundled favicon instead of a broken image
 const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
-type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "clients" | "service" | "ai" | "calendar"
+type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar"
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
@@ -187,6 +190,7 @@ const SUBMENU = [
   { id: "deals", label: "Deals", icon: Briefcase },
   { id: "customers", label: "Clients", icon: Users },
   { id: "documents", label: "Documents", icon: FileText },
+  { id: "investors", label: "Investors", icon: Landmark, ibOnly: true },
 ];
 
 // SR_CATEGORIES is imported from ./pages/ServiceRequests
@@ -2476,7 +2480,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
                     </button>
                     {open && isExp && (
                       <div className={`ml-3 mt-0.5 space-y-0.5 pl-3 border-l-2 ${sb.sep}`}>
-                        {SUBMENU.filter(s => moduleVisible(v.id, s.id)).map(s => {
+                        {SUBMENU.filter(s => moduleVisible(v.id, s.id) && (!(s as any).ibOnly || v.id === "ib")).map(s => {
                           const isAct = activeV === v.id && activePage === s.id && !isAdmin;
                           return (
                             <button key={s.id} onClick={() => nav(v.id as Vertical, s.id as Page)} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${isAct ? (isDark ? "text-white bg-slate-700/60" : "text-slate-900 bg-slate-200") : sb.sub}`}>
@@ -2626,7 +2630,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
             <span className="block w-4 h-4 rounded-full border-2 border-current p-[2px]"><span className="block w-full h-full rounded-full bg-current" /></span>
           </button>
         </Tip>
-        <Tip label="Scan a business card — creates the company and contact">
+        <Tip label="Scan a business card or QR code, or paste a website link — creates the company / client and contact">
           <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: {} }))} aria-label="Scan Business Card or QR" title="Scan business card or QR code" className={`p-2 rounded-lg ${isDark ? "bg-gray-800 text-sky-300 hover:bg-gray-700" : "bg-slate-100 text-sky-700 hover:bg-slate-200"} transition-colors`}>
             <ScanIcon className="w-4 h-4" />
           </button>
@@ -2742,6 +2746,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
           </select>
           <div className="ml-auto flex gap-2">
             <button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted} flex items-center gap-1`}><RefreshCw className="w-3.5 h-3.5" /></button>
+<button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { forClients: true } }))} title="Create a client from a business card, QR code or website link" className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanIcon className="w-3.5 h-3.5" /> Scan / Link</button>
             <button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Client</button>
           </div>
         </div>
@@ -3185,6 +3190,7 @@ function CreateLeadModal({ vId, vName, t, onClose, onCreated }: { vId: string; v
 }
 
 function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof useTheme>; loggedUser?: any }) {
+  const appSettings = useAppSettings();
   const v = VERTICALS.find(x => x.id === vId)!;
   const vName = VNAME[vId];
   const stages = LEAD_STAGES[vId] || [];
@@ -3671,7 +3677,7 @@ function LeadsPipeline({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
                     : "—" },
                 { label: "Opportunity Type", value: selected.opportunity_type || "—" },
                 { label: "Expected Fee", value: selected.expected_fee ? fmtMoney(Number(selected.expected_fee)) : "—" },
-                { label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" },
+                ...(appSettings.show_probability ? [{ label: "Probability", value: selected.probability != null ? `${selected.probability}%` : "Auto" }] : []),
                 ...(selected.lost_reason ? [{ label: "Lost Reason", value: selected.lost_reason }] : []),
                 ...(selected.lost_comment ? [{ label: "Lost Comment", value: selected.lost_comment }] : []),
               ] : []),
@@ -4089,6 +4095,8 @@ function DealsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<typeof u
             {dealPrompt && <StageFlowPrompt prompt={{ ...dealPrompt, from: dealPathStages.find(s => s.id === selected.stage)?.label }} stages={dealPathStages} busy={dealMoving} onMove={(id, extra) => moveDeal(id, extra || {})} onCancel={() => setDealPrompt(null)} />}
             {dealStageMsg && !dealPrompt && <div className={`text-[11px] ${dealStageMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{dealStageMsg.text}</div>}
           </div>
+          {/* IB Phase 2 — milestones, roadshow / NDR, investor matching */}
+          {v.id === "ib" && <div className="mb-3"><MandateWorkspace key={selected.id} deal={selected} onChanged={() => setDealActivityKey(k => k + 1)} /></div>}
           <div className={dealWide ? "grid sm:grid-cols-2 gap-x-6" : ""}>
           {[
             { label: "Type", value: selected.type },
@@ -4161,7 +4169,7 @@ function CustomersView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
           <div className={`m-title w-6 h-6 rounded-lg ${v.color} flex items-center justify-center`}><Users className="w-3.5 h-3.5 text-white" /></div>
           <div className="m-title"><div className={`text-sm font-bold ${t.text} uppercase`}>{v.label} — Clients</div><div className={`text-[10px] ${t.textMuted}`}>{loading ? "Loading…" : `${total} clients`}</div></div>
           <div className={`flex items-center gap-2 ${isDark ? "bg-gray-800" : "bg-gray-100"} rounded-lg px-3 py-1.5 ml-3`}><Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className={`bg-transparent text-xs ${t.text} outline-none w-32`} placeholder="Search…" /></div>
-          <div className="ml-auto flex gap-2"><button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button><button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className={`text-xs px-3 py-1.5 rounded-lg ${v.color} text-white flex items-center gap-1.5`}><Plus className="w-3.5 h-3.5" /> New Client</button></div>
+          <div className="ml-auto flex gap-2"><button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted}`}><RefreshCw className="w-3.5 h-3.5" /></button><button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { vertical: vId } }))} title="Create a client from a business card, QR code or website link" className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanIcon className="w-3.5 h-3.5" /> Scan / Link</button><button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className={`text-xs px-3 py-1.5 rounded-lg ${v.color} text-white flex items-center gap-1.5`}><Plus className="w-3.5 h-3.5" /> New Client</button></div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -4983,7 +4991,7 @@ function AdminRoleMapping({ t }: { t: ReturnType<typeof useTheme> }) {
 // ─── ADMIN: LLM SETTINGS ──────────────────────────────────────────────────────
 const AI_PROVIDERS_LIST = [
   { id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"] },
-  { id: "anthropic", name: "Anthropic (Claude)", models: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"] },
+  { id: "anthropic", name: "Anthropic (Claude)", models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"] },
   { id: "gemini", name: "Google Gemini", models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"] },
   { id: "azure", name: "Azure OpenAI", models: ["gpt-4o", "gpt-4", "gpt-35-turbo"] },
   { id: "custom", name: "Custom (OpenAI-compatible)", models: [] },
@@ -6805,7 +6813,7 @@ function AdminVerticals({ t, onReload }: { t: ReturnType<typeof useTheme>; onRel
                   <span className={`text-xs font-semibold uppercase tracking-wide ${row.is_active ? t.text : t.textMuted + " line-through"}`}>{row.label}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {SUBMENU.map(m => {
+                  {SUBMENU.filter(m => !(m as any).ibOnly || row.vertical_id === "ib").map(m => {
                     const on = !hidden.includes(m.id);
                     return (
                       <button key={m.id} disabled={!row.is_active || !!visBusy}
@@ -7168,7 +7176,7 @@ function AIModule({ t, loggedUser, isDark }: { t: ReturnType<typeof useTheme>; l
 // ─── ADMIN: AI CONFIG ─────────────────────────────────────────────────────────
 const AI_PROVIDERS = [
   { id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"] },
-  { id: "anthropic", name: "Anthropic (Claude)", models: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"] },
+  { id: "anthropic", name: "Anthropic (Claude)", models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"] },
   { id: "gemini", name: "Google Gemini", models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"] },
   { id: "azure", name: "Azure OpenAI", models: ["gpt-4o", "gpt-4", "gpt-35-turbo"] },
   { id: "custom", name: "Custom (OpenAI-compatible)", models: [] },
@@ -7948,6 +7956,7 @@ function AdminDropdownConfig({ t, isDark }: { t: ReturnType<typeof useTheme>; is
 
 // ─── ADMIN: PIPELINE STAGES ───────────────────────────────────────────────────
 function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark: boolean }) {
+  const appSettings = useAppSettings();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterVertical, setFilterVertical] = useState("all");
@@ -8046,6 +8055,13 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
           <div className={`text-[10px] ${t.textMuted}`}>Lead & deal stages per vertical · <b>Mandatory</b> stages can't be skipped; <b>Skip allowed</b> stages can be skipped and show as Skipped</div>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <button type="button" role="switch" aria-checked={appSettings.show_probability}
+            title="Show or hide the Probability field on opportunities, and the probability-weighted fee on the IB dashboard"
+            onClick={() => saveAppSettings({ show_probability: !appSettings.show_probability }).then(() => appToast(`Probability ${appSettings.show_probability ? "hidden" : "shown"} for everyone`, "success")).catch(e => appToast(e.message, "error"))}
+            className={`text-xs px-2.5 py-1.5 rounded-lg border ${t.border} flex items-center gap-2 ${t.text}`}>
+            <span className={`w-7 h-4 rounded-full relative transition-colors ${appSettings.show_probability ? "bg-blue-600" : "bg-gray-400/60"}`}><span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${appSettings.show_probability ? "left-3.5" : "left-0.5"}`} /></span>
+            Probability Field
+          </button>
           <select value={filterVertical} onChange={e => setFilterVertical(e.target.value)} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg}`}>
             {verticals.map(v => <option key={v} value={v}>{v === "all" ? "All Verticals" : VNAME2[v] || v}</option>)}
           </select>
@@ -8401,7 +8417,16 @@ export function CRMApp() {
   const [teamsFor, setTeamsFor] = useState<any | null>(null);
   useEffect(() => {
     const po = (e: any) => e.detail?.id && setOpenPersonId(e.detail.id);
-    const sc = (e: any) => setScanDefaults(e.detail || {});
+    const sc = (e: any) => {
+      const d = { ...(e.detail || {}) };
+      if (!d.vertical && !d.client_id) {
+        const mine = myVerticalIds(loggedUser);
+        d.verticals = VERTICALS.filter(v => !mine || mine.includes(v.id)).map(v => ({ id: v.id, label: v.label }));
+        // IB pages / Companies keep IB as the default; the Client Registry starts on the user's first vertical
+        if (!d.forClients && d.verticals.some((v: any) => v.id === "ib")) d.verticals = [d.verticals.find((v: any) => v.id === "ib"), ...d.verticals.filter((v: any) => v.id !== "ib")];
+      }
+      setScanDefaults(d);
+    };
     const ts = (e: any) => setTeamsFor(e.detail?.client || {});
     const co = (e: any) => {
       if (!e.detail?.id || e.detail.handled) return;
@@ -8410,7 +8435,7 @@ export function CRMApp() {
     };
     window.addEventListener("person:open", po); window.addEventListener("cardscan:open", sc); window.addEventListener("teams:schedule", ts); window.addEventListener("company:open", co);
     return () => { window.removeEventListener("person:open", po); window.removeEventListener("cardscan:open", sc); window.removeEventListener("teams:schedule", ts); window.removeEventListener("company:open", co); };
-  }, []);
+  }, [loggedUser?.id, loggedUser?.vertical]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const h = (e: any) => setQuickLogDefaults(e.detail || {});
     window.addEventListener("quicklog:open", h);
@@ -8539,6 +8564,7 @@ export function CRMApp() {
     // Investment Banking / ECM has its own dashboard and a CIN-keyed company & promoter master
     if (activeV === "ib" && activePage === "dashboard") return <IBDashboard t={t} isDark={darkMode} onNav={navTo} />;
     if (activeV === "ib" && activePage === "customers") return <CompanyMaster t={t} isDark={darkMode} loggedUser={loggedUser} />;
+    if (activeV === "ib" && activePage === "investors") return <InvestorsPage t={t} isDark={darkMode} />;
     if (activePage === "dashboard") return <VerticalDashboard vId={activeV} t={t} />;
     if (activePage === "leads")     return <LeadsPipeline vId={activeV} t={t} loggedUser={loggedUser} />;
     if (activePage === "deals")     return <DealsView vId={activeV} t={t} loggedUser={loggedUser} />;
@@ -8573,6 +8599,16 @@ export function CRMApp() {
       )}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <div className="print:hidden"><Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onMobileMenu={() => setMobileSidebarOpen(true)} activeV={activeV} activePage={activePage} isDark={darkMode} setIsDark={setDarkMode} t={t} loggedUser={loggedUser} onNavAI={() => navTo(null, "ai")} onPIIRequests={() => setShowPIIRequests(true)} piiPendingCount={piiPendingCount} currUnit={currUnit} setCurrUnit={setCurrUnit} /></div>
+        {/^(compliance( officer)?|business head|auditor|read[- ]?only|viewer)$/i.test(String(loggedUser?.role || "").trim()) && (
+          <div className="print:hidden flex-shrink-0 px-4 py-1.5 text-[12px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border-b border-amber-500/20 flex items-center gap-2">
+            <EyeIcon className="w-3.5 h-3.5 flex-shrink-0" /> View-only access ({loggedUser.role}) — you can see everything in your verticals; changes are switched off.
+          </div>
+        )}
+        {/^(junior rm|jr\.? rm|relationship executive|trainee rm)$/i.test(String(loggedUser?.role || "").trim()) && (
+          <div className="print:hidden flex-shrink-0 px-4 py-1.5 text-[12px] font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border-b border-sky-500/20">
+            Showing your own opportunities, deals and service requests (assigned to you or created by you).
+          </div>
+        )}
         <main className="flex-1 overflow-hidden m-main"><div key={`${isAdmin ? "admin" : activeV || "main"}/${activePage}`} className="h-full animate-in fade-in duration-300">{renderContent()}</div></main>
       </div>
       <MobileTabBar hidden={navHidden} tabs={mobileTabs} plusOpen={plusOpen} onPlus={() => { setMoreOpen(false); setPlusOpen(v => !v); }} />

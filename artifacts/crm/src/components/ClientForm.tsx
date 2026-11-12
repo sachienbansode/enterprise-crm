@@ -232,6 +232,12 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
               {isEdit ? "Edit Client" : "New Client"}
             </h2>
             {isEdit && <p className="text-xs text-gray-500 mt-0.5">{editClient?.client_code}</p>}
+            {!isEdit && (
+              <button type="button" onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { forClients: true } })), 50); }}
+                className="mt-1 text-xs font-medium text-sky-600 dark:text-sky-400 hover:underline">
+                Fill from a business card, QR code or website link →
+              </button>
+            )}
           </div>
           <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />

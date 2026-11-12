@@ -85,7 +85,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         if (k in req.body) req.body[k] = s.name;
       }
     }
-    return requestUser.run({ role: s.role, vertical: s.vertical }, () => next());
+    return requestUser.run({ id: s.id, role: s.role, vertical: s.vertical }, () => next());
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }

@@ -4,6 +4,7 @@ import { join } from "path";
 import { query } from "../lib/db";
 import { aiVision } from "./ai";
 import { insertCompany, insertPerson } from "./ib";
+import { lookupSite } from "../lib/siteLookup";
 
 // Business-card scanning: photo → AI reads the card → review → company + person created (or matched) in one step.
 //   POST /api/cards/scan  { image: dataURL, back?: dataURL }   → { fields, matches }
@@ -130,6 +131,20 @@ cardsRouter.post("/scan", async (req, res) => {
 });
 
 // Re-check matches after the user edits the fields (e.g. corrects the company name)
+// Company details from a website link → same draft / review flow as a card
+cardsRouter.post("/url", async (req, res) => {
+  const raw = String(req.body?.url || "").trim();
+  if (!raw || raw.length > 500) return res.status(400).json({ error: "Paste a website address, e.g. www.example.com" });
+  try {
+    const info = await lookupSite(raw);
+    const company = { ...info.company }; delete (company as any).linkedin;
+    res.json({ company, person: info.person, description: info.description, url: info.url, matches: await findMatches(company, info.person) });
+  } catch (e: any) {
+    const why = /abort/i.test(e.message) ? "it took too long to answer" : /ENOTFOUND|EAI_AGAIN/i.test(e.message) ? "the address wasn't found — check the spelling" : /ECONNREFUSED|ECONNRESET|certificate|fetch failed/i.test(e.message) ? "the site couldn't be reached" : e.message;
+    res.status(422).json({ error: `Couldn't read that website (${why}) — the website is filled in; add the other details below.` });
+  }
+});
+
 cardsRouter.post("/match", async (req, res) => {
   try { res.json(await findMatches(req.body?.company || {}, req.body?.person || {})); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -143,7 +158,8 @@ cardsRouter.post("/save", async (req, res) => {
   const back = b.back ? decodeImage(b.back) : null;
   const p = b.person || {}, c = b.company || {};
   const viaQr = b.source === "qr";
-  if (!String(p.name || "").trim()) return res.status(400).json({ error: "The person's name is required." });
+  const viaOcr = b.source === "ocr";
+  const hasPerson = !!String(p.name || "").trim() || !!b.person_id; // company-only save is allowed (e.g. created from a website link)
   if (!b.company_id && !String(c.name || "").trim()) return res.status(400).json({ error: "Choose an existing company or enter the company name." });
   if (b.company_id && !UUID.test(b.company_id)) return res.status(400).json({ error: "Invalid company" });
   try {
@@ -161,27 +177,29 @@ cardsRouter.post("/save", async (req, res) => {
       const co = await insertCompany({
         name: String(c.name).trim(), website: clean(c.website), address: clean(c.address), hq_city: clean(c.city), mobile: clean(c.phone), email: clean(c.email),
         cin: clean(c.cin), sector: clean(c.sector), relationship_strength: "Cold",
-        info_source: viaQr ? "QR code" : "Business card", info_as_of: new Date().toISOString().slice(0, 10),
+        info_source: viaQr ? "QR code" : viaOcr ? "Business card (on-device OCR)" : b.source === "link" ? "Website / link" : b.source === "text" ? "Pasted contact details" : "Business card", info_as_of: new Date().toISOString().slice(0, 10),
         notes: [c.gstin ? `GSTIN: ${c.gstin}` : "", clean(b.notes) || ""].filter(Boolean).join("\n") || null,
       }, user, vertical);
       companyId = co.id; createdCompany = true;
     }
     let personId = b.person_id as string | undefined, createdPerson = false;
-    if (personId) {
-      if (!UUID.test(personId)) return res.status(400).json({ error: "Invalid person" });
-      const r = await query(
-        `UPDATE company_people SET client_id=$2, designation=COALESCE($3,designation), email=COALESCE(NULLIF(email,''),$4), mobile=COALESCE(NULLIF(mobile,''),$5),
-                landline=COALESCE(NULLIF(landline,''),$6), linkedin=COALESCE(NULLIF(linkedin,''),$7), updated_at=NOW() WHERE id=$1 RETURNING id`,
-        [personId, companyId, clean(p.designation), clean(p.email), clean(p.mobile), clean(p.landline), clean(p.linkedin)]);
-      if (!r.rows[0]) return res.status(404).json({ error: "Person not found" });
-    } else {
-      const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: clean(c.address) }, user, viaQr ? "qr_scan" : "card_scan");
-      personId = ps.id; createdPerson = true;
+    if (hasPerson) {
+      if (personId) {
+        if (!UUID.test(personId)) return res.status(400).json({ error: "Invalid person" });
+        const r = await query(
+          `UPDATE company_people SET client_id=$2, designation=COALESCE($3,designation), email=COALESCE(NULLIF(email,''),$4), mobile=COALESCE(NULLIF(mobile,''),$5),
+                  landline=COALESCE(NULLIF(landline,''),$6), linkedin=COALESCE(NULLIF(linkedin,''),$7), updated_at=NOW() WHERE id=$1 RETURNING id`,
+          [personId, companyId, clean(p.designation), clean(p.email), clean(p.mobile), clean(p.landline), clean(p.linkedin)]);
+        if (!r.rows[0]) return res.status(404).json({ error: "Person not found" });
+      } else {
+        const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: clean(c.address) }, user, viaQr ? "qr_scan" : "card_scan");
+        personId = ps.id; createdPerson = true;
+      }
     }
-    if (front) { const f = join(DIR, `${personId}.jpg`); writeFileSync(f, front.buf); await query("UPDATE company_people SET card_path=$2 WHERE id=$1", [personId, f]); }
-    if (back) { const f = join(DIR, `${personId}_back.jpg`); writeFileSync(f, back.buf); await query("UPDATE company_people SET card_back_path=$2 WHERE id=$1", [personId, f]); }
+    if (front && personId) { const f = join(DIR, `${personId}.jpg`); writeFileSync(f, front.buf); await query("UPDATE company_people SET card_path=$2 WHERE id=$1", [personId, f]); }
+    if (back && personId) { const f = join(DIR, `${personId}_back.jpg`); writeFileSync(f, back.buf); await query("UPDATE company_people SET card_back_path=$2 WHERE id=$1", [personId, f]); }
     const companyName = (await query("SELECT name FROM clients WHERE id=$1", [companyId])).rows[0]?.name;
-    res.status(201).json({ company_id: companyId, company_name: companyName, person_id: personId, created_company: createdCompany, created_person: createdPerson });
+    res.status(201).json({ company_id: companyId, company_name: companyName, person_id: personId || null, created_company: createdCompany, created_person: createdPerson });
   } catch (e: any) {
     if (e.status) return res.status(e.status).json({ error: e.message });
     res.status(500).json({ error: e.message });

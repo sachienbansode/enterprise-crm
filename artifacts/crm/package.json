@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "build": "vite build --config vite.config.ts",
+    "dev": "node scripts/copy-ocr.mjs && vite --config vite.config.ts --host 0.0.0.0",
+    "build": "node scripts/copy-ocr.mjs && vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -75,6 +75,8 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "jsqr": "1.4.0"
+    "@tesseract.js-data/eng": "1.0.0",
+    "jsqr": "1.4.0",
+    "tesseract.js": "5.1.1"
   }
 }

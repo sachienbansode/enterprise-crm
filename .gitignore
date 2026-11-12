@@ -56,3 +56,4 @@ Thumbs.db
 .env*
 artifacts/api-server/uploads/
 *.mp4
+artifacts/crm/public/ocr/

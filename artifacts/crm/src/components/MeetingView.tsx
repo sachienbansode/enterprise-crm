@@ -89,6 +89,7 @@ export function MeetingView({ id, onClose }: { id: string; onClose: () => void }
     scheduled: ["Waiting for Teams transcript", "bg-sky-500/15 text-sky-600 dark:text-sky-300"], recording: ["Recording", "bg-red-500/15 text-red-500"],
     transcribing: ["Transcribing…", "bg-amber-500/15 text-amber-600 dark:text-amber-300"], transcribed: ["Transcript ready", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"],
     no_transcript: ["No Teams transcript", "bg-gray-500/15 text-gray-500"], failed: ["Failed", "bg-red-500/15 text-red-500"],
+    audio_only: ["Audio saved — AI transcription is off", "bg-slate-500/15 text-slate-600 dark:text-slate-300"],
   } as any)[st] || [st, "bg-gray-500/15 text-gray-500"];
 
   return (

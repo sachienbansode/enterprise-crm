@@ -13,6 +13,7 @@ const STATUS: Record<string, [string, string]> = {
   transcribed: ["Transcript ready", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"], failed: ["Failed", "bg-red-500/15 text-red-600 dark:text-red-400"],
   transcribing: ["Transcribing", "bg-amber-500/15 text-amber-600 dark:text-amber-400"], recording: ["Recording", "bg-red-500/15 text-red-500"],
   scheduled: ["Teams · waiting", "bg-sky-500/15 text-sky-600 dark:text-sky-400"], no_transcript: ["No transcript", "bg-gray-500/15 text-gray-500"],
+  audio_only: ["Audio saved · AI off", "bg-slate-500/15 text-slate-600 dark:text-slate-300"],
 };
 
 export default function AdminRecordings({ t }: { t: any }) {

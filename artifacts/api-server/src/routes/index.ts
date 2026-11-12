@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { requireAdmin, requireSuperAdmin } from "../lib/session";
+import { isReadOnlyRole } from "../lib/visibility";
 import healthRouter from "./health";
 import authRouter from "./auth";
 import clientsRouter from "./clients";
@@ -26,6 +27,7 @@ import { firefliesAdminRouter, firefliesWebhookRouter } from "./fireflies";
 import { meetingsRouter, speechAdminRouter } from "./meetings";
 import { cardsRouter } from "./cards";
 import { searchRouter } from "./search";
+import { ibMandatesRouter } from "./ibMandates";
 
 const router: IRouter = Router();
 
@@ -64,6 +66,13 @@ const aiArea = (req: Request, res: Response, next: NextFunction) => {
 
 
 router.use(healthRouter);
+// Read-only roles (Compliance, Business Head …): every change is refused, except signing in/out, their own
+// notifications, NIYTRI AI chats and data-access (PII) requests / approvals.
+const READ_ONLY_ALLOWED = /^\/(auth\b|ai\/(chat|conversations)\b|notifications\b|clients\/[^/]+\/access-request$|clients\/access-request\/)/;
+router.use((req: Request, res: Response, next: NextFunction) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !req.user || !isReadOnlyRole(req.user.role) || READ_ONLY_ALLOWED.test(req.path)) return next();
+  return res.status(403).json({ error: `Your role (${req.user.role}) has read-only access — you can view records but not change them.`, code: "READ_ONLY" });
+});
 router.use("/auth", authRouter);
 router.use("/clients", clientsRouter);
 router.use("/service-requests", serviceRequestsRouter);
@@ -85,6 +94,7 @@ router.use("/pii-masking", adminForWrites, piiMaskingRouter);
 router.use("/audit-logs", requireAdmin, auditRouter);
 router.use("/system-status", requireAdmin, systemStatusRouter);
 router.use("/activity", activityRouter);
+router.use("/ib", ibMandatesRouter); // IB Phase 2: milestones, investors, matching, roadshows
 router.use("/ib", ibRouter);
 router.use("/interactions", interactionsRouter);
 router.use("/tasks", tasksRouter);
