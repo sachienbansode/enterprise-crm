@@ -25,6 +25,8 @@ import AdminRecordings from "./components/AdminRecordings";
 import AIAssistant from "./components/AIAssistant";
 import GlobalSearch from "./components/GlobalSearch";
 import AboutPage from "./components/AboutPage";
+import UpdateBanner from "./components/UpdateBanner";
+import { versionLabel } from "./lib/version";
 import { useOpenRequest } from "./lib/openRecord";
 import { useAppSettings, saveAppSettings } from "./lib/appSettings";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
@@ -2208,7 +2210,7 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
           </button>
           </form>
         </div>
-        <p className={`text-[10px] ${t.textMuted} text-center mt-5`}>© 2026 NIYTRI Solutions. All rights reserved.</p>
+        <p className={`text-[10px] ${t.textMuted} text-center mt-5`}>© 2026 NIYTRI Solutions. All rights reserved.<span className="block mt-1 opacity-70">{versionLabel()}</span></p>
       </div>
     </div>
   );
@@ -2539,8 +2541,8 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
           <div className="flex items-center gap-2 px-1.5 py-1.5">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-[10px] font-bold text-white">{initials}</div>
             <div className="flex-1 min-w-0">
-              <div className={`text-xs font-medium ${sb.text} truncate`}>{loggedUser?.name || "Bhushan Niytri"}</div>
-              <AuthBadge method={loggedUser?.authType || "m365"} />
+              <div className={`text-xs font-medium ${sb.text} truncate`}>{loggedUser?.name || "User"}</div>
+              <div className="flex items-center gap-1.5"><AuthBadge method={loggedUser?.authType || "m365"} /><span className={`text-[9px] ${sb.muted} truncate`} title="App version — changes on every deploy">{versionLabel()}</span></div>
             </div>
             <button onClick={onLogout} title="Sign out" className={`p-1.5 rounded-lg ${sb.muted} hover:text-red-400 hover:bg-red-900/20 transition-colors`}>
               <LogOut className="w-3.5 h-3.5" />
@@ -8621,6 +8623,7 @@ export function CRMApp() {
       {openMeetingId && <MeetingView id={openMeetingId} onClose={() => setOpenMeetingId(null)} />}
       {openPersonId && <PersonView id={openPersonId} onClose={() => setOpenPersonId(null)} />}
       <DialogHost />
+      <UpdateBanner />
       <CardScanner open={!!scanDefaults} defaults={scanDefaults || undefined} onClose={() => setScanDefaults(null)} />
       {teamsFor && <TeamsMeetingModal client={teamsFor} organizerEmail={loggedUser?.email || ""} t={t} isDark={isDark} onClose={() => setTeamsFor(null)} />}
       <QuickLog open={!!quickLogDefaults} defaults={quickLogDefaults || undefined} currentUser={loggedUser}

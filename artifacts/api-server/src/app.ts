@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { APP_INFO } from "./lib/version";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./lib/session";
 
@@ -38,8 +39,9 @@ app.use(express.json({ limit: "50mb", verify: (req: any, _res, buf) => { if (req
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Root-level health check — must respond 200 for deployment platform health checks
-app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+// Version info is public (no session needed) — see lib/version.ts
+app.get("/healthz", (_req, res) => res.json({ status: "ok", ...APP_INFO }));
+app.get("/health", (_req, res) => res.json({ status: "ok", ...APP_INFO }));
 
 // Every /api route requires a valid session except the login flow (see lib/session.ts PUBLIC)
 app.use("/api", requireAuth, router);

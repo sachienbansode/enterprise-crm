@@ -5,6 +5,7 @@ import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
 import { execSync } from "node:child_process";
+import { appVersion } from "../../scripts/app-version.mjs";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -40,6 +41,7 @@ async function buildAll() {
     format: "esm",
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
+    define: (() => { const v = appVersion(); return { __APP_VERSION__: JSON.stringify(v.version), __APP_COMMIT__: JSON.stringify(v.sha), __BUILD_TIME__: JSON.stringify(v.built) }; })(),
     logLevel: "info",
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
     // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.

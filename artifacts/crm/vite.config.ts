@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+// @ts-ignore — plain JS helper shared with the API build
+import { appVersion } from "../../scripts/app-version.mjs";
+
+const APP = appVersion();
 
 const rawPort = process.env.PORT;
 
@@ -28,7 +32,8 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
-  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) }, // shown on About & What's New
+  // Version / commit / build time — shown on About & What's New, the sidebar and the sign-in page; changes on every deploy
+  define: { __BUILD_TIME__: JSON.stringify(APP.built), __APP_VERSION__: JSON.stringify(APP.version), __APP_COMMIT__: JSON.stringify(APP.sha) },
   plugins: [
     react(),
     tailwindcss(),

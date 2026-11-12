@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Sparkles, Cpu, QrCode, Globe, Building2, TrendingUp, Landmark, MessageSquare, Bot, Mic, ShieldCheck, Smartphone, Plug, Users, ChevronDown } from "lucide-react";
 
 // About NIYTRI CRM — what the app does today and what changed recently. Kept in the app so every user sees the same, current list.
-declare const __BUILD_TIME__: string;
-const BUILD = (() => { try { return new Date(__BUILD_TIME__); } catch { return null; } })();
+import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/version";
+const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
   { date: "12 Nov 2026", title: "Capture anything, IB Phase 2, role limits", items: [
@@ -56,6 +56,7 @@ const AREAS: { icon: any; title: string; points: string[] }[] = [
 
 export default function AboutPage({ t }: { t: any; isDark?: boolean }) {
   const [openRel, setOpenRel] = useState(0);
+  const server = useServerVersion();
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -64,7 +65,8 @@ export default function AboutPage({ t }: { t: any; isDark?: boolean }) {
           <div className="flex-1 min-w-0">
             <div className={`text-xl font-bold ${t.text}`}>NIYTRI Enterprise CRM</div>
             <div className={`text-sm ${t.textMuted}`}>One CRM for Retail Broking, Corporate Broking, Investment Banking, AIF and Institutional Equities.</div>
-            <div className={`text-xs ${t.textMuted} mt-1`}>Version 2026.11{BUILD && !isNaN(BUILD.getTime()) ? ` · built ${BUILD.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+            <div className={`text-xs ${t.textMuted} mt-1`}>Version <b className={t.text}>{APP_VERSION}</b>{APP_COMMIT ? ` · commit ${APP_COMMIT}` : ""}{BUILD && !isNaN(BUILD.getTime()) ? ` · deployed ${BUILD.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+            {server && <div className={`text-xs ${t.textMuted}`}>Server {server.version}{server.version === APP_VERSION ? " — up to date" : " — reload the page to update"}</div>}
           </div>
         </div>
 

@@ -82,7 +82,7 @@ export function extractSite(url: string, html: string): SiteInfo {
   const cin = text.toUpperCase().match(/\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b/)?.[0]; if (cin) company.cin = cin;
   const gst = text.toUpperCase().match(/\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/)?.[0]; if (gst) company.gstin = gst;
   const desc = meta(html, "og:description") || meta(html, "description");
-  for (const o of [company, person]) for (const k of Object.keys(o)) if (!o[k]) delete o[k];
+  for (const o of [company, person]) for (const k of Object.keys(o)) { o[k] = String(o[k] ?? "").replace(/\s+/g, " ").trim(); if (!o[k]) delete o[k]; }
   return { company, person, description: desc ? desc.slice(0, 400) : undefined, url };
 }
 
