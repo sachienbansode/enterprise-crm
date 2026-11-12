@@ -138,7 +138,9 @@ function parseBizCard(raw: string): QrResult {
 
 /** Turn any QR text into contact fields. Unknown text is scanned for e-mail / phone / web address. */
 export function parseContactQR(text: string): QrResult {
-  const raw = String(text || "").trim();
+  let raw = String(text || "").trim();
+  // Links typed / encoded without https:// ("linkedin.com/in/…", "www.site.com", "site.co.in/about")
+  if (!/\s/.test(raw) && !/^[a-z]+:/i.test(raw) && /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/\S*)?$/i.test(raw) && !raw.includes("@")) raw = `https://${raw}`;
   if (/^BEGIN:VCARD/i.test(raw)) return parseVCard(raw);
   if (/^MECARD:/i.test(raw)) return parseMeCard(raw);
   if (/^BIZCARD:/i.test(raw)) return parseBizCard(raw);
@@ -152,7 +154,8 @@ export function parseContactQR(text: string): QrResult {
       p.linkedin = raw.split("?")[0];
       const slug = raw.match(/linkedin\.com\/(?:in|pub)\/([^/?#]+)/i)?.[1] || "";
       const guess = decodeURIComponent(slug).replace(/-[0-9a-f]{5,}$/i, "").replace(/[-_]+/g, " ").replace(/\d+/g, "").trim();
-      if (guess && guess.split(" ").length <= 4) p.name = guess.replace(/\b\w/g, m => m.toUpperCase());
+      // only when the link spells the name out with separators ("meera-iyer"); "prithvirajchavan" can't be split reliably
+      if (guess && guess.includes(" ") && guess.split(" ").length <= 4) p.name = guess.replace(/\b\w/g, m => m.toUpperCase());
       finish(p, c); return { kind: "linkedin", person: p, company: c, raw };
     }
     c.website = raw; finish(p, c); return { kind: "url", person: p, company: c, raw };
@@ -165,7 +168,7 @@ export function parseContactQR(text: string): QrResult {
   const url = raw.match(/(https?:\/\/|www\.)[^\s]+/i)?.[0];
   if (url) { if (isLinkedIn(url)) p.linkedin = url; else c.website = url; }
   const firstLine = raw.split(/\n/)[0].trim();
-  if (firstLine && firstLine.length <= 40 && !/[@\d]/.test(firstLine)) p.name = firstLine;
+  if (firstLine && firstLine.length <= 40 && !/[@\d/:.]/.test(firstLine) && firstLine.includes(" ")) p.name = firstLine;
   finish(p, c);
   return { kind: "text", person: p, company: c, raw };
 }

@@ -128,19 +128,20 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
   // A QR was read (camera or photo) → fill the draft and go straight to review
   const applyQr = async (text: string) => {
     const q = parseContactQR(text);
+    if (q.kind === "url" && q.company.website) { await applyLink(q.company.website); setQr(q); return; } // website QR → read the company's site
     setQr(q); setErr("");
     const gotSomething = Object.keys(q.person).length + Object.keys(q.company).length > 0;
     const p2 = { ...person, ...q.person }, c2 = { ...company, ...q.company, name: q.company.name || company.name };
     setPerson(p2); setCompany(c2);
-    setWarn(!gotSomething ? "The QR code has no contact details — fill in the details below." : !q.person.name || (!q.company.name && !fixed) ? "Some details aren't in the QR code — please complete the highlighted fields." : "");
+    setWarn(q.kind === "linkedin" ? `LinkedIn profile link saved${q.person.name ? " and the name taken from it" : ""} — add the ${q.person.name ? "" : "person's name and "}company.` : !gotSomething ? "The QR code has no contact details — fill in the details below." : !q.person.name || (!q.company.name && !fixed) ? "Some details aren't in the QR code — please complete the highlighted fields." : "");
     setBad(!p2.name ? "pname" : !c2.name && !fixed ? "cname" : "");
     setStep("review");
     try { const r = await fetch("/api/cards/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: c2, person: p2 }) }); applyMatches(await r.json()); } catch { /* matching is a convenience */ }
   };
   // Pasted link or text: contact QR text / LinkedIn / WhatsApp → like a QR; a website → company details read from the site;
   // anything else (e.g. an e-mail signature) → the same rules used for reading a card
-  const applyLink = async () => {
-    const v = link.trim(); if (!v) return;
+  const applyLink = async (val: string = link) => {
+    const v = String(val || "").trim(); if (!v) return;
     setErr(""); setWarn(""); setQr(null); setOcrUsed(false); setOcrText(""); setSiteNote("");
     if (/^(BEGIN:VCARD|MECARD:|BIZCARD:|mailto:|tel:)/i.test(v) || /linkedin\.com\/(in|pub)\//i.test(v) || /wa\.me\/|whatsapp\.com\/send/i.test(v)) { setVia("link"); await applyQr(v); return; }
     const isUrl = !/\s/.test(v) && !v.includes("@") && /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(v);
@@ -322,7 +323,7 @@ export default function CardScanner({ open, defaults, onClose }: { open: boolean
                 <textarea value={link} onChange={e => setLink(e.target.value)} rows={2} placeholder="Company website (www.example.com), LinkedIn profile link, or an e-mail signature"
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !link.includes("\n")) { e.preventDefault(); applyLink(); } }}
                   className={`${input} ${ok} resize-none`} aria-label="Link or contact details" />
-                <button onClick={applyLink} disabled={!link.trim() || linkBusy} className="w-full py-2.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
+                <button onClick={() => applyLink()} disabled={!link.trim() || linkBusy} className="w-full py-2.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
                   {linkBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Reading the website…</> : <>Fill the details</>}</button>
               </div>
               <button onClick={() => { setWarn(""); setStep("review"); }} className="w-full text-xs text-gray-500 dark:text-gray-400 underline">No card? Enter the details by hand</button>
