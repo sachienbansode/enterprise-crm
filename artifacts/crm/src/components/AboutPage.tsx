@@ -10,7 +10,8 @@ const RELEASES: { date: string; title: string; items: string[] }[] = [
     "Call Audits (CRO, Risk, Compliance, admins): add call recordings by uploading the files, by entering each file's name and path on the recorder server / shared drive, or both; date, time and number are read from the file name.",
     "Pick a random or risk-based sample, listen at 1×–2× with ±10 s skips, and answer a 10-point checklist (identity check, disclosures, no assured returns, product information, suitability, confidential information, instruction read-back, conduct, complaint logging, follow-up).",
     "Optional transcript and AI pre-check that suggests answers — the auditor decides.",
-    "Non-compliant calls, or calls marked 'Action required', raise a Service Request (Call Audit) for the action owner automatically; the audit shows 'Action open' until the SR is resolved. Export gives the full audit register.",
+    "Each audit ends as Passed or Issues identified (automatic when any point is 'No'). Issues need an issue category and comments and raise a Service Request (Call Audit) for the action owner automatically, with the audit reference.",
+    "After the audit, 'Raise SR' creates more SRs with the same reference (e.g. training or another team). The audit shows 'Action open' until all its SRs are resolved. Export gives the full audit register.",
   ] },
   { date: "12 Nov 2026", title: "Capture anything, IB Phase 2, role limits", items: [
     "Scan Card, QR or Link — from the header, the (+) button on phones, Client Registry and Companies. One photo on a phone goes straight to a short summary to approve.",

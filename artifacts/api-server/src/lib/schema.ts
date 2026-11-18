@@ -209,7 +209,11 @@ export async function ensureAppSchema() {
        created_by uuid, created_by_name varchar(160), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
      )`,
     "CREATE INDEX IF NOT EXISTS ix_call_audits_status ON call_audits (status, call_date DESC)",
-    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS recording_path varchar(500)", // file name + path on the recorder server / shared drive (when not uploaded)
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS recording_path varchar(500)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS result varchar(20)",          // Passed | Issues identified
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS issue_category varchar(80)",
+    "ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS call_audit_id uuid", // SRs raised from a call audit (one audit can have several)
+    "UPDATE service_requests s SET call_audit_id = a.id FROM call_audits a WHERE a.sr_id = s.id AND s.call_audit_id IS NULL", // file name + path on the recorder server / shared drive (when not uploaded)
     `INSERT INTO sla_config (category, tat_hours, warning_percent, l1_owner, l2_after_hours, l2_owner, l3_after_hours, l3_owner, auto_close_hours)
        SELECT 'Call Audit', 168, 80, 'Team Lead of the employee', 96, 'AMC CRO', 144, 'AMC CEO', 240
         WHERE NOT EXISTS (SELECT 1 FROM sla_config WHERE category='Call Audit' AND subcategory IS NULL)`,

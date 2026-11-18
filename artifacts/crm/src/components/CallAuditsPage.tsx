@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PhoneCall, Upload, Shuffle, Download, Search, X, RefreshCw, Play, Pause, RotateCcw, RotateCw, Sparkles, FileText, CheckCircle2, AlertTriangle, Trash2, ExternalLink, Info } from "lucide-react";
+import { Plus, PhoneCall, Upload, Shuffle, Download, Search, X, RefreshCw, Play, Pause, RotateCcw, RotateCw, Sparkles, FileText, CheckCircle2, AlertTriangle, Trash2, ExternalLink, Info } from "lucide-react";
 import { appConfirm, appToast } from "../lib/dialog";
 import { openRecord } from "../lib/openRecord";
 import { MList, MCard } from "./MobileCard";
@@ -59,7 +59,7 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
   const tiles: [string, any, string][] = [
     ["In sample", kpis.sampled ?? "—", ""], ["To audit", kpis.pending ?? "—", "text-amber-600 dark:text-amber-400"],
     ["Audited", kpis.sampled ? `${kpis.audited} · ${kpis.coverage}%` : kpis.audited ?? "—", "text-emerald-600 dark:text-emerald-400"],
-    ["Non-compliant", kpis.non_compliant ?? "—", "text-red-600 dark:text-red-400"], ["Actions open", kpis.actions_open ?? "—", "text-red-600 dark:text-red-400"],
+    ["Issues identified", kpis.issues ?? "—", "text-red-600 dark:text-red-400"], ["Actions open", kpis.actions_open ?? "—", "text-red-600 dark:text-red-400"],
   ];
 
   return (
@@ -81,7 +81,8 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
             <div><b>1. Upload</b> call recordings from the telephone / dialer system (date, time and number are read from file names like 20261114_103522_9876543210.mp3).</div>
             <div><b>2. Sample</b> — tick "Add to the audit sample" while uploading, or upload everything and use <b>Pick sample</b> for a random or risk-based pick.</div>
             <div><b>3. Audit</b> — listen (speed 1×–2×, ±10 s), optionally transcribe and run the AI pre-check, then answer each checklist point Yes / No / N.A. A "No" on a critical point (★) makes the call Non-compliant.</div>
-            <div><b>4. Action</b> — a Non-compliant call, or one you mark "Action required", raises a Service Request (category Call Audit) for the action owner with your observations; the audit shows "Action open" until that SR is resolved. Export gives the full audit register.</div>
+            <div><b>4. Result</b> — <b>Passed</b>, or <b>Issues identified</b> (automatic when any point is "No"). Issues need an issue category and comments, and raise a Service Request (category Call Audit) for the action owner automatically, with the audit reference. The audit shows "Action open" until its SRs are resolved.</div>
+            <div><b>5. More SRs</b> — after the audit, "Raise SR" creates further SRs with the same reference (e.g. for training or another team). Export gives the full audit register.</div>
           </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-4 pb-2">
@@ -120,7 +121,7 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
               <MCard key={r.id} onClick={() => setOpen(r)} title={`${r.audit_code} · ${r.employee_name || "Employee not set"}`}
                 sub={[fmtDate(r.call_date), r.call_time, r.phone || r.caller_name, fmtDur(r.duration_sec)].filter(Boolean).join(" · ")}
                 badge={<span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${STATE_TONE[r.state] || ""}`}>{r.state}</span>}
-                value={r.outcome ? <span className={OUT_TONE[r.outcome]}>{r.outcome}{r.score != null ? ` · ${Number(r.score)}%` : ""}</span> : undefined}
+                value={r.result ? <span className={r.result === "Passed" ? OUT_TONE.Satisfactory : OUT_TONE["Non-compliant"]}>{r.result}{r.issue_category ? ` · ${r.issue_category}` : ""}</span> : undefined}
                 left={r.team || ""} right={r.sr_code || r.sample_batch || ""} />
             ))}
           </MList>
@@ -138,9 +139,10 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
                   <td className={`px-3 py-2 ${t.textMuted}`}>{r.call_purpose || "—"}</td>
                   <td className={`px-3 py-2 ${t.textMuted}`}>{r.sample_batch || "—"}<div>{r.sample_reason}</div></td>
                   <td className="px-3 py-2"><span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold whitespace-nowrap ${STATE_TONE[r.state] || ""}`}>{r.state}</span></td>
-                  <td className="px-3 py-2">{r.outcome ? <span className={`font-semibold ${OUT_TONE[r.outcome]}`}>{r.outcome}{r.score != null ? ` · ${Number(r.score)}%` : ""}</span> : <span className={t.textMuted}>—</span>}
+                  <td className="px-3 py-2">{r.result ? <span className={`font-semibold ${r.result === "Passed" ? OUT_TONE.Satisfactory : OUT_TONE["Non-compliant"]}`}>{r.result}{r.score != null ? ` · ${Number(r.score)}%` : ""}</span> : <span className={t.textMuted}>—</span>}
+                    {r.issue_category && <div className="text-red-500/80">{r.issue_category}</div>}
                     {r.auditor_name && <div className={t.textMuted}>{r.auditor_name}</div>}</td>
-                  <td className="px-3 py-2">{r.sr_code ? <span className="font-mono text-blue-500">{r.sr_code}<span className={`ml-1 ${t.textMuted} font-sans`}>{r.sr_status}</span></span> : <span className={t.textMuted}>—</span>}</td>
+                  <td className="px-3 py-2">{r.srs?.length ? r.srs.map((x: any) => <div key={x.id} className="font-mono text-blue-500 whitespace-nowrap">{x.sr_code}<span className={`ml-1 ${t.textMuted} font-sans`}>{x.status}</span></div>) : <span className={t.textMuted}>—</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -382,13 +384,20 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
   const [full, setFull] = useState<any>(null);
   const [det, setDet] = useState<any>({});
   const [ck, setCk] = useState<Record<string, any>>(row.checklist || {});
-  const [f, setF] = useState<any>({ outcome: row.outcome || "", severity: row.severity || "", observations: row.observations || "", recommendation: row.recommendation || "",
-    action_required: !!row.action_required, action_owner_id: row.action_owner_id || "", action_due: row.action_due ? String(row.action_due).slice(0, 10) : "" });
+  const [f, setF] = useState<any>({ result: row.result || "", issue_category: row.issue_category || "", outcome: row.outcome || "", severity: row.severity || "",
+    observations: row.observations || "", recommendation: row.recommendation || "",
+    action_owner_id: row.action_owner_id || "", action_due: row.action_due ? String(row.action_due).slice(0, 10) : "" });
   const [busy, setBusy] = useState(""); const [tab, setTab] = useState<"check" | "details">("check");
   useEffect(() => { api(`/${row.id}`).then(d => { setFull(d); setR(d); }).catch(() => {}); }, [row.id]);
   const ev = useMemo(() => evaluate(meta, ck), [meta, ck]);
-  const outcome = f.outcome || ev.outcome;
-  const willRaise = !r.sr_id && (outcome === "Non-compliant" || f.action_required);
+  const failedIds = (meta.checklist || []).filter((c: any) => ck[c.id]?.v === "no").map((c: any) => c.id);
+  const forced = failedIds.length > 0;                       // any "No" = issues identified
+  const issues = forced || f.result === "Issues identified";
+  const result = issues ? "Issues identified" : f.result === "Passed" ? "Passed" : (ev.score !== null ? "Passed" : "");
+  const issueCat = f.issue_category || (forced ? meta.issue_for?.[failedIds[0]] || "" : "");
+  const outcome = !issues ? "Satisfactory" : (f.outcome && f.outcome !== "Satisfactory" ? f.outcome : ev.outcome && ev.outcome !== "Satisfactory" ? ev.outcome : "Needs improvement");
+  const willRaise = !r.sr_id && issues;
+  const [srForm, setSrForm] = useState<any | null>(null);
   const ownerDefault = r.employee_id || "";
   const setC = (id: string, v: string) => setCk(x => ({ ...x, [id]: { ...(x[id] || {}), v: x[id]?.v === v ? "" : v } }));
   const ai = full?.ai_check;
@@ -401,9 +410,16 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
     setBusy("save");
     try {
       if (Object.keys(det).length) { const d = await api(`/${r.id}`, "PUT", det); setR(d); setDet({}); }
-      const d = await api(`/${r.id}/audit`, "POST", { checklist: ck, ...f, outcome, action_owner_id: f.action_owner_id || ownerDefault || null });
+      const d = await api(`/${r.id}/audit`, "POST", { checklist: ck, ...f, result, issue_category: issueCat, outcome, action_owner_id: f.action_owner_id || ownerDefault || null });
       appToast(d.sr_created ? `Audit saved — ${d.sr_created} raised for ${d.action_owner_name}` : "Audit saved", "success");
       onSaved(d);
+    } catch (e: any) { appToast(e.message, "error"); } finally { setBusy(""); }
+  };
+  const raiseSr = async () => {
+    setBusy("sr");
+    try {
+      const d = await api(`/${r.id}/sr`, "POST", srForm);
+      appToast(`${d.sr_created} raised with reference ${r.audit_code}`, "success"); setSrForm(null); setR(d); onSaved(d);
     } catch (e: any) { appToast(e.message, "error"); } finally { setBusy(""); }
   };
   const transcribe = async () => {
@@ -449,10 +465,38 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
               <div className="text-[12px] whitespace-pre-wrap text-gray-800 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-800 p-2.5 max-h-72 overflow-y-auto">{full.transcript}</div>
             </div>
           ) : <div className="text-[11px] text-gray-500">Transcription is optional — it uses the meeting-transcription setup and the AI pre-check needs it. The auditor's answers are what count.</div>}
-          {r.sr_code && (
-            <button onClick={() => openRecord("sr", { id: r.sr_id })} className="w-full text-left rounded-lg border border-red-300 dark:border-red-800 p-2.5 text-sm flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" /><span className="flex-1"><b>{r.sr_code}</b> · {r.sr_status} · owner {r.action_owner_name}</span><ExternalLink className="w-3.5 h-3.5 text-gray-400" />
-            </button>
+          {(!!r.srs?.length || r.audited_at) && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-2">
+              <div className="flex items-center gap-2"><span className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex-1">Service Requests from this audit</span>
+                {r.audited_at && !srForm && <button onClick={() => setSrForm({ subject: `Call audit ${r.audit_code}: ${r.issue_category || "follow-up"}`, details: "", owner_id: r.action_owner_id || r.employee_id || "", priority: r.severity || "Medium", due: "" })}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white flex items-center gap-1"><Plus className="w-3 h-3" /> Raise SR</button>}</div>
+              {!r.srs?.length && !srForm && <div className="text-[11px] text-gray-500">None yet.</div>}
+              {(r.srs || []).map((x: any) => (
+                <button key={x.id} onClick={() => openRecord("sr", { id: x.id })} className={`w-full text-left rounded-lg border p-2 text-[13px] flex items-center gap-2 ${["Resolved", "Closed"].includes(x.status) ? "border-gray-200 dark:border-gray-800" : "border-red-300 dark:border-red-800"}`}>
+                  {["Resolved", "Closed"].includes(x.status) ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                  <span className="flex-1 min-w-0"><b className="font-mono">{x.sr_code}</b> · {x.status} · {x.assignee || "—"}<span className="block text-[11px] text-gray-500 truncate">{x.subject}</span></span>
+                  <ExternalLink className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                </button>
+              ))}
+              {srForm && (
+                <div className="space-y-2 pt-1">
+                  <div className="text-[11px] text-gray-500">The SR carries reference {r.audit_code} with the call details and audit findings.</div>
+                  <L label="Subject"><input value={srForm.subject} onChange={e => setSrForm((x: any) => ({ ...x, subject: e.target.value }))} className={inputCls} /></L>
+                  <L label="What needs to be done"><textarea rows={2} value={srForm.details} onChange={e => setSrForm((x: any) => ({ ...x, details: e.target.value }))} className={inputCls} /></L>
+                  <div className="grid grid-cols-2 gap-2">
+                    <L label="For"><select value={srForm.owner_id} onChange={e => setSrForm((x: any) => ({ ...x, owner_id: e.target.value }))} className={inputCls}>
+                      <option value="">— choose —</option>{(meta.users || []).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></L>
+                    <L label="Priority"><select value={srForm.priority} onChange={e => setSrForm((x: any) => ({ ...x, priority: e.target.value }))} className={inputCls}>{meta.severities.slice().reverse().map((x: string) => <option key={x}>{x}</option>)}</select></L>
+                    <L label="Due by (default 7 days)"><input type="date" value={srForm.due} onChange={e => setSrForm((x: any) => ({ ...x, due: e.target.value }))} className={inputCls} /></L>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setSrForm(null)} className="text-xs px-3 py-1.5 rounded-lg text-gray-500">Cancel</button>
+                    <button onClick={raiseSr} disabled={!!busy || !srForm.owner_id} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 flex items-center gap-1">
+                      {busy === "sr" && <RefreshCw className="w-3 h-3 animate-spin" />} Raise SR</button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
         {/* Right: checklist / details */}
@@ -512,31 +556,42 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
                 <span className="text-gray-500">Score</span><b className="text-gray-900 dark:text-white">{ev.score === null ? "—" : `${ev.score}%`}</b>
                 {ev.outcome && <span className={`font-semibold ${OUT_TONE[ev.outcome]}`}>{ev.outcome}</span>}
               </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                <L label="Outcome"><select value={f.outcome} onChange={e => setF((x: any) => ({ ...x, outcome: e.target.value }))} className={inputCls}><option value="">As scored ({ev.outcome || "—"})</option>{meta.outcomes.map((x: string) => <option key={x}>{x}</option>)}</select></L>
-                <L label="Severity"><select value={f.severity} onChange={e => setF((x: any) => ({ ...x, severity: e.target.value }))} className={inputCls}><option value="">As per outcome</option>{meta.severities.map((x: string) => <option key={x}>{x}</option>)}</select></L>
-                <L label={`Observations${outcome && outcome !== "Satisfactory" ? " *" : ""}`} span2><textarea rows={3} value={f.observations} onChange={e => setF((x: any) => ({ ...x, observations: e.target.value }))} className={inputCls} placeholder="What was heard, at what point in the call" /></L>
-                <L label="Recommendation / action expected" span2><textarea rows={2} value={f.recommendation} onChange={e => setF((x: any) => ({ ...x, recommendation: e.target.value }))} className={inputCls} placeholder="e.g. call the investor back with the correct disclosure; refresher training" /></L>
+              <div>
+                <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Call result</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => !forced && setF((x: any) => ({ ...x, result: "Passed" }))} disabled={forced}
+                    className={`py-2.5 rounded-xl border text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40 ${result === "Passed" ? "bg-emerald-600 border-emerald-600 text-white" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300"}`}>
+                    <CheckCircle2 className="w-4 h-4" /> Passed</button>
+                  <button onClick={() => setF((x: any) => ({ ...x, result: "Issues identified" }))}
+                    className={`py-2.5 rounded-xl border text-sm font-semibold flex items-center justify-center gap-1.5 ${issues ? "bg-red-600 border-red-600 text-white" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300"}`}>
+                    <AlertTriangle className="w-4 h-4" /> Issues identified</button>
+                </div>
+                {forced && <div className="text-[11px] text-gray-500 mt-1">A checklist point is answered "No", so the call can't be passed.</div>}
               </div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-2">
-                <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-100">
-                  <input type="checkbox" checked={f.action_required || outcome === "Non-compliant"} disabled={outcome === "Non-compliant" || !!r.sr_id} onChange={e => setF((x: any) => ({ ...x, action_required: e.target.checked }))} />
-                  Action required {outcome === "Non-compliant" && <span className="text-[11px] text-red-500">(always for Non-compliant)</span>}
-                </label>
-                {(f.action_required || outcome === "Non-compliant") && !r.sr_id && (
+              {issues ? (
+                <div className="rounded-xl border border-red-300 dark:border-red-900 bg-red-500/5 p-3 space-y-3">
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <L label="Action owner"><select value={f.action_owner_id || ownerDefault} onChange={e => setF((x: any) => ({ ...x, action_owner_id: e.target.value }))} className={inputCls}>
-                      <option value="">— choose —</option>{(meta.users || []).map((u: any) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}</select></L>
-                    <L label="Due by (default 7 days)"><input type="date" value={f.action_due} onChange={e => setF((x: any) => ({ ...x, action_due: e.target.value }))} className={inputCls} /></L>
+                    <L label="Issue category *"><select value={issueCat} onChange={e => setF((x: any) => ({ ...x, issue_category: e.target.value }))} className={inputCls}>
+                      <option value="">— choose —</option>{(meta.issue_categories || []).map((x: string) => <option key={x}>{x}</option>)}</select></L>
+                    <L label="Outcome"><select value={outcome} onChange={e => setF((x: any) => ({ ...x, outcome: e.target.value }))} className={inputCls}>
+                      {meta.outcomes.filter((x: string) => x !== "Satisfactory").map((x: string) => <option key={x}>{x}</option>)}</select></L>
+                    <L label="Comments *" span2><textarea rows={3} value={f.observations} onChange={e => setF((x: any) => ({ ...x, observations: e.target.value }))} className={inputCls} placeholder="What was heard, at what point in the call" /></L>
+                    <L label="Recommendation / action expected" span2><textarea rows={2} value={f.recommendation} onChange={e => setF((x: any) => ({ ...x, recommendation: e.target.value }))} className={inputCls} placeholder="e.g. call the investor back with the correct disclosure; refresher training" /></L>
+                    <L label="Severity"><select value={f.severity} onChange={e => setF((x: any) => ({ ...x, severity: e.target.value }))} className={inputCls}><option value="">As per outcome ({outcome === "Non-compliant" ? "High" : "Medium"})</option>{meta.severities.map((x: string) => <option key={x}>{x}</option>)}</select></L>
+                    {!r.sr_id && <L label="Action owner (SR is raised for)"><select value={f.action_owner_id || ownerDefault} onChange={e => setF((x: any) => ({ ...x, action_owner_id: e.target.value }))} className={inputCls}>
+                      <option value="">— choose —</option>{(meta.users || []).map((u: any) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}</select></L>}
+                    {!r.sr_id && <L label="Due by (default 7 days)"><input type="date" value={f.action_due} onChange={e => setF((x: any) => ({ ...x, action_due: e.target.value }))} className={inputCls} /></L>}
                   </div>
-                )}
-                {willRaise && <div className="text-[11px] text-amber-600 dark:text-amber-400">Saving raises a Service Request (Call Audit) for the action owner with these findings.</div>}
-                {r.sr_id && <div className="text-[11px] text-gray-500">Action SR {r.sr_code} already raised — follow it there.</div>}
-              </div>
+                  {willRaise && <div className="text-[11px] text-red-600 dark:text-red-400">Saving raises a Service Request automatically (category Call Audit · {issueCat || "issue category"}) for the action owner, with reference {r.audit_code}.</div>}
+                  {r.sr_id && <div className="text-[11px] text-gray-500">The automatic SR {r.sr_code} is already raised — use "Raise SR" on the left for another one.</div>}
+                </div>
+              ) : (
+                <L label="Comments (optional)"><textarea rows={2} value={f.observations} onChange={e => setF((x: any) => ({ ...x, observations: e.target.value }))} className={inputCls} placeholder="Anything worth noting" /></L>
+              )}
               <div className="flex items-center gap-2">
                 {r.audited_at && <span className="text-[11px] text-gray-500">Audited by {r.auditor_name} · {new Date(r.audited_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>}
                 <button onClick={save} disabled={!!busy} className="ml-auto text-sm px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 flex items-center gap-1.5">
-                  {busy === "save" && <RefreshCw className="w-4 h-4 animate-spin" />}{r.audited_at ? "Update audit" : willRaise ? "Save & raise SR" : "Save audit"}</button>
+                  {busy === "save" && <RefreshCw className="w-4 h-4 animate-spin" />}{willRaise ? "Save & raise SR" : r.audited_at ? "Update audit" : "Save audit"}</button>
               </div>
             </div>
           )}
