@@ -755,3 +755,16 @@ speechAdminRouter.post("/test", async (_req, res) => {
     res.json(r.ok ? { ok: true, msg: "Connected to Azure AI Speech" } : { ok: false, msg: `Azure Speech ${r.status}: ${d.error?.message || d.message || "error"}` });
   } catch (e: any) { res.json({ ok: false, msg: e.message }); }
 });
+
+/** Transcribe any stored audio file (used by Call Audits) with the same chain as meetings: Azure Speech → Groq → LLM key.
+ *  Respects the admin's "AI transcription" switch. Returns plain text with speaker labels when the service separates voices. */
+export async function transcribeAudioFile(path: string, mime: string): Promise<{ text: string; source: string }> {
+  const c = await speechCfg();
+  if (!c.enabled) throw new Error("AI transcription is switched off (Admin → Integrations → Meeting Recording)");
+  const fails: string[] = [];
+  const fmt = (segs: Seg[]) => segs.map(s => (s.s ? `${s.s}: ` : "") + s.text.trim()).filter(Boolean).join("\n");
+  if (c.endpoint && c.api_key) { try { return { text: fmt((await transcribeAzure(path, mime)).segments), source: "azure-speech" }; } catch (e: any) { fails.push(`Azure: ${e.message}`); } }
+  if (c.groq_api_key) { try { return { text: fmt((await transcribeGroq(path, mime)).segments), source: "groq-whisper" }; } catch (e: any) { fails.push(`Groq: ${e.message}`); } }
+  if (c.llm_transcribe) { try { const l = await transcribeLLM(path, mime); return { text: fmt(l.segments), source: `llm:${l.via}` }; } catch (e: any) { fails.push(`LLM: ${e.message}`); } }
+  throw new Error(fails.join(" · ") || "Transcription is not set up — add an Azure Speech or Groq key, or switch on 'Transcribe with the LLM key' (Admin → Integrations → Meeting Recording)");
+}

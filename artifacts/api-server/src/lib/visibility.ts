@@ -9,7 +9,9 @@ export const requestUser = new AsyncLocalStorage<{ id?: string; role?: string; v
 
 // ── Role limits ──
 /** Roles that can look at everything in their verticals but change nothing (server refuses writes). */
-export const READ_ONLY_ROLE = /^(compliance( officer)?|business head|auditor|read[- ]?only|viewer)$/i;
+export const READ_ONLY_ROLE = /^(compliance( officer)?|business head|auditor|read[- ]?only|viewer|(amc )?cro|chief risk officer|(amc )?risk analyst)$/i;
+/** Roles that can listen to and audit call recordings (Call Audits). Read-only roles above may still write audits. */
+export const CALL_AUDIT_ROLE = /(super admin|amc admin|\bcro\b|chief risk|risk analyst|risk officer|compliance|auditor)/i;
 export const isReadOnlyRole = (role?: string) => READ_ONLY_ROLE.test(String(role || "").trim());
 /** Roles that see only their own opportunities, deals and service requests (assigned to them or created by them). */
 export const OWN_RECORDS_ROLE = /^(junior rm|jr\.? rm|relationship executive|trainee rm)$/i;

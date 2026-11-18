@@ -28,6 +28,8 @@ import { meetingsRouter, speechAdminRouter } from "./meetings";
 import { cardsRouter } from "./cards";
 import { searchRouter } from "./search";
 import { ibMandatesRouter } from "./ibMandates";
+import { clientMergeRouter } from "./clientMerge";
+import { callAuditsRouter } from "./callAudits";
 
 const router: IRouter = Router();
 
@@ -68,12 +70,13 @@ const aiArea = (req: Request, res: Response, next: NextFunction) => {
 router.use(healthRouter);
 // Read-only roles (Compliance, Business Head …): every change is refused, except signing in/out, their own
 // notifications, NIYTRI AI chats and data-access (PII) requests / approvals.
-const READ_ONLY_ALLOWED = /^\/(auth\b|ai\/(chat|conversations)\b|notifications\b|clients\/[^/]+\/access-request$|clients\/access-request\/)/;
+const READ_ONLY_ALLOWED = /^\/(auth\b|call-audits\b|ai\/(chat|conversations)\b|notifications\b|clients\/[^/]+\/access-request$|clients\/access-request\/)/;
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !req.user || !isReadOnlyRole(req.user.role) || READ_ONLY_ALLOWED.test(req.path)) return next();
   return res.status(403).json({ error: `Your role (${req.user.role}) has read-only access — you can view records but not change them.`, code: "READ_ONLY" });
 });
 router.use("/auth", authRouter);
+router.use("/clients", clientMergeRouter); // duplicates + merge (admins)
 router.use("/clients", clientsRouter);
 router.use("/service-requests", serviceRequestsRouter);
 router.use("/sla-config", adminForWrites, slaConfigRouter);
@@ -99,6 +102,7 @@ router.use("/ib", ibRouter);
 router.use("/interactions", interactionsRouter);
 router.use("/tasks", tasksRouter);
 router.use("/meetings", meetingsRouter);
+router.use("/call-audits", callAuditsRouter); // AMC CRO call recording audits
 router.use("/cards", cardsRouter);
 router.use("/search", searchRouter);
 router.use("/integrations/fireflies", firefliesWebhookRouter);

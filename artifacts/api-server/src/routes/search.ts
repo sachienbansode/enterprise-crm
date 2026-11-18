@@ -16,7 +16,7 @@ searchRouter.get("/", async (req, res) => {
       query(`SELECT c.id, c.name, c.client_code, c.type, c.category, c.cin,
                     (SELECT array_agg(cv.vertical) FROM client_verticals cv WHERE cv.client_id = c.id) AS verticals
                FROM clients c
-              WHERE (c.name ILIKE $1 OR c.client_code ILIKE $1 OR c.cin ILIKE $1 OR c.group_name ILIKE $1)
+              WHERE (c.name ILIKE $1 OR c.client_code ILIKE $1 OR c.cin ILIKE $1 OR c.group_name ILIKE $1) AND COALESCE(c.status,'') <> 'Merged'
                 AND (NOT EXISTS (SELECT 1 FROM client_verticals cv WHERE cv.client_id = c.id)
                      OR EXISTS (SELECT 1 FROM client_verticals cv WHERE cv.client_id = c.id AND cv.vertical = ANY($2)))
               ORDER BY (c.name ILIKE $3) DESC, c.name LIMIT 6`, [like, ids, `${q}%`]),

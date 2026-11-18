@@ -94,6 +94,17 @@ export async function ensureAppSchema() {
     // App-wide options (Admin → Pipeline Stages → Options)
     "CREATE TABLE IF NOT EXISTS app_settings (key varchar(60) PRIMARY KEY, value jsonb NOT NULL, updated_by varchar(255), updated_at timestamptz DEFAULT now())",
     `INSERT INTO app_settings (key, value) VALUES ('show_probability', 'true') ON CONFLICT DO NOTHING`,
+    // Duplicate merge (clients / companies): merged records are kept, marked "Merged", and can be restored
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS merged_into uuid",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS merged_at timestamptz",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS merged_by varchar(255)",
+    "ALTER TABLE clients DROP CONSTRAINT IF EXISTS clients_status_check",
+    "ALTER TABLE clients ADD CONSTRAINT clients_status_check CHECK (status IN ('Active','Dormant','Suspended','Closed','Merged'))",
+    `CREATE TABLE IF NOT EXISTS client_merges (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), kept_id uuid NOT NULL, merged_ids uuid[] NOT NULL,
+       before_kept jsonb, before_merged jsonb, moved jsonb, verticals jsonb, comments jsonb, filled jsonb,
+       merged_by uuid, merged_by_name varchar(255), created_at timestamptz DEFAULT now(), undone_at timestamptz, undone_by_name varchar(255)
+     )`,
     // IB Phase 2 — mandate milestones, investor database, roadshow / NDR meetings
     `CREATE TABLE IF NOT EXISTS deal_milestones (
        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), deal_id uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
@@ -183,6 +194,29 @@ export async function ensureAppSchema() {
        FROM audit_logs a
       WHERE l.created_by_name IS NULL AND a.entity_type='lead' AND a.entity_id = l.id
         AND a.details='CREATE' AND a.user_name IS NOT NULL AND a.user_name <> 'System'`,
+
+    // Call recording audits (AMC CRO team): sampled recordings, checklist, observations, auto action SR
+    `CREATE TABLE IF NOT EXISTS call_audits (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), audit_code varchar(20) UNIQUE, vertical varchar(40) DEFAULT 'AMC',
+       call_date date, call_time varchar(8), direction varchar(10), phone varchar(30), caller_name varchar(160), caller_type varchar(30),
+       client_id uuid, employee_id uuid, employee_name varchar(160), team varchar(60), call_purpose varchar(60), duration_sec integer, recording_ref varchar(200),
+       audio_path text, audio_mime varchar(80), audio_name varchar(200), audio_bytes bigint,
+       sample_batch varchar(80), sample_reason varchar(40), in_sample boolean DEFAULT true, status varchar(20) DEFAULT 'Pending',
+       checklist jsonb DEFAULT '{}', score numeric, outcome varchar(30), severity varchar(10), observations text, recommendation text,
+       action_required boolean DEFAULT false, action_owner_id uuid, action_owner_name varchar(160), action_due date, sr_id uuid, sr_code varchar(20),
+       transcript text, transcript_source varchar(40), ai_check jsonb,
+       auditor_id uuid, auditor_name varchar(160), audited_at timestamptz,
+       created_by uuid, created_by_name varchar(160), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS ix_call_audits_status ON call_audits (status, call_date DESC)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS recording_path varchar(500)", // file name + path on the recorder server / shared drive (when not uploaded)
+    `INSERT INTO sla_config (category, tat_hours, warning_percent, l1_owner, l2_after_hours, l2_owner, l3_after_hours, l3_owner, auto_close_hours)
+       SELECT 'Call Audit', 168, 80, 'Team Lead of the employee', 96, 'AMC CRO', 144, 'AMC CEO', 240
+        WHERE NOT EXISTS (SELECT 1 FROM sla_config WHERE category='Call Audit' AND subcategory IS NULL)`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES
+       ('AMC CRO','All','AMC Chief Risk Officer — call recording audits; view-only elsewhere','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb),
+       ('AMC Risk Analyst','All','CRO team — call recording audits; view-only elsewhere','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb)
+     ON CONFLICT (role_name) DO NOTHING`,
   ];
   for (const s of stmts) await query(s);
   await seedIB();

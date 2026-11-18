@@ -23,7 +23,7 @@ router.get("/", async (req, res) => {
     const offset = (pageNum - 1) * pageSize;
     const verticalName = vertical || null;
 
-    let where = "WHERE 1=1";
+    let where = "WHERE COALESCE(c.status,'') <> 'Merged'"; // merged duplicates are hidden (see clientMerge.ts)
     const params: any[] = [];
     // Hidden verticals: a hidden vertical's (or hidden Clients module's) page is empty;
     // overall list drops clients that belong only to hidden verticals.
@@ -127,7 +127,7 @@ async function clientCheck(c: { id?: string; name?: string; pan?: string | null;
   const pan = c.pan ? String(c.pan).trim().toUpperCase() : "";
   if (pan && !PAN_RE.test(pan)) return { status: 400, body: { error: "PAN must be 10 characters, e.g. ABCDE1234F.", code: "BAD_PAN" } };
   if (pan) {
-    const dup = (await query("SELECT client_code, name FROM clients WHERE upper(pan)=$1 AND ($2::uuid IS NULL OR id <> $2::uuid) LIMIT 1", [pan, c.id || null])).rows[0];
+    const dup = (await query("SELECT client_code, name FROM clients WHERE upper(pan)=$1 AND ($2::uuid IS NULL OR id <> $2::uuid) AND COALESCE(status,'') <> 'Merged' LIMIT 1", [pan, c.id || null])).rows[0];
     if (dup) return { status: 409, body: { error: `PAN ${pan} already belongs to ${dup.name} (${dup.client_code}).`, code: "DUPLICATE_PAN", client_code: dup.client_code } };
   }
   if (/^verified$/i.test(String(c.kyc_status || "")) && (!pan || (!c.mobile && !c.email)))
@@ -135,7 +135,7 @@ async function clientCheck(c: { id?: string; name?: string; pan?: string | null;
   if (c.name && !confirmDuplicate) {
     const n = normName(c.name);
     if (n) {
-      const rows = (await query("SELECT id, client_code, name FROM clients WHERE ($1::uuid IS NULL OR id <> $1::uuid)", [c.id || null])).rows;
+      const rows = (await query("SELECT id, client_code, name FROM clients WHERE ($1::uuid IS NULL OR id <> $1::uuid) AND COALESCE(status,'') <> 'Merged'", [c.id || null])).rows;
       const similar = rows.filter((r: any) => normName(r.name) === n).slice(0, 3);
       if (similar.length) return { status: 409, body: { error: `A client with a similar name already exists: ${similar.map((r: any) => `${r.name} (${r.client_code})`).join(", ")}.`, code: "SIMILAR_NAME", matches: similar } };
     }

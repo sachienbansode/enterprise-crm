@@ -6,6 +6,12 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "18 Nov 2026", title: "Call Recording Audits (CRO team)", items: [
+    "Call Audits (CRO, Risk, Compliance, admins): add call recordings by uploading the files, by entering each file's name and path on the recorder server / shared drive, or both; date, time and number are read from the file name.",
+    "Pick a random or risk-based sample, listen at 1×–2× with ±10 s skips, and answer a 10-point checklist (identity check, disclosures, no assured returns, product information, suitability, confidential information, instruction read-back, conduct, complaint logging, follow-up).",
+    "Optional transcript and AI pre-check that suggests answers — the auditor decides.",
+    "Non-compliant calls, or calls marked 'Action required', raise a Service Request (Call Audit) for the action owner automatically; the audit shows 'Action open' until the SR is resolved. Export gives the full audit register.",
+  ] },
   { date: "12 Nov 2026", title: "Capture anything, IB Phase 2, role limits", items: [
     "Scan Card, QR or Link — from the header, the (+) button on phones, Client Registry and Companies. One photo on a phone goes straight to a short summary to approve.",
     "Each draft shows how it was read: AI model (e.g. OpenAI gpt-4o / Claude), on-device OCR (no AI), QR code, website or pasted text — with how sure it is.",
@@ -16,6 +22,8 @@ const RELEASES: { date: string; title: string; items: string[] }[] = [
     "Mandate milestones: checklists for IPO, QIP, Rights, OFS / Block, M&A, PE, Debt and Restructuring with due dates and progress.",
     "Compliance and Business Head are view-only; Junior RMs see only their own opportunities, deals and service requests.",
     "Admin switches for the Probability field and for AI transcription (off = audio kept, nothing sent to AI).",
+    "Duplicates are stopped at entry: the same company name (Pvt / Ltd / Limited ignored), PAN or CIN can't be added twice, and a scanned card is attached to the company that's already there.",
+    "Client Registry → Duplicates (admins): finds records sharing a PAN, CIN, e-mail, mobile or name; pick the one to keep and Merge — opportunities, deals, SRs, documents, people, meetings and tasks move across, blanks are filled, the duplicate is marked Merged. Undo any merge from Merge History.",
   ] },
   { date: "29 Oct 2026", title: "UAT issue log closed", items: [
     "Global search (Ctrl+K) across clients, opportunities, deals and service requests.",
@@ -42,13 +50,14 @@ const RELEASES: { date: string; title: string; items: string[] }[] = [
 ];
 
 const AREAS: { icon: any; title: string; points: string[] }[] = [
-  { icon: Users, title: "Clients & KYC", points: ["Client Registry with KYC, PAN, banking & demat, contacts", "Client 360 with SRs, deals, opportunities and documents", "Masked personal data with access requests"] },
+  { icon: Users, title: "Clients & KYC", points: ["Client Registry with KYC, PAN, banking & demat, contacts", "Client 360 with SRs, deals, opportunities and documents", "Masked personal data with access requests", "Duplicate check and merge with undo"] },
   { icon: TrendingUp, title: "Opportunities & Deals", points: ["Pipelines per vertical with stage rules", "Next action, probability, expected fee, lost reasons", "Convert to deal with full link back"] },
   { icon: Landmark, title: "Investment Banking", points: ["Companies & Promoters, Company 360", "Mandate milestones and roadshows", "Investor database and matching"] },
   { icon: MessageSquare, title: "Service Requests", points: ["SLA timers and escalation levels", "Conversation, documents and activity trail", "Export to CSV"] },
   { icon: Bot, title: "NIYTRI AI", points: ["Ask about pipeline, clients, SRs, tasks", "Charts, tables and analysis", "Works only on data you are allowed to see"] },
   { icon: Mic, title: "Meetings", points: ["Record in-person meetings with consent", "Speakers, summary and tasks", "Teams transcripts after the meeting"] },
   { icon: QrCode, title: "Capture", points: ["Business card photo (AI or on-device OCR)", "QR codes and LinkedIn links", "Websites, e-mail signatures, company names"] },
+  { icon: Mic, title: "Call Audits", points: ["Recordings by upload or file path", "Sampling, checklist and scoring", "Auto action SR for non-compliant calls"] },
   { icon: ShieldCheck, title: "Security & Access", points: ["Microsoft 365 or app sign-in with OTP", "Vertical-based access, read-only roles, own-records roles", "Audit log of every change"] },
   { icon: Smartphone, title: "Phone", points: ["Bottom tabs, quick actions, card lists", "One-tap scan and record", "Works in any phone browser"] },
   { icon: Plug, title: "Integrations", points: ["Microsoft 365 mail, calendar and Teams", "OpenAI / Azure OpenAI / Claude / Gemini", "Azure Speech, Groq, Fireflies"] },

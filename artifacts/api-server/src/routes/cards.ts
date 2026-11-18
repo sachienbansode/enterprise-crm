@@ -4,6 +4,7 @@ import { join } from "path";
 import { query } from "../lib/db";
 import { aiVision } from "./ai";
 import { insertCompany, insertPerson } from "./ib";
+import { NAME_NORM_SQL } from "./clientMerge";
 import { lookupSite } from "../lib/siteLookup";
 
 // Business-card scanning: photo → AI reads the card → review → company + person created (or matched) in one step.
@@ -75,15 +76,15 @@ async function findMatches(company: any, person: any) {
   const seen = new Set<string>();
   const add = (row: any, why: string) => { if (!seen.has(row.id)) { seen.add(row.id); out.companies.push({ ...row, why }); } };
   const dom = domainOf(person.email || company.email, company.website);
-  if (company.cin) (await query("SELECT id, name, client_code, cin, hq_city FROM clients WHERE upper(cin)=upper($1) LIMIT 1", [company.cin])).rows.forEach((r: any) => add(r, "Same CIN"));
+  if (company.cin) (await query("SELECT id, name, client_code, cin, hq_city FROM clients WHERE upper(cin)=upper($1) AND COALESCE(status,'') <> 'Merged' LIMIT 1", [company.cin])).rows.forEach((r: any) => add(r, "Same CIN"));
   if (dom) {
     (await query(
       `SELECT DISTINCT c.id, c.name, c.client_code, c.cin, c.hq_city FROM clients c LEFT JOIN company_people p ON p.client_id=c.id
-        WHERE lower(c.website) LIKE $1 OR lower(c.email) LIKE $2 OR lower(p.email) LIKE $2 LIMIT 5`, [`%${dom}%`, `%@${dom}`])).rows.forEach((r: any) => add(r, `Same e-mail domain (${dom})`));
+        WHERE (lower(c.website) LIKE $1 OR lower(c.email) LIKE $2 OR lower(p.email) LIKE $2) AND COALESCE(c.status,'') <> 'Merged' LIMIT 5`, [`%${dom}%`, `%@${dom}`])).rows.forEach((r: any) => add(r, `Same e-mail domain (${dom})`));
   }
   const core = company.name ? nameCore(company.name) : "";
   if (core.length >= 3) {
-    (await query("SELECT id, name, client_code, cin, hq_city FROM clients WHERE lower(name) LIKE $1 ORDER BY length(name) LIMIT 5",
+    (await query("SELECT id, name, client_code, cin, hq_city FROM clients WHERE lower(name) LIKE $1 AND COALESCE(status,'') <> 'Merged' ORDER BY length(name) LIMIT 5",
       [`%${core.split(" ").slice(0, 2).join("%")}%`])).rows.forEach((r: any) => add(r, "Similar name"));
   }
   const em = String(person.email || "").toLowerCase().trim(), mob = digits(person.mobile).slice(-10);
@@ -167,6 +168,11 @@ cardsRouter.post("/save", async (req, res) => {
   if (b.company_id && !UUID.test(b.company_id)) return res.status(400).json({ error: "Invalid company" });
   try {
     let companyId = b.company_id as string | undefined, createdCompany = false;
+    // Never create a second copy of a company that's already in the CRM under the same name (Pvt / Ltd / Limited ignored) — attach the card to it
+    if (!companyId) {
+      const same = (await query(`SELECT id FROM clients WHERE ${NAME_NORM_SQL("name")} = ${NAME_NORM_SQL("$1::text")} AND length(${NAME_NORM_SQL("$1::text")}) >= 4 AND COALESCE(status,'') <> 'Merged' ORDER BY created_at LIMIT 1`, [String(c.name).trim()])).rows[0];
+      if (same) companyId = same.id;
+    }
     if (companyId) {
       const ex = (await query("SELECT id FROM clients WHERE id=$1", [companyId])).rows[0];
       if (!ex) return res.status(404).json({ error: "Company not found" });

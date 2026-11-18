@@ -1,3 +1,4 @@
+import { NAME_NORM_SQL } from "./clientMerge";
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
@@ -34,7 +35,7 @@ router.get("/companies/check", async (req, res) => {
       if (core.length >= 3) {
         const r = await query(
           `SELECT id, name, client_code, cin FROM clients
-            WHERE lower(name) LIKE $1 AND ($2='' OR id::text <> $2) ORDER BY name LIMIT 5`,
+            WHERE lower(name) LIKE $1 AND ($2='' OR id::text <> $2) AND COALESCE(status,'') <> 'Merged' ORDER BY name LIMIT 5`,
           [`%${core.split(/\s+/).slice(0, 2).join("%")}%`, exclude],
         );
         out.similar = r.rows;
@@ -85,6 +86,12 @@ export async function insertCompany(input: any, user: any, vertical = "ib") {
     if (cin) {
       const dup = await query("SELECT name FROM clients WHERE upper(cin)=$1", [cin]);
       if (dup.rows[0]) throw httpErr(409, `A company with this CIN already exists: ${dup.rows[0].name}`);
+    }
+    // Same company name (ignoring Pvt / Ltd / Limited / punctuation) already in the CRM → use that one, don't create a duplicate
+    if (!b.confirm_duplicate) {
+      const same = (await query(`SELECT name, client_code FROM clients WHERE ${NAME_NORM_SQL("name")} = ${NAME_NORM_SQL("$1::text")} AND length(${NAME_NORM_SQL("$1::text")}) >= 4
+                                   AND COALESCE(status,'') <> 'Merged' LIMIT 1`, [name])).rows[0];
+      if (same) throw httpErr(409, `${same.name} (${same.client_code}) is already in the CRM — pick it instead of creating a duplicate.`);
     }
     const mx = await query("SELECT COALESCE(MAX(substring(client_code FROM '^NIYT-C-([0-9]+)$')::int), 0) AS n FROM clients");
     const code = `NIYT-C-${String(Number(mx.rows[0].n) + 1).padStart(6, "0")}`;

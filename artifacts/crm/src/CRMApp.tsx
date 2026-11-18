@@ -36,7 +36,12 @@ import { MList, MCard } from "./components/MobileCard";
 import { useHideOnScroll, MobileTabBar, MobileSheet, QuickActions, MoreTopRow, TAB_ICONS } from "./components/MobileNav";
 import { StagePath, StageFlowPrompt, StageMoveDialog } from "./components/StagePath";
 import { useBoardDrag } from "./lib/boardDrag";
-import { ScanLine as ScanIcon, Eye as EyeIcon } from "lucide-react";
+import { ScanLine as ScanIcon, Eye as EyeIcon, GitMerge as MergeIcon } from "lucide-react";
+import DuplicatesModal from "./components/DuplicatesModal";
+import CallAuditsPage from "./components/CallAuditsPage";
+import { PhoneCall as CallAuditIcon } from "lucide-react";
+// Who may open Call Audits (mirrors CALL_AUDIT_ROLE on the server; the server is the real check)
+const canCallAudit = (u: any) => /(super admin|amc admin|\bcro\b|chief risk|risk analyst|risk officer|compliance|auditor)/i.test(u?.role || "");
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Briefcase, Building,
   Calendar, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
@@ -60,7 +65,7 @@ const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 // If logo.png is missing, fall back to the bundled favicon instead of a broken image
 const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
-type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about"
+type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about" | "callaudits"
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
@@ -2452,6 +2457,11 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
               <button title="Service Requests" onClick={() => nav(null, "service")} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "service" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />{open && <span>Service Requests</span>}
               </button>
+              {canCallAudit(loggedUser) && (
+                <button title="Call Audits" onClick={() => { setIsAdmin(false); nav(null, "callaudits"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "callaudits" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
+                  <CallAuditIcon className="w-4 h-4 flex-shrink-0" />{open && <span>Call Audits</span>}
+                </button>
+              )}
               <button title="NIYTRI AI" onClick={() => { setIsAdmin(false); nav(null, "ai"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "ai" && !isAdmin ? "bg-violet-600 text-white" : sItem}`}>
                 <Sparkles className="w-4 h-4 flex-shrink-0" />{open && <><span className="flex-1 text-left">NIYTRI AI</span><span className="text-[9px] bg-violet-500/30 text-violet-300 px-1.5 py-0.5 rounded-full font-bold">AI</span></>}
               </button>
@@ -2615,7 +2625,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-dropdown-config":   "Dropdown Values",
     "admin-pipeline-stages":   "Pipeline Stages",
     "admin-pii-masking":       "PII Data Masking",
-    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar", about: "About & What's New",
+    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar", about: "About & What's New", callaudits: "Call Recording Audits",
   };
   const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || (activeV ? SUBMENU.find(s => s.id === activePage)?.label : null)
     || ADMIN_PAGE_LABELS[activePage] || SUBMENU.find(s => s.id === activePage)?.label
@@ -2715,6 +2725,8 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
 
 // ─── CLIENT REGISTRY ──────────────────────────────────────────────────────────
 function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; loggedUser?: any }) {
+  const [dupOpen, setDupOpen] = useState(false);
+  const canMerge = /admin/i.test(loggedUser?.role || "");
   const PAGE_SIZE = 15;
   const [clients, setClients] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -2790,6 +2802,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
           </select>
           <div className="ml-auto flex gap-2">
             <button onClick={load} className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted} flex items-center gap-1`}><RefreshCw className="w-3.5 h-3.5" /></button>
+{canMerge && <button onClick={() => setDupOpen(true)} title="Find and merge duplicate clients" className={`text-xs px-3 py-1.5 rounded-lg border ${t.border} ${t.textMuted} flex items-center gap-1.5`}><MergeIcon className="w-3.5 h-3.5" /> Duplicates</button>}
 <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { forClients: true } }))} title="Create a client from a business card, QR code or website link" className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5"><ScanIcon className="w-3.5 h-3.5" /> Scan / Link</button>
             <button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Client</button>
           </div>
@@ -2864,6 +2877,7 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
         <Pagination total={total} page={page} pageSize={PAGE_SIZE} onChange={setPage} t={t} />
       </div>
       {selected && <Client360Panel client={selected} t={t} onClose={() => setSelected(null)} loggedUser={loggedUser} />}
+      {dupOpen && <DuplicatesModal onClose={() => setDupOpen(false)} onMerged={load} />}
       <ClientForm
         open={createClientOpen}
         onClose={() => { setCreateClientOpen(false); setEditingClient(null); }}
@@ -8585,6 +8599,7 @@ export function CRMApp() {
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "about") return <AboutPage t={t} isDark={darkMode} />;
+    if (!activeV && activePage === "callaudits") return <CallAuditsPage t={t} isDark={darkMode} />;
     if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
     // Hidden vertical or hidden module (Admin → Verticals Config) — never render it, even via a saved link
     if (!VERTICALS.some(v => v.id === activeV) || !moduleVisible(activeV, activePage)) {
