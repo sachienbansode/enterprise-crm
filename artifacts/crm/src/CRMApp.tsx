@@ -203,6 +203,7 @@ const SUBMENU = [
   { id: "customers", label: "Clients", icon: Users },
   { id: "documents", label: "Documents", icon: FileText },
   { id: "investors", label: "Investors", icon: Landmark, ibOnly: true },
+  { id: "callaudits", label: "Call Audits", icon: CallAuditIcon, onlyV: "amc", audit: true },
 ];
 
 // SR_CATEGORIES is imported from ./pages/ServiceRequests
@@ -1979,6 +1980,7 @@ const VERTICAL_ROLES = [
   { role: "AMC Sales Head", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Documents", "AMC Service Requests", "AI Assistant"], desc: "AMC sales pipeline and reports" },
   { role: "AMC RM", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Service Requests"], desc: "AMC relationship manager" },
   { role: "AMC Investor Service", vertical: "AMC", access: ["AMC Clients", "AMC Service Requests"], desc: "AMC investor service desk" },
+  { role: "AMC-CRO", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Documents", "AMC Service Requests", "Call Audits", "AI Assistant"], desc: "AMC Chief Risk Officer — full access to the AMC vertical, including Call Audits" },
   { role: "AMC CRO", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests"], desc: "AMC Chief Risk Officer — call audits; view-only elsewhere" },
   { role: "AMC Risk Analyst", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests"], desc: "CRO team — call audits; view-only elsewhere" },
   { role: "AMC Compliance Officer", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests", "Documents"], desc: "AMC compliance — view-only, plus call audits" },
@@ -2470,11 +2472,6 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
               <button title="Service Requests" onClick={() => nav(null, "service")} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "service" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />{open && <span>Service Requests</span>}
               </button>
-              {canCallAudit(loggedUser) && (
-                <button title="Call Audits" onClick={() => { setIsAdmin(false); nav(null, "callaudits"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "callaudits" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
-                  <CallAuditIcon className="w-4 h-4 flex-shrink-0" />{open && <span>Call Audits</span>}
-                </button>
-              )}
               <button title="NIYTRI AI" onClick={() => { setIsAdmin(false); nav(null, "ai"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "ai" && !isAdmin ? "bg-violet-600 text-white" : sItem}`}>
                 <Sparkles className="w-4 h-4 flex-shrink-0" />{open && <><span className="flex-1 text-left">NIYTRI AI</span><span className="text-[9px] bg-violet-500/30 text-violet-300 px-1.5 py-0.5 rounded-full font-bold">AI</span></>}
               </button>
@@ -2509,7 +2506,7 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
                     </button>
                     {open && isExp && (
                       <div className={`ml-3 mt-0.5 space-y-0.5 pl-3 border-l-2 ${sb.sep}`}>
-                        {SUBMENU.filter(s => moduleVisible(v.id, s.id) && (!(s as any).ibOnly || v.id === "ib")).map(s => {
+                        {SUBMENU.filter(s => moduleVisible(v.id, s.id) && (!(s as any).ibOnly || v.id === "ib") && (!(s as any).onlyV || v.id === (s as any).onlyV) && (!(s as any).audit || canCallAudit(loggedUser))).map(s => {
                           const isAct = activeV === v.id && activePage === s.id && !isAdmin;
                           return (
                             <button key={s.id} onClick={() => nav(v.id as Vertical, s.id as Page)} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${isAct ? (isDark ? "text-white bg-slate-700/60" : "text-slate-900 bg-slate-200") : sb.sub}`}>
@@ -6896,7 +6893,7 @@ function AdminVerticals({ t, onReload }: { t: ReturnType<typeof useTheme>; onRel
                   <span className={`text-xs font-semibold uppercase tracking-wide ${row.is_active ? t.text : t.textMuted + " line-through"}`}>{row.label}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {SUBMENU.filter(m => !(m as any).ibOnly || row.vertical_id === "ib").map(m => {
+                  {SUBMENU.filter(m => (!(m as any).ibOnly || row.vertical_id === "ib") && (!(m as any).onlyV || String(row.vertical_id).toLowerCase() === (m as any).onlyV)).map(m => {
                     const on = !hidden.includes(m.id);
                     return (
                       <button key={m.id} disabled={!row.is_active || !!visBusy}
@@ -8625,7 +8622,8 @@ export function CRMApp() {
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "about") return <AboutPage t={t} isDark={darkMode} />;
-    if (!activeV && activePage === "callaudits") return <CallAuditsPage t={t} isDark={darkMode} />;
+    // Call Audits is part of the AMC module (old #/main/callaudits links still open it)
+    if ((activeV === "amc" || !activeV) && activePage === "callaudits") return <CallAuditsPage t={t} isDark={darkMode} />;
     if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
     // Hidden vertical or hidden module (Admin → Verticals Config) — never render it, even via a saved link
     if (!VERTICALS.some(v => v.id === activeV) || !moduleVisible(activeV, activePage)) {

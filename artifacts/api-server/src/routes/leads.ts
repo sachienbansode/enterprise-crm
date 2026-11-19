@@ -237,6 +237,8 @@ function isFutureDate(dateStr: string | undefined): boolean {
 // POST /api/leads — create lead
 router.post("/", async (req, res) => {
   try {
+    // only in a vertical this user works in (e.g. an AMC-only user can't open broking opportunities)
+    if (req.body?.vertical && !(await visibleNames("leads")).includes(String(req.body.vertical))) return res.status(403).json({ error: `You don't have access to ${req.body.vertical}` });
     const { name, vertical, stage, priority, value_estimate, source, sub_source, product, deal_type, assigned_rm_id, client_id, notes, opened_at, closed_at, expected_close,
             opportunity_type, next_action, next_action_date, lost_reason, expected_fee, probability } = req.body;
     const lost_comment = String(req.body.lost_comment || "").trim();

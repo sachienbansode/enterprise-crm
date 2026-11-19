@@ -194,6 +194,8 @@ function isFutureDate(d: string | undefined): boolean {
 // POST /api/deals — create deal
 router.post("/", async (req, res) => {
   try {
+    // only in a vertical this user works in (e.g. an AMC-only user can't open broking deals)
+    if (req.body?.vertical && !(await visibleNames("deals")).includes(String(req.body.vertical))) return res.status(403).json({ error: `You don't have access to ${req.body.vertical}` });
     const { name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close } = req.body;
     if (isFutureDate(deal_date)) return res.status(400).json({ error: "Deal date cannot be in the future." });
 

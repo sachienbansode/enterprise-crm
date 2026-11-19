@@ -10,6 +10,8 @@ const RELEASES: { date: string; title: string; items: string[] }[] = [
     "New AMC vertical with its own dashboard, opportunities (Prospect → Contacted → Meeting → Scheme Proposed → KYC / Application → Investment Received), investments (Application Received → Sent to RTA → Units Allotted), clients and documents.",
     "The AMC is kept separate: only users assigned to AMC see AMC records — 'All' means every broking vertical, not AMC. Super Admin sees everything.",
     "AMC roles: AMC Admin, AMC Sales Head, AMC RM, AMC Investor Service, AMC CRO, AMC Risk Analyst, AMC Compliance Officer. A role tied to AMC puts the user in the AMC vertical automatically (Create User, Edit User and Role Mapping).",
+    "Call Audits is part of the AMC module (AMC → Call Audits). New role AMC-CRO: full access to the AMC vertical including Call Audits.",
+    "Opportunities and deals can be created only in verticals the user works in.",
     "Call audits, and the SRs they raise, belong to their business: AMC ones are seen only by AMC users. Mutual fund SR categories added (redemption, SIP, switch / STP / SWP, CAS, NAV / IDCW, nominee / bank mandate, KYC, distributor, SCORES).",
   ] },
   { date: "18 Nov 2026", title: "Call Recording Audits (CRO team)", items: [

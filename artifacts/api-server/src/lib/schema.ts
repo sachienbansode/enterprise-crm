@@ -212,6 +212,7 @@ export async function ensureAppSchema() {
     `INSERT INTO sla_config (category, tat_hours, warning_percent, l1_owner, l2_after_hours, l2_owner, l3_after_hours, l3_owner, auto_close_hours)
        SELECT 'Mutual Fund (AMC)', 48, 80, 'AMC Investor Service', 24, 'AMC Operations Head', 40, 'AMC CEO', 72 WHERE NOT EXISTS (SELECT 1 FROM sla_config WHERE category='Mutual Fund (AMC)' AND subcategory IS NULL)`,
     // Roles tied to AMC: the two CRO roles were first created with vertical "All" — move them to AMC; users with an AMC role always sit in the AMC vertical
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC-CRO','AMC','AMC Chief Risk Officer — full access to the AMC vertical, including Call Audits','{"AI": true, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
     "UPDATE user_roles SET vertical='AMC', description=replace(description, '; view-only elsewhere', ' — AMC only; view-only elsewhere') WHERE role_name IN ('AMC CRO','AMC Risk Analyst') AND vertical='All'",
     "UPDATE users u SET vertical='AMC', updated_at=NOW() FROM user_roles r WHERE u.role=r.role_name AND r.vertical='AMC' AND COALESCE(u.vertical,'') <> 'AMC'",
     // Call recording audits (AMC CRO team): sampled recordings, checklist, observations, auto action SR
