@@ -9,7 +9,7 @@ export const requestUser = new AsyncLocalStorage<{ id?: string; role?: string; v
 
 // ── Role limits ──
 /** Roles that can look at everything in their verticals but change nothing (server refuses writes). */
-export const READ_ONLY_ROLE = /^(compliance( officer)?|business head|auditor|read[- ]?only|viewer|(amc )?cro|chief risk officer|(amc )?risk analyst)$/i;
+export const READ_ONLY_ROLE = /^((amc )?compliance( officer)?|business head|auditor|read[- ]?only|viewer|(amc )?cro|chief risk officer|(amc )?risk analyst)$/i;
 /** Roles that can listen to and audit call recordings (Call Audits). Read-only roles above may still write audits. */
 export const CALL_AUDIT_ROLE = /(super admin|amc admin|\bcro\b|chief risk|risk analyst|risk officer|compliance|auditor)/i;
 export const isReadOnlyRole = (role?: string) => READ_ONLY_ROLE.test(String(role || "").trim());
@@ -24,7 +24,7 @@ export function userVerticalIds(u?: { role?: string; vertical?: string }): strin
   if (!u) return null;                                            // background jobs: no limit
   if (/super admin/i.test(u.role || "")) return null;
   const raw = String(u.vertical || "").trim();
-  if (!raw || /^(all|assigned)$/i.test(raw)) return null;
+  if (!raw || /^(all|assigned)$/i.test(raw)) return VERTICALS.filter(v => !v.restricted).map(v => v.id); // "All" = every vertical except restricted ones (AMC)
   const ids = raw.split(/[,;|]/).map(x => x.trim().toLowerCase()).map(x => VERTICALS.find(v => v.id === x || v.name.toLowerCase() === x)?.id).filter(Boolean) as string[];
   return ids.length ? ids : null;
 }
@@ -40,7 +40,10 @@ export const VERTICALS = [
   { id: "ib", name: "Investment Banking" },
   { id: "aif", name: "AIF" },
   { id: "ie", name: "Institutional Equities" },
-];
+  { id: "amc", name: "AMC", restricted: true },
+] as { id: string; name: string; restricted?: boolean }[];
+/** Restricted verticals (the AMC is a separate entity) are seen only by users who have them assigned explicitly — never through "All". */
+export const RESTRICTED_VERTICALS = () => VERTICALS.filter(v => v.restricted).map(v => v.id);
 export const MODULES = ["dashboard", "leads", "deals", "customers", "documents"] as const;
 export type Module = typeof MODULES[number];
 
@@ -75,4 +78,17 @@ export async function visibleIds(module?: Module): Promise<string[]> {
 export async function visibleNames(module?: Module): Promise<string[]> {
   const ids = await visibleIds(module);
   return VERTICALS.filter(x => ids.includes(x.id)).map(x => x.name);
+}
+
+/** Name of the vertical a role belongs to ("AMC", "AIF", …) when the role is tied to one vertical; null for All / Assigned roles. */
+export async function roleVertical(role?: string | null): Promise<string | null> {
+  if (!role) return null;
+  const r = (await query("SELECT vertical FROM user_roles WHERE role_name=$1", [role]).catch(() => ({ rows: [] as any[] }))).rows[0];
+  const v = String(r?.vertical || "").trim();
+  if (!v || /^(all|assigned)$/i.test(v)) return null;
+  return VERTICALS.find(x => x.id === v.toLowerCase() || x.name.toLowerCase() === v.toLowerCase())?.name || v;
+}
+/** A user's vertical follows their role when the role is tied to one vertical (e.g. AMC CRO → AMC); otherwise what the admin picked. */
+export async function alignVertical(role?: string | null, vertical?: string | null): Promise<string> {
+  return (await roleVertical(role)) || String(vertical || "").trim() || "All";
 }

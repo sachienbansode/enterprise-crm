@@ -249,7 +249,7 @@ router.post("/", async (req, res) => {
     if (isFutureDate(closed_at)) return res.status(400).json({ error: "Lead close date cannot be in the future." });
 
     const countResult = await query("SELECT COUNT(*) FROM leads WHERE vertical=$1", [vertical]);
-    const prefix = vertical === "Retail Broking" ? "RB" : vertical === "Corporate Broking" ? "CB" : vertical === "Investment Banking" ? "IB" : vertical === "AIF" ? "AIF" : "IE";
+    const prefix = vertical === "Retail Broking" ? "RB" : vertical === "Corporate Broking" ? "CB" : vertical === "Investment Banking" ? "IB" : vertical === "AIF" ? "AIF" : vertical === "AMC" ? "AMC" : "IE";
     const seq = 1000 + parseInt(countResult.rows[0].count, 10) + 1;
     const lead_code = `${prefix}-${seq}`;
 
@@ -325,7 +325,7 @@ router.post("/:id/convert", async (req, res) => {
   try {
     const l = (await query(`SELECT l.*, ps.is_won FROM leads l
         LEFT JOIN pipeline_stages ps ON ps.entity='lead' AND ps.stage_id=l.stage
-         AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+         AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' WHEN 'AMC' THEN 'amc' ELSE 'ie' END)
         WHERE l.id=$1 AND l.stage <> 'deleted'`, [req.params.id])).rows[0];
     if (!l) return res.status(404).json({ error: "Opportunity not found" });
     if (!l.is_won) return res.status(400).json({ error: "Only a won / closed opportunity can be converted to a deal." });
@@ -343,7 +343,7 @@ router.post("/:id/convert", async (req, res) => {
     }
     const deal_code = await nextDealCode(l.vertical);
     const stage = (await query(`SELECT label FROM pipeline_stages WHERE entity='deal' AND is_active AND vertical =
-        (CASE $1 WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+        (CASE $1 WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' WHEN 'AMC' THEN 'amc' ELSE 'ie' END)
         ORDER BY sort_order LIMIT 1`, [l.vertical])).rows[0]?.label || "Active";
     const d = (await query(
       `INSERT INTO deals (deal_code, name, vertical, type, deal_type, value, stage, client_id, rm_id, notes, deal_date, expected_close, created_by, created_by_name, details, stage_path, lead_id)

@@ -6,7 +6,7 @@ import { StagePath } from "./StagePath";
 // Admin → Pipeline Stages. One card per vertical: a live preview of the stage path, then the stages in order.
 // Each stage has one workflow flag: Mandatory (can't be skipped) or Skip allowed (can be skipped; shows as Skipped).
 
-const VERTICALS: [string, string][] = [["ib", "Investment Banking"], ["aif", "AIF"], ["retail", "Retail Broking"], ["corporate", "Corporate Broking"], ["ie", "Institutional Equities"]];
+const VERTICALS: [string, string][] = [["ib", "Investment Banking"], ["aif", "AIF"], ["retail", "Retail Broking"], ["corporate", "Corporate Broking"], ["ie", "Institutional Equities"], ["amc", "AMC"]];
 const VNAME = Object.fromEntries(VERTICALS);
 const TW: Record<string, string> = {
   gray: "#6b7280", slate: "#64748b", blue: "#3b82f6", sky: "#0ea5e9", indigo: "#6366f1", violet: "#8b5cf6", purple: "#a855f7", pink: "#ec4899",

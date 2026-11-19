@@ -317,7 +317,7 @@ router.post("/chat", async (req, res) => {
     const rolePrompt = (config.bot_prompts || {})[userRole] || "";
     const schema = await schemaText(allowed);
 
-    const system = `You are NIYTRI AI, the analyst built into NIYTRI CRM — used by an Indian financial-services firm with Retail Broking, Corporate Broking, Investment Banking (ECM), AIF and Institutional Equities businesses.
+    const system = `You are NIYTRI AI, the analyst built into NIYTRI CRM — used by an Indian financial-services firm with Retail Broking, Corporate Broking, Investment Banking (ECM), AIF, Institutional Equities and AMC (mutual fund) businesses.
 You are helping ${userName} (${userRole}; user id ${userId}). Today is ${today}, ${time} IST.
 
 HOW YOU WORK

@@ -188,7 +188,7 @@ function UploadModal({ t, meta, onClose, onDone }: { t: any; meta: any; onClose:
   const [mode, setMode] = useState<"file" | "path">("file");
   const [folder, setFolder] = useState(""); const [paths, setPaths] = useState("");
   const pathList = paths.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-  const [d, setD] = useState<any>({ vertical: "AMC", team: "", call_purpose: "", caller_type: "", direction: "Outbound", employee_id: null, employee_name: "",
+  const [d, setD] = useState<any>({ vertical: meta.businesses?.includes("AMC") ? "AMC" : meta.businesses?.[0] || "AMC", team: "", call_purpose: "", caller_type: "", direction: "Outbound", employee_id: null, employee_name: "",
     in_sample: true, sample_batch: `Sample ${new Date().toLocaleDateString("en-IN", { month: "short", year: "numeric" })}`, sample_reason: "Random" });
   const [busy, setBusy] = useState<number | null>(null);
   const set = (k: string, v: any) => setD((x: any) => ({ ...x, [k]: v }));

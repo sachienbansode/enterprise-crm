@@ -8,7 +8,7 @@ import { query } from "./db";
 // so the stage summary shows skipped steps as "Skipped".
 
 export const VERTICAL_ID: Record<string, string> = {
-  "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie",
+  "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie", "AMC": "amc",
 };
 
 type Step = { stage_id: string; label: string; skip_allowed: boolean; is_won: boolean; is_lost: boolean };

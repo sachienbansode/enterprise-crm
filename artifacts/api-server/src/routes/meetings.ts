@@ -24,7 +24,7 @@ const DIR = join(process.cwd(), "uploads", "meetings");
 if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
 const UUID = /^[0-9a-f-]{36}$/i;
 const clean = (v: any) => (v === "" || v === undefined ? null : v);
-const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" };
 
 type Seg = { s: string; t0: number; t1: number; text: string };
 type Attendee = { key: string; kind: "user" | "person" | "other"; id?: string | null; name: string; role?: string | null };

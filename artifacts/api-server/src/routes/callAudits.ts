@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync, statSync, createReadStream, unlin
 import { join } from "path";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
-import { CALL_AUDIT_ROLE } from "../lib/visibility";
+import { CALL_AUDIT_ROLE, visibleNames, userVerticalIds, VERTICALS } from "../lib/visibility";
 import { aiComplete } from "./ai";
 import { transcribeAudioFile } from "./meetings";
 
@@ -57,6 +57,14 @@ callAuditsRouter.use(async (req, res, next) => {
   if (!(await canAudit(req.user))) return res.status(403).json({ error: "Call Audits are open to the CRO team, Compliance and admins.", code: "NO_CALL_AUDIT" });
   next();
 });
+// Each audit belongs to a business (AMC by default). Users see only the businesses they are assigned to —
+// AMC audits stay with AMC users (and Super Admin); group compliance sees the broking ones.
+callAuditsRouter.param("id", async (req, res, next, id) => {
+  if (!UUID.test(id)) return res.status(400).json({ error: "Invalid id" });
+  const a = (await query("SELECT vertical FROM call_audits WHERE id=$1", [id])).rows[0];
+  if (!a || !(await visibleNames()).includes(a.vertical)) return res.status(404).json({ error: "Not found" });
+  next();
+});
 
 /** Score = Yes ÷ (Yes + No); a "No" on a critical point makes the call Non-compliant. */
 function evaluate(checklist: Record<string, any>) {
@@ -88,9 +96,12 @@ const LIST_SELECT = `
     FROM call_audits a LEFT JOIN clients c ON c.id=a.client_id LEFT JOIN service_requests sr ON sr.id=a.sr_id`;
 
 callAuditsRouter.get("/meta", async (_req, res) => {
-  const users = (await query("SELECT id, name, role FROM users WHERE COALESCE(status,'Active')='Active' ORDER BY name")).rows;
+  const mine = await visibleNames(); const mineIds = VERTICALS.filter(v => mine.includes(v.name)).map(v => v.id);
+  // action owners: people who work in one of the businesses this auditor covers
+  const users = (await query("SELECT id, name, role, vertical FROM users WHERE COALESCE(status,'Active')='Active' ORDER BY name")).rows
+    .filter((u: any) => /super admin/i.test(u.role) || (userVerticalIds(u) || []).some(v => mineIds.includes(v))).map(({ vertical, ...u }: any) => u);
   const batches = (await query("SELECT sample_batch, COUNT(*)::int n FROM call_audits WHERE sample_batch IS NOT NULL GROUP BY 1 ORDER BY MAX(created_at) DESC LIMIT 30")).rows;
-  res.json({ ...META, users, batches });
+  res.json({ ...META, businesses: META.businesses.filter(b => mine.includes(b)), users, batches });
 });
 
 callAuditsRouter.get("/", async (req, res) => {
@@ -98,6 +109,7 @@ callAuditsRouter.get("/", async (req, res) => {
     const q = req.query as Record<string, string>;
     const where: string[] = []; const p: any[] = [];
     const add = (sql: string, v: any) => { p.push(v); where.push(sql.replace("?", `$${p.length}`)); };
+    add("a.vertical = ANY(?)", await visibleNames());
     if (q.batch) add("a.sample_batch = ?", q.batch);
     if (q.from) add("a.call_date >= ?::date", q.from);
     if (q.to) add("a.call_date <= ?::date", q.to);
@@ -121,7 +133,7 @@ callAuditsRouter.get("/", async (req, res) => {
 });
 
 callAuditsRouter.get("/export.csv", async (_req, res) => {
-  const rows = (await query(`${LIST_SELECT} ORDER BY a.call_date DESC NULLS LAST`)).rows;
+  const rows = (await query(`${LIST_SELECT} WHERE a.vertical = ANY($1) ORDER BY a.call_date DESC NULLS LAST`, [await visibleNames()])).rows;
   const cols = ["audit_code", "vertical", "call_date", "call_time", "direction", "phone", "caller_name", "caller_type", "client_code", "client_name", "employee_name", "team", "call_purpose",
     "duration_sec", "recording_ref", "recording_path", "audio_name", "sample_batch", "sample_reason", "state", "result", "issue_category", "score", "outcome", "severity", "failed_points", "observations", "recommendation", "sr_code", "auditor_name", "audited_at"];
   const esc = (v: any) => { const s = v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -171,7 +183,9 @@ callAuditsRouter.post("/upload", raw({ type: () => true, limit: "120mb" }), asyn
     if (!buf.length && !path0 && !clean(q.recording_ref)) return res.status(400).json({ error: "Upload the recording or enter its file name and path" });
     const mime = String(q.mime || req.headers["content-type"] || "audio/mpeg").slice(0, 80);
     if (buf.length && !/^audio\/|^video\/(mp4|webm|ogg)/.test(mime)) return res.status(400).json({ error: "Upload an audio file (mp3, wav, m4a, ogg, webm)." });
-    const d = { ...fromFileName(name || ""), ...details(q) };
+    const d: Record<string, any> = { ...fromFileName(name || ""), ...details(q) };
+    const vis = await visibleNames();
+    if (!d.vertical || !vis.includes(d.vertical)) d.vertical = vis.includes("AMC") ? "AMC" : vis[0];
     const code = await nextCode();
     const cols = Object.keys(d);
     const r = await query(
@@ -212,6 +226,7 @@ callAuditsRouter.put("/:id", async (req, res) => {
   if (!UUID.test(req.params.id)) return res.status(400).json({ error: "Invalid id" });
   try {
     const d = details(req.body); const cols = Object.keys(d);
+    if (d.vertical && !(await visibleNames()).includes(d.vertical)) return res.status(400).json({ error: "You can't move a call to a business you don't cover" });
     if (!cols.length) return res.status(400).json({ error: "Nothing to update" });
     await query(`UPDATE call_audits SET ${cols.map((k, i) => `${k}=$${i + 2}`).join(", ")}, updated_at=NOW() WHERE id=$1`, [req.params.id, ...cols.map(k => d[k])]);
     res.json((await query(`${LIST_SELECT} WHERE a.id=$1`, [req.params.id])).rows[0]);
@@ -223,7 +238,7 @@ callAuditsRouter.post("/sample", async (req, res) => {
   try {
     const b = req.body || {};
     const n = Math.max(1, Math.min(500, Math.round(Number(b.count) || 0)));
-    const where = ["NOT in_sample"]; const p: any[] = [];
+    const where = ["NOT in_sample", "vertical = ANY($1)"]; const p: any[] = [await visibleNames()];
     if (b.from) { p.push(b.from); where.push(`call_date >= $${p.length}::date`); }
     if (b.to) { p.push(b.to); where.push(`call_date <= $${p.length}::date`); }
     if (b.team) { p.push(b.team); where.push(`team = $${p.length}`); }
@@ -289,8 +304,9 @@ async function raiseSr(a: any, o: { subject: string; description: string; subcat
     try {
       sr = (await query(
         `INSERT INTO service_requests (sr_code, subject, description, category, subcategory, channel, priority, client_id, vertical, created_by, assigned_to, sla_deadline, status, call_audit_id)
-         VALUES ($1,$2,$3,'Call Audit',$4,'Call Audit',$5,$6,NULL,$7,$8,$9,'Open',$10) RETURNING id, sr_code`,
-        [`SR-${Number(mx.rows[0].n) + 1 + attempt}`, o.subject.slice(0, 250), o.description, o.subcategory, o.priority, a.client_id || null, user?.id || null, o.owner.id, deadline, a.id])).rows[0];
+         VALUES ($1,$2,$3,'Call Audit',$4,'Call Audit',$5,$6,$11,$7,$8,$9,'Open',$10) RETURNING id, sr_code`,
+        [`SR-${Number(mx.rows[0].n) + 1 + attempt}`, o.subject.slice(0, 250), o.description, o.subcategory, o.priority, a.client_id || null, user?.id || null, o.owner.id, deadline, a.id,
+         VERTICALS.some(v => v.name === a.vertical) ? a.vertical : null])).rows[0]; // the SR belongs to the audit's business (AMC SRs stay with AMC)
     } catch (e: any) { if (e.code !== "23505") throw e; }
   }
   if (!sr) throw new Error("Could not allocate an SR number — please try again");

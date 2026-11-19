@@ -38,7 +38,7 @@ const PALETTE = {
   dark: { s1: "#3987e5", s3: "#199e70", seq: "#3987e5", grid: "#1e2633", axis: "#8f99a8", tipBg: "#141a24", tipBorder: "#2e3848", tipText: "#eceff3" },
 };
 const STATUS = { Critical: "#e34948", High: "#eb6834", Medium: "#eda100", Low: "#8f99a8" } as Record<string, string>;
-const VID_SHORT: Record<string, string> = { retail: "RB", corporate: "CB", ib: "IB", aif: "AIF", ie: "IE" };
+const VID_SHORT: Record<string, string> = { retail: "RB", corporate: "CB", ib: "IB", aif: "AIF", ie: "IE", amc: "AMC" };
 
 const weekLabel = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 
@@ -311,6 +311,7 @@ export default function ExecutiveDashboard({ t, isDark, onNav, fmt }: {
 const ALL_VERTICALS = [
   { id: "retail", name: "Retail Broking" }, { id: "corporate", name: "Corporate Broking" },
   { id: "ib", name: "Investment Banking" }, { id: "aif", name: "AIF" }, { id: "ie", name: "Institutional Equities" },
+  { id: "amc", name: "AMC" },
 ];
 
 // Multi-select dropdown with checkboxes. Empty selection = all verticals.

@@ -117,7 +117,7 @@ export async function saveInteraction(b: any, user: { id: string | null; name: s
   let vertical = clean(b.vertical) || lead?.vertical || null;
   if (!vertical && clientId) {
     const v = (await query("SELECT vertical FROM client_verticals WHERE client_id=$1 ORDER BY (vertical='ib') DESC LIMIT 1", [clientId])).rows[0]?.vertical;
-    vertical = ({ retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" } as any)[v] || null;
+    vertical = ({ retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" } as any)[v] || null;
   }
   const r = await query(
     `INSERT INTO interactions (type, occurred_at, client_id, lead_id, deal_id, vertical, title, summary, key_points, opportunity_update,

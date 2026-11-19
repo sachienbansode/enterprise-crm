@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 // Open a record from anywhere (global search, links): go to its page, and that page selects it.
 // The request is kept in sessionStorage so it survives the page switch; pages already open get an event.
 export type RecordKind = "client" | "lead" | "deal" | "sr";
-const V_ID: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
+const V_ID: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie", "AMC": "amc" };
 const KEY = "niytri_open";
 
 export function openRecord(kind: RecordKind, rec: { id: string; vertical?: string; verticals?: string[] | null; cin?: string | null; deal_code?: string }) {

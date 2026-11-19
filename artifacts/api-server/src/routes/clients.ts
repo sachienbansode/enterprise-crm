@@ -178,7 +178,8 @@ router.post("/", async (req, res) => {
     const clientId = result.rows[0].id;
 
     if (verticals?.length) {
-      for (const v of verticals) {
+      const canUse = await visibleIds(); // only verticals this user works in (AMC can't be set by broking users)
+      for (const v of verticals.filter((x: string) => canUse.includes(String(x)))) {
         await query("INSERT INTO client_verticals (client_id, vertical) VALUES ($1,$2) ON CONFLICT DO NOTHING", [clientId, v]);
       }
     }
@@ -242,8 +243,10 @@ router.patch("/:id", async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: "Client not found" });
 
     if (Array.isArray(verticals)) {
-      await query("DELETE FROM client_verticals WHERE client_id=$1", [req.params.id]);
-      for (const v of verticals) {
+      // Only the verticals this user can see are replaced — links to verticals hidden from them (e.g. AMC) are kept
+      const canUse = await visibleIds();
+      await query("DELETE FROM client_verticals WHERE client_id=$1 AND vertical = ANY($2)", [req.params.id, canUse]);
+      for (const v of verticals.filter((x: string) => canUse.includes(String(x)))) {
         await query("INSERT INTO client_verticals (client_id, vertical) VALUES ($1,$2) ON CONFLICT DO NOTHING", [req.params.id, v]);
       }
     }

@@ -8,7 +8,7 @@ import { query, pool } from "./db";
 
 export const VERTICALS = [
   { code: "retail", name: "Retail Broking" }, { code: "corporate", name: "Corporate Broking" },
-  { code: "ib", name: "Investment Banking" }, { code: "aif", name: "AIF" }, { code: "ie", name: "Institutional Equities" },
+  { code: "ib", name: "Investment Banking" }, { code: "aif", name: "AIF" }, { code: "ie", name: "Institutional Equities" }, { code: "amc", name: "AMC" },
 ];
 
 export type Scope = { names: string[] | null; codes: string[] | null }; // null = no restriction
@@ -108,7 +108,7 @@ const ENUM_COLS: Record<string, string[]> = {
 };
 const NOTES: Record<string, string> = {
   clients: "Clients and IB companies. FKs: rm_id, owner_id, relationship_owner_id → users.id. Company financials *_cr are ₹ crore. Vertical membership is in client_verticals.",
-  client_verticals: "Which verticals a client belongs to (codes: retail, corporate, ib, aif, ie).",
+  client_verticals: "Which verticals a client belongs to (codes: retail, corporate, ib, aif, ie, amc).",
   client_contacts: "Extra phone/e-mail entries for a client.",
   company_people: "Promoters / management of a company (client_id → clients.id).",
   leads: "Leads / opportunities (IB calls them opportunities). vertical = full name. value_rupees = numeric ₹ parsed from value_estimate. expected_fee = ₹. stage ids are listed under PIPELINE STAGES. assigned_rm_id → users.id.",

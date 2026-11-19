@@ -64,7 +64,7 @@ type AuthStep = "login" | "m365" | "otp" | "app";
 const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 // If logo.png is missing, fall back to the bundled favicon instead of a broken image
 const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
-type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | null;
+type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | "amc" | null;
 type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about" | "callaudits"
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
@@ -120,6 +120,7 @@ function verticalAccent(vId: string) {
     ib:        dark ? "text-amber-400"  : "text-amber-600",
     aif:       dark ? "text-emerald-400": "text-emerald-600",
     ie:        dark ? "text-rose-400"   : "text-rose-600",
+    amc:       dark ? "text-cyan-400"   : "text-cyan-600",
   };
   return map[vId] || (dark ? "text-slate-400" : "text-slate-500");
 }
@@ -155,6 +156,7 @@ const VERTICAL_DEFAULTS = [
   { id: "ib",        color: "bg-amber-600",   icon: Landmark },
   { id: "aif",       color: "bg-emerald-600", icon: Layers },
   { id: "ie",        color: "bg-rose-600",    icon: LineChart },
+  { id: "amc",       color: "bg-cyan-600",    icon: Wallet },
 ];
 let VERTICALS: Array<{ id: string; label: string; short: string; color: string; icon: any }> = [
   { id: "retail",    label: "Retail Broking",        short: "RB",  color: "bg-blue-600",    icon: Users },
@@ -162,10 +164,11 @@ let VERTICALS: Array<{ id: string; label: string; short: string; color: string; 
   { id: "ib",        label: "Investment Banking",     short: "IB",  color: "bg-amber-600",   icon: Landmark },
   { id: "aif",       label: "AIF",                   short: "AIF", color: "bg-emerald-600", icon: Layers },
   { id: "ie",        label: "Institutional Equities", short: "IE",  color: "bg-rose-600",    icon: LineChart },
+  { id: "amc",       label: "AMC",                   short: "AMC", color: "bg-cyan-600",    icon: Wallet },
 ];
 function getVerticalsList() { return VERTICALS.filter(v => v); }
 // Modules an admin has hidden per vertical (Admin → Verticals Config), e.g. { retail: ["deals"] }
-const VERTICAL_LABEL_FALLBACK: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+const VERTICAL_LABEL_FALLBACK: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" };
 const IB_LABELS: Record<string, string> = { leads: "Opportunities", deals: "Mandates & Deals", customers: "Companies & Promoters" };
 // Open the global Quick Log from anywhere (the host lives in CRMApp)
 const openQuickLog = (defaults: any = {}) => window.dispatchEvent(new CustomEvent("quicklog:open", { detail: defaults }));
@@ -185,8 +188,9 @@ function copyText(text: string, done = "Copied") {
 function myVerticalIds(u: any): string[] | null {
   if (!u || /super admin/i.test(u.role || "")) return null;
   const raw = String(u.vertical || "").trim();
-  if (!raw || /^(all|assigned)$/i.test(raw)) return null;
-  const names: Record<string, string> = { "retail broking": "retail", "corporate broking": "corporate", "investment banking": "ib", "aif": "aif", "institutional equities": "ie" };
+  // "All" = every vertical except AMC (a separate entity — only users assigned to AMC see it); mirrors lib/visibility.ts
+  if (!raw || /^(all|assigned)$/i.test(raw)) return ["retail", "corporate", "ib", "aif", "ie"];
+  const names: Record<string, string> = { "retail broking": "retail", "corporate broking": "corporate", "investment banking": "ib", "aif": "aif", "institutional equities": "ie", "amc": "amc" };
   const ids = raw.split(/[,;|]/).map(x => x.trim().toLowerCase()).map(x => names[x] || (Object.values(names).includes(x) ? x : "")).filter(Boolean);
   return ids.length ? ids : null;
 }
@@ -214,7 +218,7 @@ const SLA_CONFIG_DEFAULT = [
 ];
 
 // Comprehensive Client Registry
-const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" };
 const fmtDateShort = (d: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const fmtDateTime = (d: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -1928,6 +1932,7 @@ const LEAD_STAGES: Record<string, { id: string; label: string }[]> = {
   ib: [{ id: "pitch", label: "Pitch" }, { id: "nda", label: "NDA Signed" }, { id: "mandate", label: "Mandate Letter" }, { id: "dd", label: "Due Diligence" }, { id: "docs", label: "Documentation" }, { id: "closure", label: "Closure" }],
   aif: [{ id: "identified", label: "Investor Identified" }, { id: "suitability", label: "Suitability Check" }, { id: "kyc", label: "KYC / AML" }, { id: "subscription", label: "Subscription" }, { id: "commitment", label: "Commitment" }, { id: "called", label: "Capital Called" }],
   ie: [{ id: "identified", label: "Account Identified" }, { id: "regulatory", label: "Regulatory Setup" }, { id: "research", label: "Research Access" }, { id: "trade", label: "Trade Setup" }, { id: "active", label: "Active" }],
+  amc: [{ id: "prospect", label: "Prospect" }, { id: "contacted", label: "Contacted" }, { id: "meeting", label: "Meeting / Presentation" }, { id: "proposal", label: "Scheme Proposed" }, { id: "kyc", label: "KYC / Application" }, { id: "won", label: "Investment Received" }, { id: "lost", label: "Lost" }],
 };
 // Deal stages with their flags (won / lost / skip allowed), filled from Admin → Pipeline Stages at sign-in
 const DEAL_STAGE_META: Record<string, { id: string; label: string; is_won?: boolean; is_lost?: boolean; skip_allowed?: boolean }[]> = {};
@@ -1937,6 +1942,7 @@ const DEAL_STAGES: Record<string, string[]> = {
   ib:        ["Pitch", "Mandate", "Mandate Letter", "Mandate Signed", "DD", "Due Diligence", "Documentation", "Near Closure"],
   aif:       ["Active", "Suitability", "KYC", "Committed", "First Close", "Called", "Capital Called"],
   ie:        ["Active", "In Discussion", "In Progress", "Pending", "Executed"],
+  amc:       ["Application Received", "Sent to RTA", "Units Allotted", "Rejected"],
 };
 const USERS = [
   { id: "U000", name: "Bhushan Niytri", email: "bhushan@niytri.com", role: "Super Admin", vertical: "All", status: "Active", authType: "m365" as AuthMethod, mfa: true, lastLogin: "Today, 9:00 AM" },
@@ -1969,6 +1975,13 @@ const VERTICAL_ROLES = [
   { role: "Senior RM", vertical: "Assigned", access: ["Leads", "Deals", "Clients", "Documents", "Service Requests"], desc: "Full RM access for assigned vertical" },
   { role: "Junior RM", vertical: "Assigned", access: ["Leads (own)", "Clients (own)", "Service Requests (own)"], desc: "Limited RM access to own records" },
   { role: "Compliance Officer", vertical: "All", access: ["Audit Logs", "Client KYC", "Compliance SRs", "Documents"], desc: "Read-only compliance view across all verticals" },
+  { role: "AMC Admin", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Documents", "AMC Service Requests", "Call Audits", "AI Assistant"], desc: "Full admin within the AMC vertical, including call audits" },
+  { role: "AMC Sales Head", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Documents", "AMC Service Requests", "AI Assistant"], desc: "AMC sales pipeline and reports" },
+  { role: "AMC RM", vertical: "AMC", access: ["AMC Dashboard", "AMC Leads", "AMC Deals", "AMC Clients", "AMC Service Requests"], desc: "AMC relationship manager" },
+  { role: "AMC Investor Service", vertical: "AMC", access: ["AMC Clients", "AMC Service Requests"], desc: "AMC investor service desk" },
+  { role: "AMC CRO", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests"], desc: "AMC Chief Risk Officer — call audits; view-only elsewhere" },
+  { role: "AMC Risk Analyst", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests"], desc: "CRO team — call audits; view-only elsewhere" },
+  { role: "AMC Compliance Officer", vertical: "AMC", access: ["Call Audits", "AMC Dashboard", "AMC Clients", "AMC Service Requests", "Documents"], desc: "AMC compliance — view-only, plus call audits" },
   { role: "Research Analyst", vertical: "Institutional Equities", access: ["IE Dashboard", "Client View (IE)", "Documents"], desc: "IE research coverage and client data" },
   { role: "Dealer", vertical: "Assigned", access: ["Trade SRs", "Deal Execution View"], desc: "Execution-only access" },
   { role: "CS Head", vertical: "All", access: ["Service Requests", "Audit Log", "SLA View"], desc: "Customer service management across all verticals" },
@@ -3083,6 +3096,7 @@ function VerticalDashboard({ vId, t }: { vId: string; t: ReturnType<typeof useTh
     ib: [["Oct", 18], ["Nov", 24], ["Dec", 28], ["Jan", 32], ["Feb", 38], ["Mar", 40]],
     aif: [["Oct", 22], ["Nov", 28], ["Dec", 33], ["Jan", 38], ["Feb", 42], ["Mar", 45]],
     ie: [["Oct", 35], ["Nov", 42], ["Dec", 46], ["Jan", 51], ["Feb", 55], ["Mar", 58]],
+    amc: [],
   };
   const chartData = charts[vId] || [];
   const maxVal = chartData.length ? Math.max(...chartData.map(d => d[1])) : 1;
@@ -3111,7 +3125,7 @@ function VerticalDashboard({ vId, t }: { vId: string; t: ReturnType<typeof useTh
             {kpis.map(k => (
               <div key={k.label} className={`${t.bgCard} border ${t.border} rounded-xl p-4`}>
                 <div className={`text-[10px] ${t.textMuted} mb-1.5`}>{k.label}</div>
-                <div className={`text-xl font-bold ${t.text}`}>{fmtMoneyStr(k.value)}</div>
+                <div className={`text-xl font-bold ${t.text}`}>{/^\d+$/.test(String(k.value)) ? Number(k.value).toLocaleString("en-IN") : fmtMoneyStr(k.value)}</div>
                 <div className={`text-xs flex items-center gap-1 mt-1 ${k.up ? t.upTrend : t.downTrend}`}>{k.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}{k.sub}</div>
               </div>
             ))}
@@ -3794,6 +3808,7 @@ function CreateDealModal({ vId, vName, t, onClose, onCreated }: { vId: string; v
     ib: ["M&A", "ECM", "DCM", "Restructuring", "Advisory"],
     aif: ["Fund I", "Fund II", "Fund III", "Co-Investment", "SPV"],
     ie: ["Institutional Block", "ADR/GDR", "FII Allocation", "Program Trade"],
+    amc: ["Lumpsum", "SIP", "NFO", "STP / SWP", "Switch", "Corporate Treasury (Liquid / Debt)"],
   };
   const types = DEAL_TYPES[vId] || ["Equity"];
 
@@ -4349,7 +4364,7 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
         reader.onerror = reject;
         reader.readAsDataURL(uploadFile);
       });
-      const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+      const VNAME: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" };
       const res = await fetch(`${API_BASE}/api/documents/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4492,7 +4507,7 @@ function DocumentsView({ vId, t, loggedUser }: { vId: string; t: ReturnType<type
   );
 }
 // ─── ADMIN: USERS LIST ────────────────────────────────────────────────────────
-const USER_VERTICALS = ["All", "Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities"];
+const USER_VERTICALS = ["All", "Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities", "AMC"];
 const USER_ROLES = VERTICAL_ROLES.map(r => r.role);
 const AUTH_TYPES: AuthMethod[] = ["app", "m365"];
 
@@ -4516,7 +4531,15 @@ function UserFormModal({
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [dbRoles, setDbRoles] = useState<string[]>([]);
-  useEffect(() => { fetch(`${API_BASE}/api/admin/user-roles`).then(r => r.json()).then(d => setDbRoles(Array.isArray(d) ? d.filter((r: any) => r.is_active !== false).map((r: any) => r.role_name) : [])).catch(() => {}); }, []);
+  // Roles tied to one vertical (e.g. AMC CRO → AMC) decide the user's vertical; the server applies the same rule
+  const [roleVert, setRoleVert] = useState<Record<string, string>>({});
+  useEffect(() => { fetch(`${API_BASE}/api/admin/user-roles`).then(r => r.json()).then(d => {
+    const rows = Array.isArray(d) ? d.filter((r: any) => r.is_active !== false) : [];
+    setDbRoles(rows.map((r: any) => r.role_name));
+    setRoleVert(Object.fromEntries(rows.filter((r: any) => r.vertical && !/^(all|assigned)$/i.test(r.vertical)).map((r: any) => [r.role_name, r.vertical])));
+  }).catch(() => {}); }, []);
+  const fixedVert = roleVert[form.role] || (VERTICAL_ROLES.find(x => x.role === form.role && !/^(all|assigned)$/i.test(x.vertical))?.vertical) || "";
+  useEffect(() => { if (fixedVert && form.vertical !== fixedVert) set("vertical", fixedVert); }, [fixedVert]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
   const inp = `w-full text-xs rounded-xl border px-3 py-2.5 ${t.inputBg} outline-none focus:ring-1 focus:ring-blue-500/50`;
@@ -4589,9 +4612,11 @@ function UserFormModal({
             </div>
             <div>
               <label className={`text-[11px] font-medium ${t.textMuted} block mb-1`}>Vertical</label>
-              <select value={form.vertical} onChange={e => set("vertical", e.target.value)} className={sel}>
-                {USER_VERTICALS.map(v => <option key={v} value={v}>{v}</option>)}
+              <select value={fixedVert || form.vertical} onChange={e => set("vertical", e.target.value)} disabled={!!fixedVert} className={`${sel} disabled:opacity-70`}>
+                {Array.from(new Set([...USER_VERTICALS, form.vertical].filter(Boolean))).map(v => <option key={v} value={v}>{v}</option>)}
               </select>
+              {fixedVert ? <div className={`text-[10px] ${t.textMuted} mt-1`}>Set by the role ({form.role} works only in {fixedVert}).</div>
+                : form.vertical === "All" ? <div className={`text-[10px] ${t.textMuted} mt-1`}>All = every vertical except AMC (assign AMC explicitly).</div> : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -4835,7 +4860,7 @@ function AdminUserRoles({ t }: { t: ReturnType<typeof useTheme> }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newRole, setNewRole] = useState({ role_name: "", vertical: "All", description: "", permissions: Object.fromEntries(PERM_KEYS.map(p => [p, false])) });
 
-  const VERTICAL_OPTS = ["All", "Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities", "Assigned"];
+  const VERTICAL_OPTS = ["All", "Retail Broking", "Corporate Broking", "Investment Banking", "AIF", "Institutional Equities", "AMC", "Assigned"];
   const ROLE_COLORS: Record<string, string> = { "Super Admin": badgeColors("red"), "AIF Admin": badgeColors("green"), "Retail Admin": badgeColors("blue"), "Corporate Admin": badgeColors("violet"), "IB Admin": badgeColors("yellow"), "IE Admin": badgeColors("red") };
 
   return (
@@ -6891,7 +6916,7 @@ function AdminVerticals({ t, onReload }: { t: ReturnType<typeof useTheme>; onRel
 
       <div className={`${t.bgCard2} border ${t.border} rounded-xl p-4 text-xs ${t.textMuted} space-y-1`}>
         <div className="font-semibold">Notes:</div>
-        <div>• Vertical IDs (retail, corporate, ib, aif, ie) are system identifiers and cannot be changed.</div>
+        <div>• Vertical IDs (retail, corporate, ib, aif, ie, amc) are system identifiers and cannot be changed.</div>
         <div>• Full names and short names can be freely renamed to match your business terminology.</div>
         <div>• Display order controls the sequence in navigation and dashboards (1 = first).</div>
         <div>• Hiding a vertical or module (Visibility, above) removes it from every page, report, export and AI answer; data is kept.</div>
@@ -6982,6 +7007,7 @@ const AI_SUGGESTED_PROMPTS: Record<string, string[]> = {
   "Corporate Admin": ["Corporate Broking pipeline by stage", "Corporate deals by value", "Corporate client service requests"],
   "IB Admin": ["Biggest open IB opportunities", "Which IB opportunities have overdue next actions?", "Summarise our relationship with Aarohan", "Which companies look like IPO candidates?"],
   "IE Admin": ["Institutional Equities pipeline", "IE deals by value", "IE service requests still open"],
+  "AMC Admin": ["AMC opportunities by stage", "AMC investments this month", "AMC service requests still open"],
   default: ["My open leads", "My overdue tasks", "Service requests breaching SLA", "My biggest opportunities"],
 };
 
@@ -8036,7 +8062,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
 
   useEffect(() => { load(); }, [load]);
 
-  const verticals = ["all", "retail", "corporate", "ib", "aif", "ie"];
+  const verticals = ["all", "retail", "corporate", "ib", "aif", "ie", "amc"];
   const types = ["all", "lead", "deal"];
 
   const filtered = rows.filter((r: any) => {
@@ -8086,7 +8112,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
     load();
   };
 
-  const VNAME2: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities" };
+  const VNAME2: Record<string, string> = { retail: "Retail Broking", corporate: "Corporate Broking", ib: "Investment Banking", aif: "AIF", ie: "Institutional Equities", amc: "AMC" };
   // One flag per stage: Mandatory (can't be skipped) or Skip allowed (user may skip it, and it shows as Skipped)
   const toggleSkip = async (row: any) => {
     setRows(rs => rs.map(r => r.id === row.id ? { ...r, skip_allowed: !(row.skip_allowed !== false) } : r));
@@ -8136,7 +8162,7 @@ function AdminPipelineStages({ t, isDark }: { t: ReturnType<typeof useTheme>; is
           <div className="text-xs font-semibold mb-3 text-blue-500">New Pipeline Stage</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             <select value={newRow.vertical} onChange={e => setNewRow(p => ({ ...p, vertical: e.target.value }))} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} ${t.text}`}>
-              {["retail", "corporate", "ib", "aif", "ie"].map(v => <option key={v} value={v}>{VNAME2[v]}</option>)}
+              {["retail", "corporate", "ib", "aif", "ie", "amc"].map(v => <option key={v} value={v}>{VNAME2[v]}</option>)}
             </select>
             <select value={newRow.entity} onChange={e => setNewRow(p => ({ ...p, entity: e.target.value }))} className={`text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} ${t.text}`}>
               <option value="lead">Lead</option>

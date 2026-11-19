@@ -139,7 +139,7 @@ export async function ensureAppSchema() {
             closed_at = COALESCE(l.closed_at, l.updated_at, NOW())
        FROM pipeline_stages ps
       WHERE ps.entity = 'lead' AND ps.stage_id = l.stage AND (ps.is_won OR ps.is_lost)
-        AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' ELSE 'ie' END)
+        AND ps.vertical = (CASE l.vertical WHEN 'Retail Broking' THEN 'retail' WHEN 'Corporate Broking' THEN 'corporate' WHEN 'Investment Banking' THEN 'ib' WHEN 'AIF' THEN 'aif' WHEN 'AMC' THEN 'amc' ELSE 'ie' END)
         AND (l.status NOT IN ('Won','Lost') OR l.next_action IS NOT NULL OR l.closed_at IS NULL)`,
     `UPDATE tasks t SET status = 'Done', completed_at = NOW() FROM leads l WHERE t.lead_id = l.id AND t.status = 'Open' AND l.status IN ('Won','Lost')`,
     // ── AI assistant: saved conversations (each user sees only their own) ──
@@ -195,6 +195,25 @@ export async function ensureAppSchema() {
       WHERE l.created_by_name IS NULL AND a.entity_type='lead' AND a.entity_id = l.id
         AND a.details='CREATE' AND a.user_name IS NOT NULL AND a.user_name <> 'System'`,
 
+    // ── AMC vertical (mutual fund — a separate entity: seen only by users assigned to AMC, never through "All") ──
+    "ALTER TABLE client_verticals DROP CONSTRAINT IF EXISTS client_verticals_vertical_check",
+    "ALTER TABLE client_verticals ADD CONSTRAINT client_verticals_vertical_check CHECK (vertical IN ('retail','corporate','ib','aif','ie','amc'))",
+    // the seed inserted ids by hand, so the id counter can be behind — move it past the highest id first
+    "SELECT setval(pg_get_serial_sequence('verticals_config','id'), GREATEST((SELECT COALESCE(MAX(id),0) FROM verticals_config), 1))",
+    "INSERT INTO verticals_config (vertical_id, label, short_name, is_active, display_order) VALUES ('AMC','AMC','AMC',true,6) ON CONFLICT (vertical_id) DO NOTHING",
+    `INSERT INTO pipeline_stages (entity, vertical, stage_id, label, sort_order, color, is_won, is_lost) VALUES ('lead','amc','prospect','Prospect',1,'bg-gray-500',false,false),('lead','amc','contacted','Contacted',2,'bg-blue-500',false,false),('lead','amc','meeting','Meeting / Presentation',3,'bg-yellow-500',false,false),('lead','amc','proposal','Scheme Proposed',4,'bg-orange-500',false,false),('lead','amc','kyc','KYC / Application',5,'bg-violet-500',false,false),('lead','amc','won','Investment Received',6,'bg-emerald-500',true,false),('lead','amc','lost','Lost',7,'bg-red-500',false,true),('deal','amc','Application Received','Application Received',1,'bg-blue-500',false,false),('deal','amc','Sent to RTA','Sent to RTA',2,'bg-yellow-500',false,false),('deal','amc','Units Allotted','Units Allotted',3,'bg-emerald-500',true,false),('deal','amc','Rejected','Rejected',4,'bg-red-500',false,true) ON CONFLICT (entity, vertical, stage_id) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC Admin','AMC','Full admin within the AMC vertical, including call audits','{"AI": true, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC Sales Head','AMC','AMC sales pipeline, distributors and reports','{"AI": true, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": false, "ServiceRequests": true, "CallAudits": false}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC RM','AMC','AMC relationship manager — opportunities, investments, clients and SRs','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": false, "Dashboard": true, "Compliance": false, "ServiceRequests": true, "CallAudits": false}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC Investor Service','AMC','AMC investor service desk — service requests and investor view','{"AI": false, "Admin": false, "Deals": false, "Leads": false, "Clients": true, "Reports": false, "Dashboard": false, "Compliance": false, "ServiceRequests": true, "CallAudits": false}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC CRO','AMC','AMC Chief Risk Officer — call recording audits and risk view (no edits to sales records)','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC Risk Analyst','AMC','CRO team — call recording audits and risk view (no edits to sales records)','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES ('AMC Compliance Officer','AMC','AMC compliance — view-only, plus call recording audits','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb) ON CONFLICT (role_name) DO NOTHING`,
+    `INSERT INTO sla_config (category, tat_hours, warning_percent, l1_owner, l2_after_hours, l2_owner, l3_after_hours, l3_owner, auto_close_hours)
+       SELECT 'Mutual Fund (AMC)', 48, 80, 'AMC Investor Service', 24, 'AMC Operations Head', 40, 'AMC CEO', 72 WHERE NOT EXISTS (SELECT 1 FROM sla_config WHERE category='Mutual Fund (AMC)' AND subcategory IS NULL)`,
+    // Roles tied to AMC: the two CRO roles were first created with vertical "All" — move them to AMC; users with an AMC role always sit in the AMC vertical
+    "UPDATE user_roles SET vertical='AMC', description=replace(description, '; view-only elsewhere', ' — AMC only; view-only elsewhere') WHERE role_name IN ('AMC CRO','AMC Risk Analyst') AND vertical='All'",
+    "UPDATE users u SET vertical='AMC', updated_at=NOW() FROM user_roles r WHERE u.role=r.role_name AND r.vertical='AMC' AND COALESCE(u.vertical,'') <> 'AMC'",
     // Call recording audits (AMC CRO team): sampled recordings, checklist, observations, auto action SR
     `CREATE TABLE IF NOT EXISTS call_audits (
        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), audit_code varchar(20) UNIQUE, vertical varchar(40) DEFAULT 'AMC',
@@ -213,14 +232,12 @@ export async function ensureAppSchema() {
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS result varchar(20)",          // Passed | Issues identified
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS issue_category varchar(80)",
     "ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS call_audit_id uuid", // SRs raised from a call audit (one audit can have several)
-    "UPDATE service_requests s SET call_audit_id = a.id FROM call_audits a WHERE a.sr_id = s.id AND s.call_audit_id IS NULL", // file name + path on the recorder server / shared drive (when not uploaded)
+    "UPDATE service_requests s SET call_audit_id = a.id FROM call_audits a WHERE a.sr_id = s.id AND s.call_audit_id IS NULL",
+    // Call Audit SRs belong to the audit's business (AMC SRs were saved without one before the AMC vertical existed)
+    "UPDATE service_requests s SET vertical = a.vertical FROM call_audits a WHERE s.call_audit_id = a.id AND s.vertical IS NULL AND a.vertical IN ('AMC','Retail Broking','Corporate Broking','Investment Banking','AIF','Institutional Equities')", // file name + path on the recorder server / shared drive (when not uploaded)
     `INSERT INTO sla_config (category, tat_hours, warning_percent, l1_owner, l2_after_hours, l2_owner, l3_after_hours, l3_owner, auto_close_hours)
        SELECT 'Call Audit', 168, 80, 'Team Lead of the employee', 96, 'AMC CRO', 144, 'AMC CEO', 240
         WHERE NOT EXISTS (SELECT 1 FROM sla_config WHERE category='Call Audit' AND subcategory IS NULL)`,
-    `INSERT INTO user_roles (role_name, vertical, description, permissions) VALUES
-       ('AMC CRO','All','AMC Chief Risk Officer — call recording audits; view-only elsewhere','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb),
-       ('AMC Risk Analyst','All','CRO team — call recording audits; view-only elsewhere','{"AI": false, "Admin": false, "Deals": true, "Leads": true, "Clients": true, "Reports": true, "Dashboard": true, "Compliance": true, "ServiceRequests": true, "CallAudits": true}'::jsonb)
-     ON CONFLICT (role_name) DO NOTHING`,
   ];
   for (const s of stmts) await query(s);
   await seedIB();

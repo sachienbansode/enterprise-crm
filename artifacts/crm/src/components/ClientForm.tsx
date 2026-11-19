@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { appConfirm } from "../lib/dialog";
+import { myVerticalIds } from "../lib/myVerticals";
 import { X, Plus, Trash2, User, Phone, Mail, MapPin, AlertCircle } from "lucide-react";
 
 
@@ -60,6 +61,7 @@ const VERTICALS = [
   { id: "ib", label: "Investment Banking" },
   { id: "aif", label: "AIF" },
   { id: "ie", label: "Institutional Equities" },
+  { id: "amc", label: "AMC" },
 ];
 
 const STATUSES = ["Active", "Dormant", "Suspended", "Closed"];
@@ -309,7 +311,7 @@ export default function ClientForm({ open, onClose, onSaved, editClient, current
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Verticals</label>
                 <div className="flex flex-wrap gap-2">
-                  {VERTICALS.map(v => (
+                  {VERTICALS.filter(v => { const m = myVerticalIds(); return !m || m.includes(v.id); }).map(v => (
                     <button
                       key={v.id}
                       type="button"

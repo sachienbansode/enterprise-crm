@@ -48,6 +48,8 @@ export const SR_CATEGORIES: Record<string, string[]> = {
   "Demat / Holdings":     ["Holding Mismatch", "DP Transfer", "Pledge Request", "Dematerialisation", "Rematerialisation"],
   "Compliance":           ["SEBI Grievance", "Exchange Complaint", "SCORES Filing", "Regulatory Query", "Audit Query"],
   "AIF":                  ["Capital Call", "Distribution Query", "NAV Discrepancy", "Investor Statement", "AIF Onboarding"],
+  "Mutual Fund (AMC)":    ["Redemption", "SIP Registration / Cancellation", "Switch / STP / SWP", "Statement / CAS", "NAV / IDCW Query", "Nominee / Bank Mandate Change", "KYC Update", "Distributor (ARN) Query", "Investor Complaint (SCORES)"],
+  "Call Audit":           ["Mis-selling / suitability", "Assured returns", "Identity not verified", "Confidential information shared", "Disclosure missed", "Wrong product information", "Instruction not confirmed", "Conduct / language", "Complaint not logged", "Follow-up not recorded", "Process gap", "Follow-up", "Other"],
   "IB Advisory":          ["Deal Query", "Mandate Letter", "Valuation Request", "Due Diligence", "Pitch Deck Request"],
   "Technical Support":    ["Login Issue", "App Crash", "Report Error", "API Issue", "Dashboard Bug"],
   "General Enquiry":      ["Product Information", "Fee Structure", "Research Report", "Advisory Query", "Other"],

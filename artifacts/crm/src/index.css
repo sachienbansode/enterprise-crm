@@ -420,6 +420,8 @@ html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
 
 /* ── Phones: tables become stacked cards (labels filled in by lib/stackTables.ts) ── */
 @media (max-width: 767px) {
+  /* a table that has its own phone version (class "hidden md:table" + <MList>) stays hidden */
+  table.hidden { display: none !important; }
   table:not([data-no-stack]) { min-width: 0 !important; width: 100% !important; }
   table:not([data-no-stack]) thead { display: none; }
   table:not([data-no-stack]),

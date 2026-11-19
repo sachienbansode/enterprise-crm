@@ -83,7 +83,7 @@ router.get("/analytics", async (req, res) => {
   try {
     // Filters: ?verticals=Retail Broking,AIF  &rm=<user id>  &weeks=12
     const ALL_V = await visibleNames("dashboard"); // hidden verticals / hidden dashboards drop out of every figure
-    const VCODE: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
+    const VCODE: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie", "AMC": "amc" };
     const vSel = String(req.query.verticals || "").split(",").map(v => v.trim()).filter(v => ALL_V.includes(v));
     const verts = vSel.length ? vSel : (ALL_V.length ? ALL_V : ["__none__"]);
     const codes = verts.map(v => VCODE[v]);
@@ -121,7 +121,7 @@ router.get("/analytics", async (req, res) => {
               ORDER BY l.expected_close LIMIT 8`, [verts, rm]),
     ]);
 
-    const VID: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie" };
+    const VID: Record<string, string> = { "Retail Broking": "retail", "Corporate Broking": "corporate", "Investment Banking": "ib", "AIF": "aif", "Institutional Equities": "ie", "AMC": "amc" };
     const stageInfo = (vertical: string, stage: string) =>
       stageMeta.rows.find(s => s.entity === "lead" && s.vertical === VID[vertical] && s.stage_id === stage);
     const isWon = (l: any) => !!stageInfo(l.vertical, l.stage)?.is_won || /won/i.test(l.stage);
@@ -190,6 +190,7 @@ router.get("/vertical/:vId", async (req, res) => {
       ib: "Investment Banking",
       aif: "AIF",
       ie: "Institutional Equities",
+      amc: "AMC",
     };
     const vName = vMap[req.params.vId];
     if (!vName) return res.status(400).json({ error: "Invalid vertical" });

@@ -1,3 +1,4 @@
+import { alignVertical } from "../lib/visibility";
 import { Router } from "express";
 import { query } from "../lib/db";
 
@@ -42,7 +43,7 @@ router.post("/", async (req, res) => {
     const password_hash = password ? createHash("sha256").update(password).digest("hex") : null;
     const result = await query(
       "INSERT INTO users (name, email, role, vertical, auth_type, password_hash, status) VALUES ($1,$2,$3,$4,$5,$6,'Active') RETURNING id, name, email, role, vertical, auth_type, status",
-      [name, email, role, vertical, auth_type || "app", password_hash],
+      [name, email, role, await alignVertical(role, vertical), auth_type || "app", password_hash],
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
@@ -57,7 +58,7 @@ router.patch("/:id", async (req, res) => {
     const { status, role, vertical, mfa_enabled } = req.body;
     const result = await query(
       "UPDATE users SET status=COALESCE($1,status), role=COALESCE($2,role), vertical=COALESCE($3,vertical), mfa_enabled=COALESCE($4,mfa_enabled), updated_at=NOW() WHERE id=$5 RETURNING id, name, email, role, vertical, auth_type, status",
-      [status, role, vertical, mfa_enabled, req.params.id],
+      [status, role, role ? await alignVertical(role, vertical) : vertical, mfa_enabled, req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ error: "User not found" });
     res.json(result.rows[0]);

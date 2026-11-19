@@ -13,7 +13,7 @@ const VALUE_RUPEES = `(SELECT CASE WHEN m IS NULL THEN NULL ELSE m[1]::numeric *
 
 // Next deal code after the highest existing one for the vertical (a count-based number could repeat a code)
 export async function nextDealCode(vertical: string): Promise<string> {
-  const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : "IE-D";
+  const prefix = vertical === "Retail Broking" ? "RB-D" : vertical === "Corporate Broking" ? "CB-D" : vertical === "Investment Banking" ? "IB-D" : vertical === "AIF" ? "AIF-D" : vertical === "AMC" ? "AMC-D" : "IE-D";
   const r = await query(`SELECT COALESCE(MAX(substring(deal_code FROM '^' || $1 || '([0-9]+)$')::int), 0) AS n FROM deals`, [prefix]);
   return `${prefix}${String(Number(r.rows[0].n) + 1).padStart(3, "0")}`;
 }

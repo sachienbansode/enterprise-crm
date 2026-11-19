@@ -1,3 +1,4 @@
+import { alignVertical } from "../lib/visibility";
 import { Router } from "express";
 import { createHash } from "crypto";
 import { query } from "../lib/db";
@@ -88,7 +89,9 @@ router.put("/user-role-mapping/user/:userId", async (req, res) => {
     // A user's existing role that isn't defined under User Roles (older data) may be kept, but no new undefined roles
     const missing = names.filter(n => !roles.some((r: any) => r.role_name === n) && n !== current);
     if (missing.length) return res.status(400).json({ error: `Unknown role: ${missing.join(", ")} — add it under User Roles first.` });
-    const u = (await query("UPDATE users SET role=$1, updated_at=NOW() WHERE id=$2 RETURNING id, name, role", [names[0], req.params.userId])).rows[0];
+    const cur = (await query("SELECT vertical FROM users WHERE id=$1", [req.params.userId])).rows[0];
+    const u = (await query("UPDATE users SET role=$1, vertical=$3, updated_at=NOW() WHERE id=$2 RETURNING id, name, role, vertical",
+      [names[0], req.params.userId, await alignVertical(names[0], cur?.vertical)])).rows[0]; // main role tied to a vertical (e.g. AMC) moves the user there
     if (!u) return res.status(404).json({ error: "User not found" });
     const ids = names.map(n => roles.find((r: any) => r.role_name === n)?.id).filter(Boolean);
     await query("DELETE FROM user_role_mapping WHERE user_id=$1 AND NOT (role_id = ANY($2::uuid[]))", [req.params.userId, ids]);
@@ -302,7 +305,7 @@ router.put("/users/:id", async (req, res) => {
     }
     const r = await query(
       "UPDATE users SET name=$1, role=$2, vertical=$3, status=$4, auth_type=$5, mfa_enabled=$6, mobile=$7, location=$8, updated_at=NOW() WHERE id=$9 RETURNING id,name,email,role,vertical,status,auth_type,mfa_enabled,mobile,location,last_login,created_at",
-      [name, role, vertical, status, auth_type, mfa_enabled, mobile || null, location || null, req.params.id],
+      [name, role, await alignVertical(role, vertical), status, auth_type, mfa_enabled, mobile || null, location || null, req.params.id],
     );
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -322,7 +325,7 @@ router.post("/users", async (req, res) => {
     if (exists.rows.length) return res.status(409).json({ error: "A user with this email already exists" });
     const r = await query(
       "INSERT INTO users (name, email, role, vertical, auth_type, mfa_enabled, mobile, location, status, password_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Active',$9) RETURNING id,name,email,role,vertical,status,auth_type,mfa_enabled,mobile,location,created_at",
-      [name.trim(), email.trim().toLowerCase(), role || "Junior RM", vertical || "All", auth_type || "app", mfa_enabled ?? false, mobile || null, location || null, password ? pwHash(password) : null],
+      [name.trim(), email.trim().toLowerCase(), role || "Junior RM", await alignVertical(role || "Junior RM", vertical), auth_type || "app", mfa_enabled ?? false, mobile || null, location || null, password ? pwHash(password) : null],
     );
     res.status(201).json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }

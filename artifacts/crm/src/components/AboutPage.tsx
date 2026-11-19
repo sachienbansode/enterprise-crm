@@ -6,6 +6,12 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "19 Nov 2026", title: "AMC vertical", items: [
+    "New AMC vertical with its own dashboard, opportunities (Prospect → Contacted → Meeting → Scheme Proposed → KYC / Application → Investment Received), investments (Application Received → Sent to RTA → Units Allotted), clients and documents.",
+    "The AMC is kept separate: only users assigned to AMC see AMC records — 'All' means every broking vertical, not AMC. Super Admin sees everything.",
+    "AMC roles: AMC Admin, AMC Sales Head, AMC RM, AMC Investor Service, AMC CRO, AMC Risk Analyst, AMC Compliance Officer. A role tied to AMC puts the user in the AMC vertical automatically (Create User, Edit User and Role Mapping).",
+    "Call audits, and the SRs they raise, belong to their business: AMC ones are seen only by AMC users. Mutual fund SR categories added (redemption, SIP, switch / STP / SWP, CAS, NAV / IDCW, nominee / bank mandate, KYC, distributor, SCORES).",
+  ] },
   { date: "18 Nov 2026", title: "Call Recording Audits (CRO team)", items: [
     "Call Audits (CRO, Risk, Compliance, admins): add call recordings by uploading the files, by entering each file's name and path on the recorder server / shared drive, or both; date, time and number are read from the file name.",
     "Pick a random or risk-based sample, listen at 1×–2× with ±10 s skips, and answer a 10-point checklist (identity check, disclosures, no assured returns, product information, suitability, confidential information, instruction read-back, conduct, complaint logging, follow-up).",
@@ -74,7 +80,7 @@ export default function AboutPage({ t }: { t: any; isDark?: boolean }) {
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center text-2xl font-black">N</div>
           <div className="flex-1 min-w-0">
             <div className={`text-xl font-bold ${t.text}`}>NIYTRI Enterprise CRM</div>
-            <div className={`text-sm ${t.textMuted}`}>One CRM for Retail Broking, Corporate Broking, Investment Banking, AIF and Institutional Equities.</div>
+            <div className={`text-sm ${t.textMuted}`}>One CRM for Retail Broking, Corporate Broking, Investment Banking, AIF, Institutional Equities and the AMC.</div>
             <div className={`text-xs ${t.textMuted} mt-1`}>Version <b className={t.text}>{APP_VERSION}</b>{APP_COMMIT ? ` · commit ${APP_COMMIT}` : ""}{BUILD && !isNaN(BUILD.getTime()) ? ` · deployed ${BUILD.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
             {server && <div className={`text-xs ${t.textMuted}`}>Server {server.version}{server.version === APP_VERSION ? " — up to date" : " — reload the page to update"}</div>}
           </div>
