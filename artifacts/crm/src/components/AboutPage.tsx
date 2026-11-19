@@ -6,6 +6,12 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "20 Nov 2026", title: "Call audit identification and closure; sign-out after 60 minutes", items: [
+    "Each call audit records which call it covers: Call ID from the telephone system (required to save the audit; one audit per Call ID), agent / extension, line / DID, investor (linked to the client record), folio, distributor ARN and transaction reference.",
+    "Audit outcome panel: Call ID, result and issue category, score, SRs, auditor and closure. After all SRs are resolved the audit shows 'Ready to close' and the auditor closes it with closure remarks; closed audits can't be changed.",
+    "Add recordings by path also takes 'Call ID, path' lines pasted from the telephone system's export.",
+    "Sign-out after inactivity is now 60 minutes by default and can be changed in Admin → Microsoft 365 (5–480 minutes).",
+  ] },
   { date: "19 Nov 2026", title: "AMC vertical", items: [
     "New AMC vertical with its own dashboard, opportunities (Prospect → Contacted → Meeting → Scheme Proposed → KYC / Application → Investment Received), investments (Application Received → Sent to RTA → Units Allotted), clients and documents.",
     "The AMC is kept separate: only users assigned to AMC see AMC records — 'All' means every broking vertical, not AMC. Super Admin sees everything.",

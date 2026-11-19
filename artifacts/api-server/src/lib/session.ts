@@ -10,7 +10,17 @@ import { requestUser } from "./visibility";
 // • An active session keeps sliding forward — no forced sign-out in the middle of work
 //   (m365_config.session_hours only sets the initial window).
 
-export const IDLE_MINUTES = Number(process.env.SESSION_IDLE_MINUTES || 30);
+/** Default sign-out after inactivity; admins change it in Admin → Microsoft 365 / Security (app_settings.session_idle_minutes). */
+export const IDLE_DEFAULT = Number(process.env.SESSION_IDLE_MINUTES || 60);
+let idleCache: { v: number; at: number } | null = null;
+export const clearIdleCache = () => { idleCache = null; };
+export async function idleMinutes(): Promise<number> {
+  if (idleCache && Date.now() - idleCache.at < 60_000) return idleCache.v;
+  const r = await query("SELECT value FROM app_settings WHERE key='session_idle_minutes'").catch(() => ({ rows: [] as any[] }));
+  const n = Number(r.rows[0]?.value);
+  idleCache = { v: Number.isFinite(n) && n >= 5 ? n : IDLE_DEFAULT, at: Date.now() };
+  return idleCache.v;
+}
 const TOUCH_EVERY_MS = 60_000; // don't write last_seen on every request
 
 export interface SessionUser { id: string; name: string; email: string; role: string; vertical: string; auth_type?: string; sessionId: string }
@@ -67,6 +77,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const now = Date.now();
     if (!s || s.status !== "Active") return res.status(401).json({ error: "Session not valid", code: "SESSION_INVALID" });
     // 2-minute grace: "last seen" is only written once a minute
+    const IDLE_MINUTES = await idleMinutes();
     if (new Date(s.expires_at).getTime() < now || now - new Date(s.last_seen_at).getTime() > (IDLE_MINUTES + 2) * 60_000) {
       await query("UPDATE user_sessions SET is_active=FALSE WHERE id=$1", [s.session_id]);
       return res.status(401).json({ error: "Session expired — please sign in again", code: "SESSION_EXPIRED" });

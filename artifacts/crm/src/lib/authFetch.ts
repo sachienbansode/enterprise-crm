@@ -1,13 +1,15 @@
 import { appToast } from "./dialog";
+import { getAppSettings, loadAppSettings } from "./appSettings";
 // Adds the session token to every /api call and handles expired sessions centrally,
 // so the hundreds of fetch() calls across the app don't each need to know about auth.
 //
-// Idle timeout: the server ends a session after 30 min without *user* activity.
+// Idle timeout: the server ends a session after N min without *user* activity (Admin setting, default 60).
 // Background polling (notifications, reminders) must not keep a session alive, so each
 // request tells the server how long the user has been idle (X-Idle-Ms); the server only
 // refreshes "last seen" when the user was recently active.
 
-const IDLE_LIMIT_MS = 30 * 60_000;
+const idleMinutes = () => Number(getAppSettings().session_idle_minutes) || 60;
+const idleMsg = () => `Your session expired after ${idleMinutes()} minutes of inactivity — please sign in again.`;
 let lastActivity = Date.now();
 let redirecting = false;
 let lastReadOnlyToast = 0;
@@ -42,7 +44,7 @@ export function installAuthFetch() {
     if (res.status === 401) {
       const body = await res.clone().json().catch(() => ({} as any));
       if (["SESSION_EXPIRED", "SESSION_INVALID", "NO_SESSION"].includes(body.code)) {
-        expire(body.code === "SESSION_EXPIRED" ? "Your session expired after 30 minutes of inactivity — please sign in again." : "Please sign in again.");
+        expire(body.code === "SESSION_EXPIRED" ? idleMsg() : "Please sign in again.");
       }
     }
     if (res.status === 403) {
@@ -65,10 +67,11 @@ export function installAuthFetch() {
     let token: string | null = null;
     try { token = localStorage.getItem("niytri_token"); } catch { /* ignore */ }
     if (!token) return;
+    loadAppSettings(); // once per session: the admin's inactivity limit
     const idle = Date.now() - lastActivity;
-    if (idle > IDLE_LIMIT_MS) {
+    if (idle > idleMinutes() * 60_000) {
       orig("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
-      expire("Your session expired after 30 minutes of inactivity — please sign in again.");
+      expire(idleMsg());
       return;
     }
     if (lastActivity > lastBeat && idle < 110_000 && Date.now() - lastBeat > 60_000) {

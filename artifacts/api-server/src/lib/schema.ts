@@ -232,6 +232,18 @@ export async function ensureAppSchema() {
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS recording_path varchar(500)",
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS result varchar(20)",          // Passed | Issues identified
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS issue_category varchar(80)",
+    // which call is audited (telephone system call id, agent / extension, line, investor folio, distributor ARN, transaction) and audit closure
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS call_id varchar(80)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS agent_id varchar(40)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS line_number varchar(30)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS folio_no varchar(40)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS arn_code varchar(30)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS txn_ref varchar(60)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS closed_at timestamptz",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS closed_by uuid",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS closed_by_name varchar(160)",
+    "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS closure_remarks text",
+    "CREATE INDEX IF NOT EXISTS ix_call_audits_call_id ON call_audits (lower(call_id))",
     "ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS call_audit_id uuid", // SRs raised from a call audit (one audit can have several)
     "UPDATE service_requests s SET call_audit_id = a.id FROM call_audits a WHERE a.sr_id = s.id AND s.call_audit_id IS NULL",
     // Call Audit SRs belong to the audit's business (AMC SRs were saved without one before the AMC vertical existed)

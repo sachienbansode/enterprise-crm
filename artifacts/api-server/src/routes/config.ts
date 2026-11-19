@@ -1,3 +1,4 @@
+import { IDLE_DEFAULT, clearIdleCache } from "../lib/session";
 import { Router } from "express";
 import { query } from "../lib/db";
 
@@ -167,11 +168,13 @@ router.delete("/pipeline-stages/:id", async (req, res) => {
 });
 
 // ── App-wide options (anyone signed in reads; admins change — writes are admin-only via index.ts) ──
-const APP_SETTING_KEYS: Record<string, "boolean"> = { show_probability: "boolean" };
+const APP_SETTING_KEYS: Record<string, "boolean" | "number"> = { show_probability: "boolean", session_idle_minutes: "number" };
+// limits for number settings
+const APP_SETTING_RANGE: Record<string, [number, number]> = { session_idle_minutes: [5, 480] };
 router.get("/app-settings", async (_req, res) => {
   try {
     const r = await query("SELECT key, value FROM app_settings");
-    const out: Record<string, any> = { show_probability: true };
+    const out: Record<string, any> = { show_probability: true, session_idle_minutes: IDLE_DEFAULT };
     for (const row of r.rows) if (row.key in APP_SETTING_KEYS) out[row.key] = row.value;
     res.json(out);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -180,9 +183,12 @@ router.put("/app-settings", async (req, res) => {
   try {
     for (const [k, v] of Object.entries(req.body || {})) {
       if (!(k in APP_SETTING_KEYS) || typeof v !== APP_SETTING_KEYS[k]) continue;
+      const rg = APP_SETTING_RANGE[k];
+      if (rg && (!Number.isFinite(v as number) || (v as number) < rg[0] || (v as number) > rg[1])) return res.status(400).json({ error: `${k} must be between ${rg[0]} and ${rg[1]}` });
       await query(`INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ($1, $2::jsonb, $3, NOW())
                    ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by, updated_at=NOW()`, [k, JSON.stringify(v), req.user?.name || null]);
     }
+    clearIdleCache();
     const r = await query("SELECT key, value FROM app_settings");
     res.json(Object.fromEntries(r.rows.map((x: any) => [x.key, x.value])));
   } catch (e: any) { res.status(500).json({ error: e.message }); }

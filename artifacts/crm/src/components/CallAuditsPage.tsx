@@ -9,10 +9,11 @@ import { MList, MCard } from "./MobileCard";
 const inputCls = "w-full px-2.5 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500";
 const STATE_TONE: Record<string, string> = {
   Pending: "bg-amber-500/15 text-amber-700 dark:text-amber-300", "Action open": "bg-red-500/15 text-red-600 dark:text-red-400",
-  Audited: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", Closed: "bg-gray-500/15 text-gray-600 dark:text-gray-300", "Not sampled": "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  Audited: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", Passed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  "Ready to close": "bg-violet-500/15 text-violet-700 dark:text-violet-300", Closed: "bg-gray-500/15 text-gray-600 dark:text-gray-300", "Not sampled": "bg-sky-500/10 text-sky-700 dark:text-sky-300",
 };
 const OUT_TONE: Record<string, string> = { Satisfactory: "text-emerald-600 dark:text-emerald-400", "Needs improvement": "text-amber-600 dark:text-amber-400", "Non-compliant": "text-red-600 dark:text-red-400" };
-const STATES = ["Pending", "Action open", "Audited", "Closed", "Not sampled", ""];
+const STATES = ["Pending", "Action open", "Ready to close", "Closed", "Passed", "Not sampled", ""];
 const fmtDate = (d: any) => d ? new Date(String(d).slice(0, 10) + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—";
 const fmtDur = (s: any) => s ? `${Math.floor(Number(s) / 60)}:${String(Math.round(Number(s) % 60)).padStart(2, "0")}` : "";
 
@@ -60,6 +61,7 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
     ["In sample", kpis.sampled ?? "—", ""], ["To audit", kpis.pending ?? "—", "text-amber-600 dark:text-amber-400"],
     ["Audited", kpis.sampled ? `${kpis.audited} · ${kpis.coverage}%` : kpis.audited ?? "—", "text-emerald-600 dark:text-emerald-400"],
     ["Issues identified", kpis.issues ?? "—", "text-red-600 dark:text-red-400"], ["Actions open", kpis.actions_open ?? "—", "text-red-600 dark:text-red-400"],
+    ["Ready to close", kpis.ready_to_close ?? "—", "text-violet-600 dark:text-violet-300"],
   ];
 
   return (
@@ -82,10 +84,12 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
             <div><b>2. Sample</b> — tick "Add to the audit sample" while uploading, or upload everything and use <b>Pick sample</b> for a random or risk-based pick.</div>
             <div><b>3. Audit</b> — listen (speed 1×–2×, ±10 s), optionally transcribe and run the AI pre-check, then answer each checklist point Yes / No / N.A. A "No" on a critical point (★) makes the call Non-compliant.</div>
             <div><b>4. Result</b> — <b>Passed</b>, or <b>Issues identified</b> (automatic when any point is "No"). Issues need an issue category and comments, and raise a Service Request (category Call Audit) for the action owner automatically, with the audit reference. The audit shows "Action open" until its SRs are resolved.</div>
+            <div><b>Call ID</b> — every audit names the call it covers (the telephone system's Call ID; one audit per Call ID), plus agent / extension, line, investor, folio, ARN and transaction reference in Call details.</div>
+            <div><b>6. Close</b> — once all SRs are resolved the audit shows "Ready to close"; the auditor closes it with closure remarks. Closed audits can't be changed.</div>
             <div><b>5. More SRs</b> — after the audit, "Raise SR" creates further SRs with the same reference (e.g. for training or another team). Export gives the full audit register.</div>
           </div>
         )}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-4 pb-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 p-4 pb-2">
           {tiles.map(([l, v, tone]) => (
             <div key={l} className={`rounded-xl border ${t.border} px-3 py-2`}>
               <div className={`text-[11px] ${t.textMuted}`}>{l}</div>
@@ -119,7 +123,7 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
           <MList>
             {rows.map(r => (
               <MCard key={r.id} onClick={() => setOpen(r)} title={`${r.audit_code} · ${r.employee_name || "Employee not set"}`}
-                sub={[fmtDate(r.call_date), r.call_time, r.phone || r.caller_name, fmtDur(r.duration_sec)].filter(Boolean).join(" · ")}
+                sub={[r.call_id ? `Call ${r.call_id}` : "Call ID not set", fmtDate(r.call_date), r.call_time, r.phone || r.caller_name].filter(Boolean).join(" · ")}
                 badge={<span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${STATE_TONE[r.state] || ""}`}>{r.state}</span>}
                 value={r.result ? <span className={r.result === "Passed" ? OUT_TONE.Satisfactory : OUT_TONE["Non-compliant"]}>{r.result}{r.issue_category ? ` · ${r.issue_category}` : ""}</span> : undefined}
                 left={r.team || ""} right={r.sr_code || r.sample_batch || ""} />
@@ -127,15 +131,16 @@ export default function CallAuditsPage({ t }: { t: any; isDark?: boolean }) {
           </MList>
           <table className="hidden md:table w-full text-xs">
             <thead><tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
-              {["Audit", "Call", "Employee", "Caller", "Purpose", "Sample", "Status", "Result", "Action SR"].map(h => <th key={h} className="px-3 py-2 font-medium uppercase text-[10px] tracking-wide">{h}</th>)}
+              {["Audit", "Call ID", "Call", "Employee", "Caller", "Purpose", "Sample", "Status", "Result", "Action SR"].map(h => <th key={h} className="px-3 py-2 font-medium uppercase text-[10px] tracking-wide">{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.id} onClick={() => setOpen(r)} className={`border-b ${t.border} ${t.rowHover} cursor-pointer`}>
-                  <td className="px-3 py-2 font-mono text-blue-500">{r.audit_code}{!r.has_audio && <span className={`ml-1 ${t.textMuted}`} title="No recording uploaded">·</span>}</td>
+                  <td className="px-3 py-2 font-mono text-blue-500 whitespace-nowrap">{r.audit_code}{!r.has_audio && <span className={`ml-1 ${t.textMuted}`} title="No recording uploaded">·</span>}</td>
+                  <td className={`px-3 py-2 font-mono ${r.call_id ? t.text : "text-amber-500"} whitespace-nowrap`}>{r.call_id || "not set"}<div className={`font-sans ${t.textMuted}`}>{[r.agent_id && `Agent ${r.agent_id}`, r.line_number].filter(Boolean).join(" · ")}</div></td>
                   <td className={`px-3 py-2 ${t.text} whitespace-nowrap`}>{fmtDate(r.call_date)} {r.call_time}<div className={t.textMuted}>{[r.direction, fmtDur(r.duration_sec)].filter(Boolean).join(" · ")}</div></td>
                   <td className={`px-3 py-2 ${t.text}`}>{r.employee_name || "—"}<div className={t.textMuted}>{r.team}</div></td>
-                  <td className={`px-3 py-2 ${t.text}`}>{r.client_name || r.caller_name || r.phone || "—"}<div className={t.textMuted}>{[r.caller_type, r.client_name ? r.phone : ""].filter(Boolean).join(" · ")}</div></td>
+                  <td className={`px-3 py-2 ${t.text}`}>{r.client_name || r.caller_name || r.phone || "—"}<div className={t.textMuted}>{[r.folio_no && `Folio ${r.folio_no}`, r.arn_code && `ARN ${r.arn_code}`, r.caller_type, r.client_name ? r.phone : ""].filter(Boolean).join(" · ")}</div></td>
                   <td className={`px-3 py-2 ${t.textMuted}`}>{r.call_purpose || "—"}</td>
                   <td className={`px-3 py-2 ${t.textMuted}`}>{r.sample_batch || "—"}<div>{r.sample_reason}</div></td>
                   <td className="px-3 py-2"><span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold whitespace-nowrap ${STATE_TONE[r.state] || ""}`}>{r.state}</span></td>
@@ -183,6 +188,28 @@ function EmployeePicker({ meta, id, name, onChange }: { meta: any; id?: string |
   );
 }
 
+function ClientPicker({ id, name, onChange }: { id?: string | null; name?: string | null; onChange: (id: string | null, name: string) => void }) {
+  const [q, setQ] = useState(name || ""); const [list, setList] = useState<any[]>([]); const [open, setOpen] = useState(false);
+  useEffect(() => { setQ(name || ""); }, [name]);
+  useEffect(() => {
+    if (!open || q.trim().length < 2) { setList([]); return; }
+    const h = setTimeout(() => fetch(`/api/clients?search=${encodeURIComponent(q.trim())}&limit=8`).then(r => r.json()).then(d => setList(d.data || [])).catch(() => setList([])), 250);
+    return () => clearTimeout(h);
+  }, [q, open]);
+  return (
+    <div className="relative">
+      <input value={q} onChange={e => { setQ(e.target.value); setOpen(true); if (!e.target.value) onChange(null, ""); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 200)}
+        className={inputCls} placeholder="Search name, code, PAN, mobile" />
+      {id && <span className="text-[10px] text-emerald-600">Linked to the client record</span>}
+      {open && !!list.length && (
+        <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg max-h-56 overflow-y-auto">
+          {list.map(c => <button key={c.id} onMouseDown={() => { onChange(c.id, c.name); setQ(c.name); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-500/10 text-gray-800 dark:text-gray-100">{c.name} <span className="text-[11px] text-gray-500">{c.client_code}</span></button>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UploadModal({ t, meta, onClose, onDone }: { t: any; meta: any; onClose: () => void; onDone: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [mode, setMode] = useState<"file" | "path">("file");
@@ -201,7 +228,9 @@ function UploadModal({ t, meta, onClose, onDone }: { t: any; meta: any; onClose:
       let ok = 0;
       for (let i = 0; i < pathList.length; i++) {
         setBusy(i);
-        const q = common(); q.set("recording_path", pathList[i].slice(0, 500));
+        // a line can be "CALL-ID, path" (e.g. pasted from the telephone system's export) or just the path
+        const m = pathList[i].match(/^([^,\\/]{2,80}?)\s*[,;\t]\s*(.+)$/);
+        const q = common(); q.set("recording_path", (m ? m[2] : pathList[i]).slice(0, 500)); if (m) q.set("call_id", m[1].trim());
         const r = await fetch(`/api/call-audits/upload?${q}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" } });
         if (r.ok) ok++; else { const e = await r.json().catch(() => ({})); appToast(`${pathList[i]}: ${e.error || "failed"}`, "error"); }
       }
@@ -232,9 +261,9 @@ function UploadModal({ t, meta, onClose, onDone }: { t: any; meta: any; onClose:
           ))}
         </div>
         {mode === "path" ? (
-          <L label="One recording per line — full file name and path on the recorder server or shared drive">
+          <L label="One call per line — the Call ID, a comma, then the file name and path (or just the path)">
             <textarea rows={5} value={paths} onChange={e => setPaths(e.target.value)} className={`${inputCls} font-mono text-xs`}
-              placeholder={"\\\\recorder01\\calls\\2026\\11\\20261114_103522_9876543210.wav\n/mnt/ttml/2026-11-14/20261114_104010_9123456780.mp3"} />
+              placeholder={"TTML-88213457, \\\\recorder01\\calls\\2026\\11\\20261114_103522_9876543210.wav\nTTML-88213502, /mnt/ttml/2026-11-14/20261114_104010_9123456780.mp3"} />
             <span className="text-[10px] text-gray-500">{pathList.length} recording{pathList.length === 1 ? "" : "s"} · the auditor opens the file from that location, or uploads it later in the audit screen</span>
           </L>
         ) : (<>
@@ -390,6 +419,14 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
   const [busy, setBusy] = useState(""); const [tab, setTab] = useState<"check" | "details">("check");
   useEffect(() => { api(`/${row.id}`).then(d => { setFull(d); setR(d); }).catch(() => {}); }, [row.id]);
   const ev = useMemo(() => evaluate(meta, ck), [meta, ck]);
+  const [callId, setCallId] = useState<string>(row.call_id || "");
+  const [closeNote, setCloseNote] = useState("");
+  const closed = !!r.closed_at;
+  const closeAudit = async () => {
+    setBusy("close");
+    try { const d = await api(`/${r.id}/close`, "POST", { remarks: closeNote }); setR(d); onSaved(d); appToast(`${r.audit_code} closed`, "success"); }
+    catch (e: any) { appToast(e.message, "error"); } finally { setBusy(""); }
+  };
   const failedIds = (meta.checklist || []).filter((c: any) => ck[c.id]?.v === "no").map((c: any) => c.id);
   const forced = failedIds.length > 0;                       // any "No" = issues identified
   const issues = forced || f.result === "Issues identified";
@@ -410,7 +447,7 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
     setBusy("save");
     try {
       if (Object.keys(det).length) { const d = await api(`/${r.id}`, "PUT", det); setR(d); setDet({}); }
-      const d = await api(`/${r.id}/audit`, "POST", { checklist: ck, ...f, result, issue_category: issueCat, outcome, action_owner_id: f.action_owner_id || ownerDefault || null });
+      const d = await api(`/${r.id}/audit`, "POST", { checklist: ck, ...f, call_id: callId, result, issue_category: issueCat, outcome, action_owner_id: f.action_owner_id || ownerDefault || null });
       appToast(d.sr_created ? `Audit saved — ${d.sr_created} raised for ${d.action_owner_name}` : "Audit saved", "success");
       onSaved(d);
     } catch (e: any) { appToast(e.message, "error"); } finally { setBusy(""); }
@@ -465,10 +502,32 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
               <div className="text-[12px] whitespace-pre-wrap text-gray-800 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-800 p-2.5 max-h-72 overflow-y-auto">{full.transcript}</div>
             </div>
           ) : <div className="text-[11px] text-gray-500">Transcription is optional — it uses the meeting-transcription setup and the AI pre-check needs it. The auditor's answers are what count.</div>}
+          {r.audited_at && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 text-[13px] space-y-1.5">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Audit outcome</div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-gray-700 dark:text-gray-200">
+                <span className="text-gray-500">Call ID</span><span className="font-mono">{r.call_id || "—"}</span>
+                <span className="text-gray-500">Result</span><span className={`font-semibold ${r.result === "Passed" ? OUT_TONE.Satisfactory : OUT_TONE["Non-compliant"]}`}>{r.result}{r.issue_category ? ` — ${r.issue_category}` : ""}</span>
+                <span className="text-gray-500">Score</span><span>{r.score != null ? `${Number(r.score)}%` : "—"} · {r.outcome} · {r.severity}</span>
+                <span className="text-gray-500">SRs</span><span>{r.srs?.length ? r.srs.map((x: any) => `${x.sr_code} (${x.status})`).join(", ") : "None"}</span>
+                <span className="text-gray-500">Audited</span><span>{r.auditor_name} · {new Date(r.audited_at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                {closed && <><span className="text-gray-500">Closed</span><span>{r.closed_by_name} · {new Date(r.closed_at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  {r.closure_remarks && <><span className="text-gray-500">Remarks</span><span>{r.closure_remarks}</span></>}</>}
+              </div>
+              {r.state === "Ready to close" && (
+                <div className="pt-2 space-y-2 border-t border-gray-100 dark:border-gray-800">
+                  <div className="text-[11px] text-violet-600 dark:text-violet-300">All SRs from this audit are resolved — close the audit with what was done.</div>
+                  <textarea rows={2} value={closeNote} onChange={e => setCloseNote(e.target.value)} className={inputCls} placeholder="Closure remarks (e.g. investor called back with the correct disclosure; RM retrained on 21 Nov)" />
+                  <div className="flex justify-end"><button onClick={closeAudit} disabled={!!busy} className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white font-semibold disabled:opacity-50 flex items-center gap-1.5">
+                    {busy === "close" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Close audit</button></div>
+                </div>
+              )}
+            </div>
+          )}
           {(!!r.srs?.length || r.audited_at) && (
             <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-2">
               <div className="flex items-center gap-2"><span className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex-1">Service Requests from this audit</span>
-                {r.audited_at && !srForm && <button onClick={() => setSrForm({ subject: `Call audit ${r.audit_code}: ${r.issue_category || "follow-up"}`, details: "", owner_id: r.action_owner_id || r.employee_id || "", priority: r.severity || "Medium", due: "" })}
+                {r.audited_at && !closed && !srForm && <button onClick={() => setSrForm({ subject: `Call audit ${r.audit_code}: ${r.issue_category || "follow-up"}`, details: "", owner_id: r.action_owner_id || r.employee_id || "", priority: r.severity || "Medium", due: "" })}
                   className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white flex items-center gap-1"><Plus className="w-3 h-3" /> Raise SR</button>}</div>
               {!r.srs?.length && !srForm && <div className="text-[11px] text-gray-500">None yet.</div>}
               {(r.srs || []).map((x: any) => (
@@ -508,6 +567,17 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
           </div>
           {tab === "details" ? (
             <div className="space-y-3">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Call identification</div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <L label="Call ID * (telephone system)"><input value={callId} onChange={e => { setCallId(e.target.value); sd("call_id", e.target.value); }} className={`${inputCls} font-mono`} placeholder="e.g. TTML-88213457" /></L>
+                <L label="Agent / extension ID"><input value={dv("agent_id")} onChange={e => sd("agent_id", e.target.value)} className={inputCls} /></L>
+                <L label="Line / DID number"><input value={dv("line_number")} onChange={e => sd("line_number", e.target.value)} className={inputCls} /></L>
+                <L label="Investor / client"><ClientPicker id={dv("client_id")} name={"client_id" in det ? det.__client_name : r.client_name} onChange={(id, n) => setDet((x: any) => ({ ...x, client_id: id, __client_name: n }))} /></L>
+                <L label="Folio number"><input value={dv("folio_no")} onChange={e => sd("folio_no", e.target.value)} className={inputCls} /></L>
+                <L label="Distributor ARN"><input value={dv("arn_code")} onChange={e => sd("arn_code", e.target.value)} className={inputCls} placeholder="ARN-" /></L>
+                <L label="Transaction / application reference" span2><input value={dv("txn_ref")} onChange={e => sd("txn_ref", e.target.value)} className={inputCls} /></L>
+              </div>
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 pt-1">Call details</div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <L label="Call date"><input type="date" value={String(dv("call_date")).slice(0, 10)} onChange={e => sd("call_date", e.target.value)} className={inputCls} /></L>
                 <L label="Time"><input type="time" value={dv("call_time")} onChange={e => sd("call_time", e.target.value)} className={inputCls} /></L>
@@ -532,6 +602,10 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
             </div>
           ) : (
             <div className="space-y-3">
+              <div className={`rounded-xl border p-3 flex flex-wrap items-end gap-3 ${callId ? "border-gray-200 dark:border-gray-800" : "border-amber-400 bg-amber-500/5"}`}>
+                <L label="Call ID being audited *"><input value={callId} disabled={closed} onChange={e => setCallId(e.target.value)} className={`${inputCls} font-mono w-56`} placeholder="from the telephone system" /></L>
+                <div className="text-[11px] text-gray-500 pb-2 min-w-0">{[fmtDate(r.call_date), r.call_time, r.direction, r.phone, r.employee_name, r.client_name, r.folio_no && `Folio ${r.folio_no}`].filter(x => x && x !== "—").join(" · ") || "Add call details in the Call details tab"}</div>
+              </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
                 {meta.checklist.map((c: any) => {
                   const v = ck[c.id]?.v || ""; const sug = ai?.points?.[c.id];
@@ -590,8 +664,9 @@ function AuditPanel({ t, meta, row, onClose, onSaved, onDeleted }: { t: any; met
               )}
               <div className="flex items-center gap-2">
                 {r.audited_at && <span className="text-[11px] text-gray-500">Audited by {r.auditor_name} · {new Date(r.audited_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>}
-                <button onClick={save} disabled={!!busy} className="ml-auto text-sm px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 flex items-center gap-1.5">
-                  {busy === "save" && <RefreshCw className="w-4 h-4 animate-spin" />}{willRaise ? "Save & raise SR" : r.audited_at ? "Update audit" : "Save audit"}</button>
+                {closed ? <span className="ml-auto text-[11px] text-gray-500">Closed — no further changes</span> :
+                <button onClick={save} disabled={!!busy || !callId.trim()} title={callId.trim() ? "" : "Enter the Call ID first"} className="ml-auto text-sm px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50 flex items-center gap-1.5">
+                  {busy === "save" && <RefreshCw className="w-4 h-4 animate-spin" />}{willRaise ? "Save & raise SR" : r.audited_at ? "Update audit" : "Save audit"}</button>}
               </div>
             </div>
           )}

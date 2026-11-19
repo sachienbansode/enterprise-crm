@@ -81,17 +81,19 @@ function evaluate(checklist: Record<string, any>) {
 
 const LIST_SELECT = `
   SELECT a.id, a.audit_code, a.vertical, a.call_date, a.call_time, a.direction, a.phone, a.caller_name, a.caller_type, a.client_id, c.name AS client_name, c.client_code,
-         a.employee_id, a.employee_name, a.team, a.call_purpose, a.duration_sec, a.recording_ref, a.recording_path, a.audio_name, a.audio_bytes, (a.audio_path IS NOT NULL) AS has_audio,
+         a.employee_id, a.employee_name, a.team, a.call_purpose, a.duration_sec, a.recording_ref, a.recording_path, a.call_id, a.agent_id, a.line_number, a.folio_no, a.arn_code, a.txn_ref, a.audio_name, a.audio_bytes, (a.audio_path IS NOT NULL) AS has_audio,
          a.sample_batch, a.sample_reason, a.in_sample, a.checklist, a.score, a.result, a.issue_category, a.outcome, a.severity, a.observations, a.recommendation,
          a.action_required, a.action_owner_id, a.action_owner_name, a.action_due, a.sr_id, a.sr_code, sr.status AS sr_status,
-         a.transcript, a.transcript_source, a.ai_check, a.auditor_name, a.audited_at, a.created_by_name, a.created_at,
+         a.transcript, a.transcript_source, a.ai_check, a.auditor_name, a.audited_at, a.closed_at, a.closed_by_name, a.closure_remarks, a.created_by_name, a.created_at,
          (SELECT COALESCE(json_agg(json_build_object('id', s.id, 'sr_code', s.sr_code, 'status', s.status, 'subject', s.subject, 'priority', s.priority,
                    'assignee', u.name, 'due', s.sla_deadline, 'created_at', s.created_at) ORDER BY s.created_at), '[]'::json)
             FROM service_requests s LEFT JOIN users u ON u.id = s.assigned_to WHERE s.call_audit_id = a.id) AS srs,
          CASE WHEN NOT a.in_sample THEN 'Not sampled'
               WHEN a.audited_at IS NULL THEN 'Pending'
+              WHEN a.closed_at IS NOT NULL THEN 'Closed'
               WHEN EXISTS (SELECT 1 FROM service_requests s WHERE s.call_audit_id = a.id AND s.status NOT IN ('Resolved','Closed')) THEN 'Action open'
-              WHEN EXISTS (SELECT 1 FROM service_requests s WHERE s.call_audit_id = a.id) THEN 'Closed'
+              WHEN a.result = 'Issues identified' OR EXISTS (SELECT 1 FROM service_requests s WHERE s.call_audit_id = a.id) THEN 'Ready to close'
+              WHEN a.result = 'Passed' THEN 'Passed'
               ELSE 'Audited' END AS state
     FROM call_audits a LEFT JOIN clients c ON c.id=a.client_id LEFT JOIN service_requests sr ON sr.id=a.sr_id`;
 
@@ -115,7 +117,7 @@ callAuditsRouter.get("/", async (req, res) => {
     if (q.to) add("a.call_date <= ?::date", q.to);
     if (q.employee) add("a.employee_name ILIKE ?", `%${q.employee}%`);
     if (q.outcome) add("a.outcome = ?", q.outcome);
-    if (q.search) { p.push(`%${q.search}%`); const n = `$${p.length}`; where.push(`(a.audit_code ILIKE ${n} OR a.employee_name ILIKE ${n} OR a.caller_name ILIKE ${n} OR a.phone ILIKE ${n} OR a.recording_ref ILIKE ${n} OR a.recording_path ILIKE ${n} OR c.name ILIKE ${n} OR a.audio_name ILIKE ${n})`); }
+    if (q.search) { p.push(`%${q.search}%`); const n = `$${p.length}`; where.push(`(a.audit_code ILIKE ${n} OR a.employee_name ILIKE ${n} OR a.caller_name ILIKE ${n} OR a.phone ILIKE ${n} OR a.recording_ref ILIKE ${n} OR a.recording_path ILIKE ${n} OR a.call_id ILIKE ${n} OR a.folio_no ILIKE ${n} OR a.arn_code ILIKE ${n} OR a.txn_ref ILIKE ${n} OR a.agent_id ILIKE ${n} OR c.name ILIKE ${n} OR a.audio_name ILIKE ${n})`); }
     const base = `${LIST_SELECT} ${where.length ? "WHERE " + where.join(" AND ") : ""}`;
     const rows = (await query(`SELECT * FROM (${base}) x ${q.state ? `WHERE state = $${p.length + 1}` : ""} ORDER BY (state='Pending') DESC, call_date DESC NULLS LAST, created_at DESC LIMIT 500`,
       q.state ? [...p, q.state] : p)).rows;
@@ -127,7 +129,7 @@ callAuditsRouter.get("/", async (req, res) => {
       data: rows.map(({ transcript, ...r }: any) => ({ ...r, has_transcript: !!transcript })),
       kpis: { total: sum(() => true), sampled, pending: sum(r => r.state === "Pending"), audited, not_sampled: sum(r => r.state === "Not sampled"),
         non_compliant: sum(r => r.outcome === "Non-compliant"), issues: sum(r => r.result === "Issues identified"), passed: sum(r => r.result === "Passed"), needs_improvement: sum(r => r.outcome === "Needs improvement"),
-        actions_open: sum(r => r.state === "Action open"), coverage: sampled ? Math.round((audited / sampled) * 100) : 0 },
+        actions_open: sum(r => r.state === "Action open"), ready_to_close: sum(r => r.state === "Ready to close"), closed: sum(r => r.state === "Closed"), coverage: sampled ? Math.round((audited / sampled) * 100) : 0 },
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -135,7 +137,8 @@ callAuditsRouter.get("/", async (req, res) => {
 callAuditsRouter.get("/export.csv", async (_req, res) => {
   const rows = (await query(`${LIST_SELECT} WHERE a.vertical = ANY($1) ORDER BY a.call_date DESC NULLS LAST`, [await visibleNames()])).rows;
   const cols = ["audit_code", "vertical", "call_date", "call_time", "direction", "phone", "caller_name", "caller_type", "client_code", "client_name", "employee_name", "team", "call_purpose",
-    "duration_sec", "recording_ref", "recording_path", "audio_name", "sample_batch", "sample_reason", "state", "result", "issue_category", "score", "outcome", "severity", "failed_points", "observations", "recommendation", "sr_code", "auditor_name", "audited_at"];
+    "call_id", "agent_id", "line_number", "folio_no", "arn_code", "txn_ref",
+    "duration_sec", "recording_ref", "recording_path", "audio_name", "sample_batch", "sample_reason", "state", "result", "issue_category", "score", "outcome", "severity", "failed_points", "observations", "recommendation", "sr_code", "auditor_name", "audited_at", "closed_by_name", "closed_at", "closure_remarks"];
   const esc = (v: any) => { const s = v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = [cols.join(",")].concat(rows.map((r: any) => cols.map(k => esc(k === "failed_points" ? evaluate(r.checklist || {}).failed.map(f => SHORT[f]).join("; ") : k === "sr_code" ? (r.srs || []).map((x: any) => `${x.sr_code} (${x.status})`).join("; ") : r[k])).join(",")));
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -155,13 +158,19 @@ async function nextCode(): Promise<string> {
   return `CA-${String(r.rows[0].n).padStart(4, "0")}`;
 }
 const DETAIL_FIELDS = ["vertical", "call_date", "call_time", "direction", "phone", "caller_name", "caller_type", "client_id", "employee_id", "employee_name", "team", "call_purpose",
-  "duration_sec", "recording_ref", "recording_path", "sample_batch", "sample_reason", "in_sample"] as const;
+  "duration_sec", "recording_ref", "recording_path", "call_id", "agent_id", "line_number", "folio_no", "arn_code", "txn_ref", "sample_batch", "sample_reason", "in_sample"] as const;
 function details(b: any) {
   const o: Record<string, any> = {};
   for (const k of DETAIL_FIELDS) if (k in (b || {})) o[k] = k === "in_sample" ? b[k] !== false && b[k] !== "false" : k === "duration_sec" ? (b[k] === "" || b[k] == null ? null : Math.round(Number(b[k])) || null) : clean(b[k]);
   if (o.client_id && !UUID.test(o.client_id)) o.client_id = null;
   if (o.employee_id && !UUID.test(o.employee_id)) o.employee_id = null;
   return o;
+}
+/** A call is audited once: the same Call ID can't be added twice (returns the existing audit code, if any). */
+async function callIdTaken(callId: string | null | undefined, exceptId?: string): Promise<string | null> {
+  if (!callId) return null;
+  const r = (await query("SELECT audit_code FROM call_audits WHERE lower(call_id)=lower($1) AND ($2::uuid IS NULL OR id <> $2) LIMIT 1", [callId, exceptId || null])).rows[0];
+  return r?.audit_code || null;
 }
 /** Recording file name like 20261114_103522_9876543210.mp3 → call date, time and number. */
 function fromFileName(name: string) {
@@ -186,6 +195,8 @@ callAuditsRouter.post("/upload", raw({ type: () => true, limit: "120mb" }), asyn
     const d: Record<string, any> = { ...fromFileName(name || ""), ...details(q) };
     const vis = await visibleNames();
     if (!d.vertical || !vis.includes(d.vertical)) d.vertical = vis.includes("AMC") ? "AMC" : vis[0];
+    const dupCall = await callIdTaken(d.call_id);
+    if (dupCall) return res.status(409).json({ error: `Call ID ${d.call_id} is already added as ${dupCall}` });
     const code = await nextCode();
     const cols = Object.keys(d);
     const r = await query(
@@ -227,6 +238,8 @@ callAuditsRouter.put("/:id", async (req, res) => {
   try {
     const d = details(req.body); const cols = Object.keys(d);
     if (d.vertical && !(await visibleNames()).includes(d.vertical)) return res.status(400).json({ error: "You can't move a call to a business you don't cover" });
+    const dupCall = await callIdTaken(d.call_id, req.params.id);
+    if (dupCall) return res.status(409).json({ error: `Call ID ${d.call_id} is already added as ${dupCall}` });
     if (!cols.length) return res.status(400).json({ error: "Nothing to update" });
     await query(`UPDATE call_audits SET ${cols.map((k, i) => `${k}=$${i + 2}`).join(", ")}, updated_at=NOW() WHERE id=$1`, [req.params.id, ...cols.map(k => d[k])]);
     res.json((await query(`${LIST_SELECT} WHERE a.id=$1`, [req.params.id])).rows[0]);
@@ -317,6 +330,8 @@ async function raiseSr(a: any, o: { subject: string; description: string; subcat
   return sr;
 }
 const callLine = (a: any) => [a.call_date && new Date(a.call_date).toISOString().slice(0, 10), a.call_time, a.direction, a.phone, a.caller_name, a.caller_type].filter(Boolean).join(" · ");
+const callRef = (a: any) => { const x = [a.call_id && `Call ID ${a.call_id}`, a.agent_id && `Agent ${a.agent_id}`, a.line_number && `Line ${a.line_number}`,
+  a.folio_no && `Folio ${a.folio_no}`, a.arn_code && `ARN ${a.arn_code}`, a.txn_ref && `Txn ${a.txn_ref}`].filter(Boolean).join(" · "); return x ? `Call reference: ${x}` : ""; };
 const PRIORITY: Record<string, string> = { Critical: "Critical", High: "High", Medium: "Medium", Low: "Low" };
 
 // Save the audit. Non-compliant (or "action required") raises an SR for the action owner — once per audit.
@@ -330,6 +345,15 @@ callAuditsRouter.post("/:id/audit", async (req, res) => {
     for (const c of CHECKLIST) { const x = b.checklist?.[c.id]; if (x && ["yes", "no", "na"].includes(x.v)) checklist[c.id] = { v: x.v, note: clean(x.note) }; }
     const ev = evaluate(checklist);
     if (ev.answered === 0 && !Object.keys(checklist).length) return res.status(400).json({ error: "Answer the checklist first" });
+    if (a.closed_at) return res.status(409).json({ error: `${a.audit_code} is closed — it can't be changed` });
+    // the call being audited must be identified: Call ID from the telephone system (sent now or saved in Call details)
+    const callId = clean(b.call_id) || a.call_id;
+    if (!callId) return res.status(400).json({ error: "Enter the Call ID of the call being audited (Call details)" });
+    if (clean(b.call_id) && clean(b.call_id) !== a.call_id) {
+      const dupCall = await callIdTaken(clean(b.call_id), a.id);
+      if (dupCall) return res.status(409).json({ error: `Call ID ${b.call_id} is already added as ${dupCall}` });
+      await query("UPDATE call_audits SET call_id=$2 WHERE id=$1", [a.id, clean(b.call_id)]);
+    }
     // Result: Passed, or Issues identified (any "No" on the checklist, or the auditor says so). Issues need a category and comments, and always raise an SR.
     const issues = ev.failed.length > 0 || b.result === "Issues identified" || (META.outcomes.includes(b.outcome) && b.outcome !== "Satisfactory");
     const result = issues ? "Issues identified" : "Passed";
@@ -359,7 +383,7 @@ callAuditsRouter.post("/:id/audit", async (req, res) => {
         subject: `Call audit ${a.audit_code}: ${issueCategory}${failed.length && failed[0] !== issueCategory ? ` — ${failed.slice(0, 2).join(", ")}` : ""}`,
         description: [
           `Raised automatically from call audit ${a.audit_code} — issues identified: ${issueCategory} (${outcome}${ev.score !== null ? `, score ${ev.score}%` : ""}, severity ${severity}).`,
-          callLine(a) ? `Call: ${callLine(a)}` : "",
+          callLine(a) ? `Call: ${callLine(a)}` : "", callRef(a),
           `Employee: ${[a.employee_name, a.team].filter(Boolean).join(" · ") || "—"}${a.recording_ref ? ` · Recording ${a.recording_ref}` : ""}${a.recording_path ? ` · File ${a.recording_path}` : ""}`,
           failed.length ? `Points not met: ${failed.join("; ")}` : "",
           observations ? `Auditor's comments: ${observations}` : "", recommendation ? `Action expected: ${recommendation}` : "",
@@ -371,6 +395,23 @@ callAuditsRouter.post("/:id/audit", async (req, res) => {
     await logAudit({ entityType: "call_audit", entityId: a.id, entityCode: a.audit_code, action: "UPDATE", userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role,
       recordDisplay: `${a.audit_code} — ${outcome}${sr ? ` → ${sr.sr_code}` : ""}` });
     res.json({ ...(await query(`${LIST_SELECT} WHERE a.id=$1`, [a.id])).rows[0], sr_created: sr?.sr_code || null });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Close the audit once every SR raised from it is resolved — with the auditor's closure remarks
+callAuditsRouter.post("/:id/close", async (req, res) => {
+  try {
+    const a = (await query(`${LIST_SELECT} WHERE a.id=$1`, [req.params.id])).rows[0];
+    if (!a) return res.status(404).json({ error: "Not found" });
+    if (!a.audited_at) return res.status(409).json({ error: "Audit the call first" });
+    if (a.closed_at) return res.status(409).json({ error: "Already closed" });
+    const open = (a.srs || []).filter((x: any) => !["Resolved", "Closed"].includes(x.status));
+    if (open.length) return res.status(409).json({ error: `Still open: ${open.map((x: any) => x.sr_code).join(", ")} — resolve the SRs first` });
+    const remarks = clean(req.body?.remarks);
+    if (a.result === "Issues identified" && !remarks) return res.status(400).json({ error: "Add closure remarks — what was done about the issue" });
+    await query("UPDATE call_audits SET closed_at=NOW(), closed_by=$2, closed_by_name=$3, closure_remarks=$4, updated_at=NOW() WHERE id=$1", [a.id, req.user?.id || null, req.user?.name || null, remarks]);
+    await logAudit({ entityType: "call_audit", entityId: a.id, entityCode: a.audit_code, action: "UPDATE", userId: req.user?.id, userName: req.user?.name, userRole: req.user?.role, recordDisplay: `${a.audit_code} closed` });
+    res.json((await query(`${LIST_SELECT} WHERE a.id=$1`, [a.id])).rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -392,7 +433,7 @@ callAuditsRouter.post("/:id/sr", async (req, res) => {
       description: [
         details || "",
         `Reference: call audit ${a.audit_code} (${a.result || "audited"}${a.issue_category ? ` — ${a.issue_category}` : ""}; ${a.outcome || ""}${a.score != null ? `, score ${Number(a.score)}%` : ""}${a.severity ? `, severity ${a.severity}` : ""}).`,
-        callLine(a) ? `Call: ${callLine(a)}` : "",
+        callLine(a) ? `Call: ${callLine(a)}` : "", callRef(a),
         `Employee: ${[a.employee_name, a.team].filter(Boolean).join(" · ") || "—"}${a.recording_ref ? ` · Recording ${a.recording_ref}` : ""}${a.recording_path ? ` · File ${a.recording_path}` : ""}`,
         failed.length ? `Points not met: ${failed.join("; ")}` : "",
         a.observations ? `Audit observations: ${a.observations}` : "", a.recommendation ? `Recommendation: ${a.recommendation}` : "",

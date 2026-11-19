@@ -28,7 +28,7 @@ import AboutPage from "./components/AboutPage";
 import UpdateBanner from "./components/UpdateBanner";
 import { versionLabel, APP_VERSION } from "./lib/version";
 import { useOpenRequest } from "./lib/openRecord";
-import { useAppSettings, saveAppSettings } from "./lib/appSettings";
+import { useAppSettings, saveAppSettings, getAppSettings, loadAppSettings } from "./lib/appSettings";
 import { parseINR, fmtINR, fmtINRStr, getUnit, setUnit, type CurrUnit } from "./lib/money";
 // NC-26: opportunity vs linked deal value — "differs" when both are amounts and they are more than 0.5% apart
 const valuesDiffer = (a: any, b: any) => { const x = parseINR(a), y = parseINR(b); return isFinite(x) && isFinite(y) && Math.abs(x - y) > Math.max(1000, 0.005 * Math.max(x, y)); };
@@ -2069,7 +2069,8 @@ function LoginScreen({ onAppLogin, onM365Login, onM365MFA, isDark, m365Error }: 
 
   const handleSubmit = async () => {
     if (!email.trim()) { setError("Please enter your email address."); return; }
-    if (!email.includes("@niytri.com")) { setError("Please use your @niytri.com email address."); return; }
+    // any company domain (niytri.com, ashikamf.com, …): the server checks that the user exists and is active
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("Please enter a valid email address."); return; }
     if (!password) { setError("Please enter your password."); return; }
     setError(""); setM365Hint(false); setLoading(true);
     try {
@@ -6029,6 +6030,8 @@ function AdminM365Config({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark
   const [ssoEnabled, setSsoEnabled] = useState(true);
   const [requireMfa, setRequireMfa] = useState(true);
   const [sessionHours, setSessionHours] = useState(8);
+  const [idleMins, setIdleMins] = useState<number>(getAppSettings().session_idle_minutes || 60);
+  useEffect(() => { loadAppSettings(true).then(() => setIdleMins(getAppSettings().session_idle_minutes || 60)); }, []);
   const [senderEmail, setSenderEmail] = useState("admin@niytri.com");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -6113,6 +6116,10 @@ function AdminM365Config({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark
         }),
       });
       if (!res.ok) throw new Error(await res.text());
+      if (idleMins !== getAppSettings().session_idle_minutes) {
+        if (!(idleMins >= 5 && idleMins <= 480)) throw new Error("Sign out after inactivity must be 5–480 minutes");
+        await saveAppSettings({ session_idle_minutes: idleMins });
+      }
       setHasClientSecret(hasClientSecret || !!clientSecret.trim());
       setHasSmtpPassword(hasSmtpPassword || !!smtpPassword.trim());
       setClientSecret(""); setSmtpPassword("");
@@ -6305,6 +6312,12 @@ function AdminM365Config({ t, isDark }: { t: ReturnType<typeof useTheme>; isDark
           <div>
             <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Session Length (hours)</label>
             <input type="number" min={1} max={24} value={sessionHours} onChange={e => setSessionHours(parseInt(e.target.value))} className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`} />
+            <div className={`text-[10px] ${t.textMuted} mt-1`}>Starting length; it keeps extending while the user is active.</div>
+          </div>
+          <div>
+            <label className={`block text-xs font-medium ${t.textMuted} mb-1.5`}>Sign out after inactivity (minutes)</label>
+            <input type="number" min={5} max={480} value={idleMins} onChange={e => setIdleMins(parseInt(e.target.value) || 0)} className={`w-full border rounded-xl px-3 py-2 text-sm outline-none ${t.inputBg}`} />
+            <div className={`text-[10px] ${t.textMuted} mt-1`}>No clicks, typing or scrolling for this long signs the user out (5–480; default 60).</div>
           </div>
           <div className="flex flex-col justify-end">
             <div className="flex items-center justify-between mb-2">

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
 // App-wide options set by an admin (Admin → Pipeline Stages → Options). Loaded once per session; components re-render on change.
-export type AppSettings = { show_probability: boolean };
-let current: AppSettings = { show_probability: true };
+export type AppSettings = { show_probability: boolean; session_idle_minutes: number };
+let current: AppSettings = { show_probability: true, session_idle_minutes: 60 };
 let loaded: Promise<void> | null = null;
 
 export function loadAppSettings(force = false) {
