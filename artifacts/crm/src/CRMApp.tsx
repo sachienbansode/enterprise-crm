@@ -2821,6 +2821,16 @@ function ClientsModule({ t, loggedUser }: { t: ReturnType<typeof useTheme>; logg
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className={`flex items-center justify-center h-24 text-xs ${t.textMuted}`}><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…</div>
+          ) : !clients.length ? (
+            <div className={`flex flex-col items-center justify-center text-center gap-3 py-14 px-6 ${t.textMuted}`}>
+              <Search className="w-8 h-8 opacity-40" />
+              <div className={`text-sm ${t.text}`}>{search ? <>No client matches "<b>{search}</b>"</> : "No clients match these filters"}</div>
+              <div className="text-xs">Check the spelling or filters{search ? " — or add it now from its business card, QR code or website." : "."}</div>
+              {search && <div className="flex gap-2 flex-wrap justify-center">
+                <button onClick={() => window.dispatchEvent(new CustomEvent("cardscan:open", { detail: { forClients: true } }))} className="text-xs px-3 py-2 rounded-lg bg-sky-600 text-white flex items-center gap-1.5"><ScanIcon className="w-3.5 h-3.5" /> Scan / Link</button>
+                <button onClick={() => { setEditingClient(null); setCreateClientOpen(true); }} className="text-xs px-3 py-2 rounded-lg bg-blue-600 text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Client</button>
+              </div>}
+            </div>
           ) : (<>
             <MList className="p-3">
               {clients.map(c => (
