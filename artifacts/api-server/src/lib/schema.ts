@@ -233,6 +233,7 @@ export async function ensureAppSchema() {
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS result varchar(20)",          // Passed | Issues identified
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS issue_category varchar(80)",
     // which call is audited (telephone system call id, agent / extension, line, investor folio, distributor ARN, transaction) and audit closure
+    "ALTER TABLE company_people ADD COLUMN IF NOT EXISTS card_extra_paths text[]", // 3rd+ photos of a scanned card / contact
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS call_id varchar(80)",
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS agent_id varchar(40)",
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS line_number varchar(30)",

@@ -18,13 +18,18 @@ async function assertPublic(u: URL) {
   if (!addrs.length || addrs.some(a => privateIp(a.address))) throw new Error("That address isn't a public website");
 }
 
+// A normal browser's headers — many company sites (Cloudflare / Akamai protected) refuse requests that announce themselves as a bot
+const BROWSER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-IN,en;q=0.9",
+};
 export async function safeFetchHtml(raw: string): Promise<{ url: string; html: string }> {
   let u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
   for (let hop = 0; hop < 4; hop++) {
     await assertPublic(u);
-    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
     try {
-      const r = await fetch(u, { redirect: "manual", signal: ctl.signal, headers: { "User-Agent": "Mozilla/5.0 (compatible; NIYTRI-CRM/1.0; +company-lookup)", Accept: "text/html,application/xhtml+xml" } });
+      const r = await fetch(u, { redirect: "manual", signal: ctl.signal, headers: BROWSER_HEADERS });
       if (r.status >= 300 && r.status < 400 && r.headers.get("location")) { u = new URL(r.headers.get("location")!, u); continue; }
       if (!r.ok) throw new Error(`The site answered ${r.status}`);
       if (!/html|xml/i.test(r.headers.get("content-type") || "html")) throw new Error("That link isn't a web page");
@@ -87,8 +92,28 @@ export function extractSite(url: string, html: string): SiteInfo {
 }
 
 /** Read a company website (and its contact page when the home page has no e-mail / phone). */
+/** Company name from a domain when the site can't be read: "ashika-group.co.in" → "Ashika Group" */
+export function nameFromDomain(raw: string): string {
+  try {
+    const host = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.replace(/^www\./, "");
+    return host.split(".")[0].replace(/[-_]+/g, " ").replace(/\b([a-z])/g, m => m.toUpperCase()).trim();
+  } catch { return ""; }
+}
 export async function lookupSite(raw: string): Promise<SiteInfo> {
-  const home = await safeFetchHtml(raw);
+  // Try the address as typed, then with / without www and over http — sites differ in what they answer on
+  const v = raw.trim().replace(/\s+/g, "");
+  const tries: string[] = [v];
+  if (!/^https?:\/\//i.test(v)) {
+    const host = v.split("/")[0];
+    const rest = v.slice(host.length);
+    if (!/^www\./i.test(host)) tries.push(`https://www.${host}${rest}`); else tries.push(`https://${host.replace(/^www\./i, "")}${rest}`);
+    tries.push(`http://${v}`);
+  }
+  let home: { url: string; html: string } | null = null, firstErr: any = null;
+  for (const t of tries) {
+    try { home = await safeFetchHtml(t); break; } catch (e: any) { firstErr = firstErr || e; if (/public website|unusual port|Only http/.test(e.message)) break; }
+  }
+  if (!home) throw firstErr || new Error("Couldn't read that website");
   const info = extractSite(home.url, home.html);
   if (!info.company.email || !info.company.phone || !info.company.address) {
     const origin = new URL(home.url).origin;

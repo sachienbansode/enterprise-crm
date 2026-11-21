@@ -276,14 +276,15 @@ router.get("/people/:pid", async (req, res) => {
       ...tasks.rows.map(t => ({ kind: "task", at: t.status === "Done" ? (t.completed_at || t.created_at) : t.created_at, by: t.owner_name, title: t.title, status: t.status, due_date: t.due_date, id: t.id })),
       { kind: "created", at: p.created_at, by: p.created_by_name, title: p.source === "card_scan" ? "Added from a business card" : p.source === "qr_scan" ? "Added from a QR code" : "Added to the CRM" },
     ].sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
-    const { card_path, card_back_path, ...rest } = p;
-    res.json({ ...rest, has_card: !!card_path, has_card_back: !!card_back_path, history, open_tasks: tasks.rows.filter(t => t.status !== "Done").length });
+    const { card_path, card_back_path, card_extra_paths, ...rest } = p;
+    res.json({ ...rest, has_card: !!card_path, has_card_back: !!card_back_path, card_extra: (card_extra_paths || []).length, history, open_tasks: tasks.rows.filter(t => t.status !== "Done").length });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 router.get("/people/:pid/card", async (req, res) => {
   if (!UUID.test(req.params.pid)) return res.status(400).end();
-  const r = (await query("SELECT card_path, card_back_path FROM company_people WHERE id=$1", [req.params.pid])).rows[0];
-  const f = req.query.side === "back" ? r?.card_back_path : r?.card_path;
+  const r = (await query("SELECT card_path, card_back_path, card_extra_paths FROM company_people WHERE id=$1", [req.params.pid])).rows[0];
+  const n = Number(req.query.n); // ?n=3,4… → the extra photos
+  const f = req.query.side === "back" ? r?.card_back_path : n >= 3 ? (r?.card_extra_paths || [])[n - 3] : r?.card_path;
   if (!f || !existsSync(f)) return res.status(404).json({ error: "No card image" });
   res.setHeader("Content-Type", "image/jpeg"); res.setHeader("Cache-Control", "private, max-age=3600");
   createReadStream(f).pipe(res);

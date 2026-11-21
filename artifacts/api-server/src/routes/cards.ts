@@ -5,17 +5,23 @@ import { query } from "../lib/db";
 import { aiVision } from "./ai";
 import { insertCompany, insertPerson } from "./ib";
 import { NAME_NORM_SQL } from "./clientMerge";
-import { lookupSite } from "../lib/siteLookup";
+import { lookupSite, nameFromDomain } from "../lib/siteLookup";
 
 // Business-card scanning: photo → AI reads the card → review → company + person created (or matched) in one step.
-//   POST /api/cards/scan  { image: dataURL, back?: dataURL }   → { fields, matches }
-//   POST /api/cards/save  { company_id? | company{…}, person_id? | person{…}, vertical, image?, back? } → { company_id, person_id, … }
+//   POST /api/cards/scan  { images: dataURL[] (up to 6) | image + back? }   → { fields, matches }
+//   POST /api/cards/save  { company_id? | company{…}, person_id? | person{…}, vertical, images?[] | image? + back? } → { company_id, person_id, … }
 export const cardsRouter = Router();
 const DIR = join(process.cwd(), "uploads", "cards");
 if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
 const UUID = /^[0-9a-f-]{36}$/i;
 const FREE_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|rediffmail|rediff|icloud|me|aol|proton|protonmail|zoho|yandex)\./i;
 const MAX_IMG = 8 * 1024 * 1024;
+const MAX_IMAGES = 6;
+/** All images sent: images[] (new) or image + back (older app versions). */
+function imagesOf(b: any) {
+  const list = Array.isArray(b?.images) && b.images.length ? b.images : [b?.image, b?.back].filter(Boolean);
+  return list.slice(0, MAX_IMAGES).map(decodeImage).filter(Boolean) as { mime: string; b64: string; buf: Buffer }[];
+}
 
 function decodeImage(dataUrl: any): { mime: string; b64: string; buf: Buffer } | null {
   const m = String(dataUrl || "").match(/^data:(image\/(?:jpeg|jpg|png|webp|heic|heif));base64,([A-Za-z0-9+/=]+)$/);
@@ -46,8 +52,9 @@ function normPhone(v: any) {
 const SYSTEM = `You read business cards (visiting cards) for an Indian investment bank's CRM. Reply with ONE JSON object only — no prose, no code fences.
 Schema:
 {"is_card":true,
- "person":{"name":"","designation":"","email":"","mobile":"","landline":"","linkedin":""},
- "company":{"name":"","website":"","email":"","phone":"","address":"","city":"","cin":"","gstin":"","sector_hint":""},
+ "person":{"name":"","designation":"","department":"","email":"","email_alt":"","mobile":"","mobile_alt":"","whatsapp":"","landline":"","linkedin":"","qualifications":""},
+ "company":{"name":"","group":"","website":"","email":"","phone":"","phone_alt":"","fax":"","toll_free":"","address":"","city":"","state":"","pincode":"","country":"",
+            "cin":"","gstin":"","pan":"","sebi_reg":"","arn":"","other_addresses":"","social":"","services":"","tagline":"","sector_hint":""},
  "confidence":0.0,
  "notes":""}
 Rules:
@@ -58,7 +65,13 @@ Rules:
 - email on the person is the individual's address; a generic one (info@, contact@) goes in company.email.
 - company.city: the city from the address. cin: 21-character Corporate Identity Number if printed. gstin: 15-character GSTIN if printed.
 - sector_hint: one or two words for the industry if it is obvious from the card (e.g. "Pharmaceuticals", "NBFC"), else "".
-- If two sides are given, the second image is the back of the same card.
+- Several images may be given: front and back of the card, and possibly more photos of the same contact (another side, a letterhead, an e-mail signature).
+  Combine everything into ONE contact — take each field from whichever image shows it; if images disagree, prefer the business card.
+- Capture EVERY detail printed. Extra numbers / e-mails go in *_alt; department (e.g. "Corporate Finance"); qualifications printed after the name (CA, CFA, MBA);
+  state, pincode (6 digits) and country from the address; pan: 10-character PAN (AAAAA9999A) if printed; sebi_reg: SEBI registration no. (e.g. INZ000…, INH…, INA…);
+  arn: AMFI ARN (e.g. ARN-12345); other_addresses: branch / registered / corporate offices other than the main address, "; "-separated;
+  social: other links (Twitter / X, Facebook, Instagram, YouTube, company LinkedIn page), "; "-separated; services: products / services listed, comma-separated;
+  group: the business group if printed (e.g. "A Tata Enterprise" → "Tata"); tagline: slogan under the logo.
 - If the image is not a business card, reply {"is_card":false,"notes":"what it looks like"}.
 - confidence: 0-1, how sure you are the fields are read correctly (blurry or cut-off → lower).`;
 
@@ -99,32 +112,41 @@ async function findMatches(company: any, person: any) {
 }
 
 cardsRouter.post("/scan", async (req, res) => {
-  const front = decodeImage(req.body?.image);
-  if (!front) return res.status(400).json({ error: "Send a JPEG or PNG photo of the card (up to 8 MB)." });
-  const back = req.body?.back ? decodeImage(req.body.back) : null;
+  const imgs = imagesOf(req.body);
+  if (!imgs.length) return res.status(400).json({ error: "Send a JPEG or PNG photo of the card (up to 8 MB each, up to 6 photos)." });
   try {
     const engine: { provider?: string; model?: string; fallback?: boolean } = {};
-    const text = await aiVision(SYSTEM, back ? "Front and back of one business card." : "Read this business card.", [front, ...(back ? [back] : [])], engine);
+    const prompt = imgs.length === 1 ? "Read this business card." : imgs.length === 2 ? "Front and back of one business card — combine them into one contact."
+      : `${imgs.length} photos of the same contact (business card front, back and other photos) — combine everything into one contact.`;
+    const text = await aiVision(SYSTEM, prompt, imgs, engine);
     if (text === null) return res.status(409).json({ error: "The AI Assistant isn't switched on, so the card can't be read automatically — fill in the details below. An admin can turn it on under Administration → LLM Settings.", code: "AI_OFF" });
     const j = parseJson(text);
     if (!j) return res.status(502).json({ error: "Couldn't read the card — try again with the card flat, filling the frame, in good light." });
     if (j.is_card === false) return res.status(422).json({ error: `This doesn't look like a business card${j.notes ? ` (${j.notes})` : ""}.`, code: "NOT_A_CARD" });
     const p = j.person || {}, c = j.company || {};
+    const s_ = (v: any) => clean(typeof v === "string" ? v : v == null ? "" : String(v)) || "";
     const person = {
-      name: p.name ? titleCase(String(p.name).trim()) : "", designation: clean(p.designation) || "", email: String(p.email || "").trim().toLowerCase(),
-      mobile: normPhone(p.mobile) || "", landline: normPhone(p.landline) || "", linkedin: clean(p.linkedin) || "",
+      name: p.name ? titleCase(String(p.name).trim()) : "", designation: s_(p.designation), department: s_(p.department), qualifications: s_(p.qualifications),
+      email: String(p.email || "").trim().toLowerCase(), email_alt: String(p.email_alt || "").trim().toLowerCase(),
+      mobile: normPhone(p.mobile) || "", mobile_alt: normPhone(p.mobile_alt) || "", whatsapp: normPhone(p.whatsapp) || "", landline: normPhone(p.landline) || "", linkedin: s_(p.linkedin),
     };
+    if (person.whatsapp && digits(person.whatsapp).slice(-10) === digits(person.mobile).slice(-10)) person.whatsapp = "";
     const company = {
       name: titleCase(String(c.name || "").trim()).replace(/\b(Ltd|Pvt|Llp)\b/g, m => m === "Llp" ? "LLP" : m), website: clean(c.website) || "", email: String(c.email || "").trim().toLowerCase(), phone: normPhone(c.phone) || "",
       address: clean(c.address) || "", city: clean(c.city) || "", cin: String(c.cin || "").replace(/\s/g, "").toUpperCase(), gstin: String(c.gstin || "").replace(/\s/g, "").toUpperCase(),
       sector_hint: clean(c.sector_hint) || "",
+      group: s_(c.group), phone_alt: normPhone(c.phone_alt) || "", fax: s_(c.fax), toll_free: s_(c.toll_free), state: s_(c.state), pincode: String(c.pincode || "").replace(/\D/g, "").slice(0, 6),
+      country: s_(c.country), pan: String(c.pan || "").replace(/\s/g, "").toUpperCase(), sebi_reg: s_(c.sebi_reg), arn: s_(c.arn),
+      other_addresses: s_(c.other_addresses), social: s_(c.social), services: s_(c.services), tagline: s_(c.tagline),
     };
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(company.pan)) company.pan = "";
+    if (company.pincode.length !== 6) company.pincode = "";
     if (!/^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/.test(company.cin)) company.cin = "";
     // No website printed: use the company e-mail domain (not for gmail / yahoo …)
     if (!company.website) { const dom = domainOf(person.email || company.email, ""); if (dom) company.website = `www.${dom}`; }
     // Landline with no mobile on the card: if it's a mobile-format number, move it
     if (!person.mobile && /^\+91 [6-9]\d{4} \d{5}$/.test(person.landline)) { person.mobile = person.landline; person.landline = ""; }
-    res.json({ fields: { person, company, confidence: Number(j.confidence) || null, notes: clean(j.notes) || "" }, engine, matches: await findMatches(company, person) });
+    res.json({ fields: { person, company, confidence: Number(j.confidence) || null, notes: clean(j.notes) || "" }, engine, images: imgs.length, matches: await findMatches(company, person) });
   } catch (e: any) {
     console.error("[cards] scan failed:", e.message);
     const msg = /401|invalid.*key|authentication/i.test(e.message) ? "The AI provider rejected the API key — an admin can check it under Administration → LLM Settings."
@@ -145,7 +167,11 @@ cardsRouter.post("/url", async (req, res) => {
     res.json({ company, person: info.person, description: info.description, url: info.url, matches: await findMatches(company, info.person) });
   } catch (e: any) {
     const why = /abort/i.test(e.message) ? "it took too long to answer" : /ENOTFOUND|EAI_AGAIN/i.test(e.message) ? "the address wasn't found — check the spelling" : /ECONNREFUSED|ECONNRESET|certificate|fetch failed/i.test(e.message) ? "the site couldn't be reached" : e.message;
-    res.status(422).json({ error: `Couldn't read that website (${why}) — the website is filled in; add the other details below.` });
+    // still give a usable draft: website + a company name from the domain, so the company can be created and corrected
+    const site = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const company = { website: site, name: nameFromDomain(raw) };
+    res.status(422).json({ error: `Couldn't read that website (${why}) — the website and a name from the address are filled in; check the name and add the other details below.`,
+      company, matches: await findMatches(company, {}).catch(() => null) });
   }
 });
 
@@ -158,9 +184,17 @@ cardsRouter.post("/save", async (req, res) => {
   const b = req.body || {};
   const user = req.user!;
   const vertical = /^[a-z_]{2,20}$/.test(String(b.vertical || "")) ? b.vertical : "ib";
-  const front = b.image ? decodeImage(b.image) : null;
-  const back = b.back ? decodeImage(b.back) : null;
+  const imgs = imagesOf(b);
   const p = b.person || {}, c = b.company || {};
+  // Details that have no field of their own go into the notes of the company / contact, labelled
+  const line = (label: string, v: any) => (clean(v) ? `${label}: ${clean(v)}` : "");
+  const pan = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(c.pan || "").toUpperCase()) ? String(c.pan).toUpperCase() : null;
+  const addr = [clean(c.address), [clean(c.state), clean(c.pincode)].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const fullAddress = addr && clean(c.address) && (String(c.address).includes(String(c.pincode || "~")) || String(c.address).includes(String(c.state || "~"))) ? clean(c.address) : addr || null;
+  const companyNotes = [line("GSTIN", c.gstin), line("PAN", c.pan && !pan ? c.pan : ""), line("SEBI registration", c.sebi_reg), line("AMFI ARN", c.arn), line("Other phone", c.phone_alt), line("Fax", c.fax),
+    line("Toll-free", c.toll_free), line("Country", c.country && !/^india$/i.test(c.country) ? c.country : ""), line("Other offices", c.other_addresses), line("Links", c.social),
+    line("Products / services", c.services), line("Tagline", c.tagline)].filter(Boolean);
+  const personNotes = [line("Department", p.department), line("Qualifications", p.qualifications), line("Other e-mail", p.email_alt), line("Other mobile", p.mobile_alt), line("WhatsApp", p.whatsapp)].filter(Boolean);
   const viaQr = b.source === "qr";
   const viaOcr = b.source === "ocr";
   const hasPerson = !!String(p.name || "").trim() || !!b.person_id; // company-only save is allowed (e.g. created from a website link)
@@ -180,16 +214,18 @@ cardsRouter.post("/save", async (req, res) => {
       // Fill only the blanks on the existing company from the card
       await query(
         `UPDATE clients SET website=COALESCE(NULLIF(website,''),$2), address=COALESCE(NULLIF(address,''),$3), hq_city=COALESCE(NULLIF(hq_city,''),$4),
-                mobile=COALESCE(NULLIF(mobile,''),$5), email=COALESCE(NULLIF(email,''),$6), updated_at=NOW() WHERE id=$1`,
-        [companyId, clean(c.website), clean(c.address), clean(c.city), clean(c.phone), clean(c.email)]);
+                mobile=COALESCE(NULLIF(mobile,''),$5), email=COALESCE(NULLIF(email,''),$6), pan=COALESCE(NULLIF(pan,''),$7), group_name=COALESCE(NULLIF(group_name,''),$8),
+                notes=CASE WHEN $9::text IS NULL OR COALESCE(notes,'') LIKE '%' || $9::text || '%' THEN notes ELSE trim(both E'\n' from concat_ws(E'\n', notes, $9::text)) END, updated_at=NOW() WHERE id=$1`,
+        [companyId, clean(c.website), fullAddress, clean(c.city), clean(c.phone), clean(c.email), pan, clean(c.group), companyNotes.length ? `From card: ${companyNotes.join("; ")}` : null]);
     } else {
       const co = await insertCompany({
-        name: String(c.name).trim(), website: clean(c.website), address: clean(c.address), hq_city: clean(c.city), mobile: clean(c.phone), email: clean(c.email),
-        cin: clean(c.cin), sector: clean(c.sector), relationship_strength: "Cold",
+        name: String(c.name).trim(), website: clean(c.website), address: fullAddress, hq_city: clean(c.city), mobile: clean(c.phone), email: clean(c.email),
+        cin: clean(c.cin), sector: clean(c.sector), group_name: clean(c.group), relationship_strength: "Cold",
         info_source: viaQr ? "QR code" : viaOcr ? "Business card (on-device OCR)" : b.source === "link" ? "Website / link" : b.source === "text" ? "Pasted contact details" : "Business card", info_as_of: new Date().toISOString().slice(0, 10),
-        notes: [c.gstin ? `GSTIN: ${c.gstin}` : "", clean(b.notes) || ""].filter(Boolean).join("\n") || null,
+        notes: [...companyNotes, clean(b.notes) || ""].filter(Boolean).join("\n") || null,
       }, user, vertical);
       companyId = co.id; createdCompany = true;
+      if (pan) await query("UPDATE clients SET pan=$2 WHERE id=$1 AND pan IS NULL AND NOT EXISTS (SELECT 1 FROM clients x WHERE upper(x.pan)=$2 AND x.id<>$1)", [companyId, pan]).catch(() => {});
     }
     let personId = b.person_id as string | undefined, createdPerson = false;
     if (hasPerson) {
@@ -197,16 +233,22 @@ cardsRouter.post("/save", async (req, res) => {
         if (!UUID.test(personId)) return res.status(400).json({ error: "Invalid person" });
         const r = await query(
           `UPDATE company_people SET client_id=$2, designation=COALESCE($3,designation), email=COALESCE(NULLIF(email,''),$4), mobile=COALESCE(NULLIF(mobile,''),$5),
-                  landline=COALESCE(NULLIF(landline,''),$6), linkedin=COALESCE(NULLIF(linkedin,''),$7), updated_at=NOW() WHERE id=$1 RETURNING id`,
-          [personId, companyId, clean(p.designation), clean(p.email), clean(p.mobile), clean(p.landline), clean(p.linkedin)]);
+                  landline=COALESCE(NULLIF(landline,''),$6), linkedin=COALESCE(NULLIF(linkedin,''),$7),
+                  notes=CASE WHEN $8::text IS NULL OR COALESCE(notes,'') LIKE '%' || $8::text || '%' THEN notes ELSE trim(both E'\n' from concat_ws(E'\n', notes, $8::text)) END, updated_at=NOW() WHERE id=$1 RETURNING id`,
+          [personId, companyId, clean(p.designation), clean(p.email), clean(p.mobile), clean(p.landline), clean(p.linkedin), personNotes.length ? personNotes.join("; ") : null]);
         if (!r.rows[0]) return res.status(404).json({ error: "Person not found" });
       } else {
-        const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: clean(c.address) }, user, viaQr ? "qr_scan" : "card_scan");
+        const ps = await insertPerson(companyId!, { ...p, role_type: clean(p.role_type) || "Management", city: clean(c.city), address: fullAddress,
+          notes: [clean(p.notes) || "", ...personNotes].filter(Boolean).join("\n") || null }, user, viaQr ? "qr_scan" : "card_scan");
         personId = ps.id; createdPerson = true;
       }
     }
-    if (front && personId) { const f = join(DIR, `${personId}.jpg`); writeFileSync(f, front.buf); await query("UPDATE company_people SET card_path=$2 WHERE id=$1", [personId, f]); }
-    if (back && personId) { const f = join(DIR, `${personId}_back.jpg`); writeFileSync(f, back.buf); await query("UPDATE company_people SET card_back_path=$2 WHERE id=$1", [personId, f]); }
+    // card photos: 1st = front, 2nd = back, the rest kept as extra images of the contact
+    if (personId && imgs.length) {
+      const paths = imgs.map((im, i) => { const f = join(DIR, `${personId}${i === 0 ? "" : i === 1 ? "_back" : `_${i + 1}`}.jpg`); writeFileSync(f, im.buf); return f; });
+      await query("UPDATE company_people SET card_path=$2, card_back_path=COALESCE($3, card_back_path), card_extra_paths=$4 WHERE id=$1",
+        [personId, paths[0], paths[1] || null, paths.length > 2 ? paths.slice(2) : null]);
+    }
     const companyName = (await query("SELECT name FROM clients WHERE id=$1", [companyId])).rows[0]?.name;
     res.status(201).json({ company_id: companyId, company_name: companyName, person_id: personId || null, created_company: createdCompany, created_person: createdPerson });
   } catch (e: any) {

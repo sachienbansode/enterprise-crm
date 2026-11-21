@@ -6,6 +6,11 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "21 Nov 2026", title: "Cards: several photos, every detail; website links", items: [
+    "Scan Card takes up to 6 photos — front, back and any other photo of the same contact (camera or several at once from the gallery). All are read together into one draft; phones no longer read after the first photo.",
+    "The draft now has every detail on the card: department, qualifications, other e-mail / mobile, WhatsApp, group, state, PIN code, PAN, GSTIN, other phone, fax, SEBI registration, ARN, other offices, links, products / services, tagline — PAN and group in their fields, the rest in the notes. All photos are kept on the contact.",
+    "Company from a website link: sites that block automated readers are read like a normal browser, www / non-www / http are tried, and if a site still can't be read the draft gets the website plus a company name from the address, so the company can be created.",
+  ] },
   { date: "20 Nov 2026", title: "Call audit identification and closure; sign-out after 60 minutes", items: [
     "Each call audit records which call it covers: Call ID from the telephone system (required to save the audit; one audit per Call ID), agent / extension, line / DID, investor (linked to the client record), folio, distributor ARN and transaction reference.",
     "Audit outcome panel: Call ID, result and issue category, score, SRs, auditor and closure. After all SRs are resolved the audit shows 'Ready to close' and the auditor closes it with closure remarks; closed audits can't be changed.",

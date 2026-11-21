@@ -45,13 +45,21 @@ async function prepare(dataUrl: string): Promise<HTMLCanvasElement> {
 
 export async function ocrCard(images: string[], onProgress?: (p: number) => void): Promise<OcrFields> {
   const w = await getWorker(onProgress);
+  // Each photo is read on its own; the front (1st) wins, later photos (back, others) only fill what is still empty
   let text = "", conf = 0, n = 0;
+  const person: OcrFields["person"] = {}, company: OcrFields["company"] = {};
   for (const im of images.filter(Boolean)) {
     const r = await w.recognize(await prepare(im));
-    text += (text ? "\n" : "") + (r.data.text || "");
-    conf += (r.data.confidence || 0) / 100; n++;
+    const t = r.data.text || "";
+    text += (text ? "\n\n" : "") + t;
+    conf += (r.data.confidence || 0) / 100;
+    const f = parseCardText(t);
+    for (const [k, v] of Object.entries(f.person)) if (v && !(person as any)[k] && (n === 0 || k !== "name")) (person as any)[k] = v; // a name only from the front
+    for (const [k, v] of Object.entries(f.company)) if (v && !(company as any)[k]) (company as any)[k] = v;
+    n++;
   }
-  return { ...parseCardText(text), text, confidence: n ? conf / n : 0 };
+  if (!person.name && n > 1) { const all = parseCardText(text); if (all.person.name) person.name = all.person.name; }
+  return { person, company, text, confidence: n ? conf / n : 0 };
 }
 
 // ── Text → fields ────────────────────────────────────────────────────────────
@@ -127,14 +135,18 @@ export function parseCardText(raw: string): Omit<OcrFields, "text" | "confidence
 
   // designation, and the name just above it
   const dIdx = lines.findIndex((l, i) => !used.has(i) && DESIG.test(l) && l.split(" ").length <= 8 && !/\d{4,}/.test(l));
-  const looksName = (l: string) => /^[A-Za-z][A-Za-z.' -]{2,40}$/.test(l) && l.split(/\s+/).length >= 2 && l.split(/\s+/).length <= 5 && !CO.test(l) && !DESIG.test(l) && !ADDR.test(l);
+  const QUAL = /,?\s*\b(CA|CS|CFA|CMA|ICWA|FCA|ACA|MBA|PhD|Ph\.D|CPA|FRM|LLB|B\.?Com|M\.?Com|B\.?Tech|M\.?Tech)\b\.?/g;
+  const HEADING = /\b(office|registered|corporate|branch|address|contact|regd|head\s*office|works|factory)\b/i;
+  const bare = (l: string) => l.replace(QUAL, "").replace(/[,;]+\s*$/, "").trim();
+  const looksName = (l0: string) => { const l = bare(l0); return /^[A-Za-z][A-Za-z.' -]{2,40}$/.test(l) && l.split(/\s+/).length >= 2 && l.split(/\s+/).length <= 5 && !CO.test(l) && !DESIG.test(l) && !ADDR.test(l) && !HEADING.test(l); };
   if (dIdx >= 0) { person.designation = lines[dIdx].replace(/^[^A-Za-z]+/, ""); used.add(dIdx); }
   let nIdx = -1;
   if (dIdx > 0 && looksName(lines[dIdx - 1]) && !used.has(dIdx - 1)) nIdx = dIdx - 1;
   else if (dIdx >= 0 && dIdx + 1 < lines.length && looksName(lines[dIdx + 1]) && !used.has(dIdx + 1)) nIdx = dIdx + 1;
   if (nIdx < 0) nIdx = lines.findIndex((l, i) => !used.has(i) && looksName(l));
   if (nIdx >= 0) {
-    person.name = /^[A-Z .']+$/.test(lines[nIdx]) ? tc(lines[nIdx]) : lines[nIdx];
+    const nm = bare(lines[nIdx]);
+    person.name = /^[A-Z .']+$/.test(nm) ? tc(nm) : nm;
     used.add(nIdx);
   }
   // Company from the e-mail domain if the card text didn't give one

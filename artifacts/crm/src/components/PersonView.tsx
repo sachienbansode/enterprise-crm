@@ -29,7 +29,7 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
   const [err, setErr] = useState("");
   const [showBlank, setShowBlank] = useState(false);
   const [sheet, setSheet] = useState<null | "edit" | "task" | "meeting" | "card">(null);
-  const [cardUrl, setCardUrl] = useState<{ front?: string; back?: string }>({});
+  const [cardUrl, setCardUrl] = useState<{ front?: string; back?: string; extra?: string[] }>({});
   const [toast, setToast] = useState("");
 
   const load = useCallback(() => {
@@ -44,7 +44,9 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
     setSheet("card");
     if (cardUrl.front) return;
     const get = async (side: string) => { const r = await fetch(`/api/ib/people/${id}/card${side === "back" ? "?side=back" : ""}`); return r.ok ? URL.createObjectURL(await r.blob()) : undefined; };
-    setCardUrl({ front: await get("front"), back: p?.has_card_back ? await get("back") : undefined });
+    const extra: string[] = [];
+    for (let n = 3; n < 3 + (p?.card_extra || 0); n++) { const r = await fetch(`/api/ib/people/${id}/card?n=${n}`); if (r.ok) extra.push(URL.createObjectURL(await r.blob())); }
+    setCardUrl({ front: await get("front"), back: p?.has_card_back ? await get("back") : undefined, extra });
   };
 
   // Field rows: [label, value, icon, href?]
@@ -193,6 +195,7 @@ export default function PersonView({ id, onClose }: { id: string; onClose: () =>
                   {!cardUrl.front ? <div className="text-sm text-gray-500 flex items-center"><RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…</div> : <>
                     <img src={cardUrl.front} alt="Front of business card" className="w-full rounded-xl border border-gray-200 dark:border-gray-800" />
                     {cardUrl.back && <img src={cardUrl.back} alt="Back of business card" className="w-full rounded-xl border border-gray-200 dark:border-gray-800" />}
+                    {(cardUrl.extra || []).map((u, i) => <img key={u} src={u} alt={`Photo ${i + 3}`} className="w-full rounded-xl border border-gray-200 dark:border-gray-800" />)}
                   </>}
                 </div>
               )}
