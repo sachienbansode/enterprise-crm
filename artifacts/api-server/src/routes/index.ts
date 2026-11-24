@@ -30,6 +30,7 @@ import { searchRouter } from "./search";
 import { ibMandatesRouter } from "./ibMandates";
 import { clientMergeRouter } from "./clientMerge";
 import { callAuditsRouter } from "./callAudits";
+import { workspaceRouter } from "./workspace";
 
 const router: IRouter = Router();
 
@@ -101,6 +102,7 @@ router.use("/ib", ibMandatesRouter); // IB Phase 2: milestones, investors, match
 router.use("/ib", ibRouter);
 router.use("/interactions", interactionsRouter);
 router.use("/tasks", tasksRouter);
+router.use("/workspace", workspaceRouter); // My Workspace: to-do, follow-ups, reminders, opportunity updates
 router.use("/meetings", meetingsRouter);
 router.use("/call-audits", callAuditsRouter); // AMC CRO call recording audits
 router.use("/cards", cardsRouter);

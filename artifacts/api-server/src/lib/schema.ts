@@ -233,7 +233,16 @@ export async function ensureAppSchema() {
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS result varchar(20)",          // Passed | Issues identified
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS issue_category varchar(80)",
     // which call is audited (telephone system call id, agent / extension, line, investor folio, distributor ARN, transaction) and audit closure
-    "ALTER TABLE company_people ADD COLUMN IF NOT EXISTS card_extra_paths text[]", // 3rd+ photos of a scanned card / contact
+    "ALTER TABLE company_people ADD COLUMN IF NOT EXISTS card_extra_paths text[]",
+    // My Workspace: reminders are tasks with a time (notified when due); notes on tasks
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes text",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_at timestamptz",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminded_at timestamptz",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_owner_open ON tasks (owner_id, status, due_date)",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_remind ON tasks (remind_at) WHERE remind_at IS NOT NULL AND reminded_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_leads_rm_next ON leads (assigned_rm_id, next_action_date)",
+    "CREATE INDEX IF NOT EXISTS ix_interactions_lead ON interactions (lead_id, occurred_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_interactions_deal ON interactions (deal_id, occurred_at DESC)", // 3rd+ photos of a scanned card / contact
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS call_id varchar(80)",
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS agent_id varchar(40)",
     "ALTER TABLE call_audits ADD COLUMN IF NOT EXISTS line_number varchar(30)",

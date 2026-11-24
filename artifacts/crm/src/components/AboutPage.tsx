@@ -6,6 +6,13 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "24 Nov 2026", title: "My Workspace", items: [
+    "My Workspace (Main menu): every representative's to-do list in one place — tasks, opportunity follow-ups (next action + date), personal reminders with a time, and meetings.",
+    "Filters: Overdue, Today, Tomorrow, Next 7 days, This month, All open or a custom range; type, priority, vertical, open / completed; search across to-dos, clients and opportunities; export to CSV.",
+    "Tick off tasks, move anything to tomorrow / next Monday / any date, and record what happened on an opportunity straight from its follow-up — the next action and date move forward automatically.",
+    "My opportunities: every open opportunity and deal with its latest update, next action, days without an update and flags (follow-up overdue, no next action, no update for 14 days); 'Needs attention' filter; record an update or add a task in one click.",
+    "Reminders send a notification at the set time. Managers can open a team member's workspace.",
+  ] },
   { date: "21 Nov 2026", title: "Cards: several photos, every detail; website links", items: [
     "Scan Card takes up to 6 photos — front, back and any other photo of the same contact (camera or several at once from the gallery). All are read together into one draft; phones no longer read after the first photo.",
     "The draft now has every detail on the card: department, qualifications, other e-mail / mobile, WhatsApp, group, state, PIN code, PAN, GSTIN, other phone, fax, SEBI registration, ARN, other offices, links, products / services, tagline — PAN and group in their fields, the rest in the notes. All photos are kept on the contact.",

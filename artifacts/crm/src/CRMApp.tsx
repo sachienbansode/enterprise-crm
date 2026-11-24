@@ -39,6 +39,8 @@ import { useBoardDrag } from "./lib/boardDrag";
 import { ScanLine as ScanIcon, Eye as EyeIcon, GitMerge as MergeIcon } from "lucide-react";
 import DuplicatesModal from "./components/DuplicatesModal";
 import CallAuditsPage from "./components/CallAuditsPage";
+import WorkspacePage from "./components/WorkspacePage";
+import { ClipboardList as WorkspaceIcon } from "lucide-react";
 import { PhoneCall as CallAuditIcon } from "lucide-react";
 // Who may open Call Audits (mirrors CALL_AUDIT_ROLE on the server; the server is the real check)
 const canCallAudit = (u: any) => /(super admin|amc admin|\bcro\b|chief risk|risk analyst|risk officer|compliance|auditor)/i.test(u?.role || "");
@@ -65,7 +67,7 @@ const APP_LOGO = `${import.meta.env.BASE_URL}logo.png`;
 // If logo.png is missing, fall back to the bundled favicon instead of a broken image
 const logoFallback = (e: React.SyntheticEvent<HTMLImageElement>) => { const img = e.currentTarget; if (!img.src.endsWith("favicon.svg")) img.src = `${import.meta.env.BASE_URL}favicon.svg`; };
 type Vertical = "retail" | "corporate" | "ib" | "aif" | "ie" | "amc" | null;
-type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about" | "callaudits"
+type Page = "dashboard" | "leads" | "deals" | "customers" | "documents" | "investors" | "clients" | "service" | "ai" | "calendar" | "about" | "callaudits" | "workspace"
   | "admin-users" | "admin-roles" | "admin-role-map"
   | "admin-sla" | "admin-verticals" | "admin-llm" | "admin-prompts" | "admin-m365"
   | "admin-theme" | "admin-system" | "admin-audit" | "admin-ai-logs"
@@ -2467,6 +2469,9 @@ function Sidebar({ open, onClose, activeV, setActiveV, activePage, setPage, isDa
               <button title="Overall Dashboard" onClick={() => nav(null, "dashboard")} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "dashboard" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
                 <LayoutDashboard className="w-4 h-4 flex-shrink-0" />{open && <span>Overall Dashboard</span>}
               </button>
+              <button title="My Workspace" onClick={() => { setIsAdmin(false); nav(null, "workspace"); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "workspace" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
+                <WorkspaceIcon className="w-4 h-4 flex-shrink-0" />{open && <span>My Workspace</span>}
+              </button>
               <button title="Client Registry" onClick={() => nav(null, "clients")} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${!activeV && activePage === "clients" && !isAdmin ? "bg-blue-600 text-white" : sItem}`}>
                 <User className="w-4 h-4 flex-shrink-0" />{open && <span>Client Registry</span>}
               </button>
@@ -2636,7 +2641,7 @@ function Header({ sidebarOpen, setSidebarOpen, onMobileMenu, activeV, activePage
     "admin-dropdown-config":   "Dropdown Values",
     "admin-pipeline-stages":   "Pipeline Stages",
     "admin-pii-masking":       "PII Data Masking",
-    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar", about: "About & What's New", callaudits: "Call Recording Audits",
+    clients: "Client Registry", service: "Service Requests", calendar: "My Calendar", about: "About & What's New", callaudits: "Call Recording Audits", workspace: "My Workspace",
   };
   const pageLabel = (activeV === "ib" && IB_LABELS[activePage]) || (activeV ? SUBMENU.find(s => s.id === activePage)?.label : null)
     || ADMIN_PAGE_LABELS[activePage] || SUBMENU.find(s => s.id === activePage)?.label
@@ -8645,6 +8650,7 @@ export function CRMApp() {
     if (!activeV && activePage === "service")  return <ServiceRequestModule t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "calendar") return <CalendarPage t={t} isDark={darkMode} loggedUser={loggedUser} />;
     if (!activeV && activePage === "about") return <AboutPage t={t} isDark={darkMode} />;
+    if (!activeV && activePage === "workspace") return <WorkspacePage t={t} isDark={darkMode} loggedUser={loggedUser} />;
     // Call Audits is part of the AMC module (old #/main/callaudits links still open it)
     if ((activeV === "amc" || !activeV) && activePage === "callaudits") return <CallAuditsPage t={t} isDark={darkMode} />;
     if (!activeV) return <ExecutiveDashboard t={t} isDark={darkMode} onNav={navTo} fmt={fmtMoney} />;
