@@ -112,7 +112,7 @@ const NOTES: Record<string, string> = {
   client_contacts: "Extra phone/e-mail entries for a client.",
   company_people: "Promoters / management of a company (client_id → clients.id).",
   leads: "Leads / opportunities (IB calls them opportunities). vertical = full name. value_rupees = numeric ₹ parsed from value_estimate. expected_fee = ₹. stage ids are listed under PIPELINE STAGES. assigned_rm_id → users.id.",
-  deals: "Deals / mandates. value_rupees = numeric ₹ parsed from value. rm_id → users.id. stage holds the stage LABEL text.",
+  deals: "Deals / mandates. value_rupees = numeric ₹ parsed from value. rm_id → users.id. stage holds the stage LABEL text. Deals have NO priority column — for importance join lead_id → leads.priority and rank by value_rupees / expected close date.",
   service_requests: "Client service requests. SLA breached = status NOT IN ('Resolved','Closed') AND sla_deadline < now(). Ignore sla_status (not maintained). assigned_to / created_by → users.id.",
   documents: "Document register (no file contents).",
   interactions: "Logged calls / meetings / notes (incl. Quick Log and Fireflies). key_points is a JSON array.",

@@ -3,6 +3,7 @@ import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
 import { visibleNames } from "../lib/visibility";
 import { saveInteraction } from "./interactions";
+import { logTaskEvent } from "../lib/taskEvents";
 
 // ─── My Workspace ─────────────────────────────────────────────────────────────
 // One page per representative: everything they have to do (tasks, opportunity follow-ups, reminders, meetings),
@@ -258,10 +259,14 @@ workspaceRouter.post("/update", async (req, res) => {
         `INSERT INTO tasks (title, due_date, priority, owner_id, owner_name, client_id, lead_id, vertical, created_by, created_by_name)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$4,$5) RETURNING *`,
         [nextAction.slice(0, 400), nextDate, clean(b.priority) || "Medium", req.user!.id, req.user!.name, rec.client_id, lead.id, rec.vertical])).rows[0];
+      await logTaskEvent(task.id, "created", { id: req.user!.id, name: req.user!.name }, { to: nextDate ? `Due ${nextDate}` : null, comment: `From an update on ${rec.name}` });
     }
     if (lead && b.no_next) await query("UPDATE leads SET next_action=NULL, next_action_date=NULL, updated_at=NOW() WHERE id=$1", [lead.id]);
     // a follow-up the user completed from the to-do list: close the task it came from
-    if (UUID.test(String(b.done_task_id || ""))) await query("UPDATE tasks SET status='Done', completed_at=NOW() WHERE id=$1 AND owner_id=$2", [b.done_task_id, req.user!.id]);
+    if (UUID.test(String(b.done_task_id || ""))) {
+      const done = await query("UPDATE tasks SET status='Done', completed_at=NOW(), completion_note=$3, completed_by_name=$4 WHERE id=$1 AND owner_id=$2 AND status='Open' RETURNING id", [b.done_task_id, req.user!.id, `Update recorded: ${text}`.slice(0, 2000), req.user!.name]);
+      if (done.rows[0]) await logTaskEvent(b.done_task_id, "completed", { id: req.user!.id, name: req.user!.name }, { comment: `Update recorded on ${rec.name}: ${text}` });
+    }
     res.status(201).json({ interaction: it, task });
   } catch (e) { fail(res, e); }
 });
@@ -280,30 +285,108 @@ workspaceRouter.post("/reminders", async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$6,$7) RETURNING *`,
       [title.slice(0, 400), clean(b.notes), istDate, at.toISOString(), clean(b.priority) || "Medium", req.user!.id, req.user!.name,
        UUID.test(String(b.client_id || "")) ? b.client_id : null, UUID.test(String(b.lead_id || "")) ? b.lead_id : null, UUID.test(String(b.deal_id || "")) ? b.deal_id : null, clean(b.vertical)]);
+    await logTaskEvent(r.rows[0].id, "created", { id: req.user!.id, name: req.user!.name }, { to: `Reminder ${at.toISOString()}` });
     res.status(201).json(r.rows[0]);
   } catch (e) { fail(res, e); }
 });
 
-// ── Task / reminder edits from the to-do list: done, reopen, snooze (new date / time), notes ──
+// ── Task / reminder edits: done (comment required), reopen (reason required), reschedule, edit — every change goes to the task trail ──
+const dstr = (d: any) => (d ? String(d instanceof Date ? d.toISOString() : d).slice(0, 10) : null);
+async function canEditTask(t: any, user: any) {
+  return t.owner_id === user.id || t.created_by === user.id || MANAGER.test(String(user.role || ""));
+}
 workspaceRouter.patch("/tasks/:id", async (req, res) => {
   try {
     if (!UUID.test(req.params.id)) return res.status(400).json({ error: "Invalid id" });
     const b = req.body || {};
     const t = (await query("SELECT * FROM tasks WHERE id=$1", [req.params.id])).rows[0];
     if (!t) return res.status(404).json({ error: "Not found" });
-    if (t.owner_id !== req.user!.id && t.created_by !== req.user!.id && !MANAGER.test(String(req.user!.role || ""))) return res.status(403).json({ error: "Not your task" });
-    const sets: string[] = []; const p: any[] = [t.id];
+    if (!(await canEditTask(t, req.user))) return res.status(403).json({ error: "Not your task" });
+    const by = { id: req.user!.id, name: req.user!.name };
+    const comment = clean(b.comment);
+    const sets: string[] = []; const p: any[] = [t.id]; const events: [any, any][] = [];
     const set = (sql: string, v: any) => { p.push(v); sets.push(sql.replace("?", `$${p.length}`)); };
-    if (b.status === "Done") { sets.push("status='Done'", "completed_at=NOW()"); }
-    if (b.status === "Open") { sets.push("status='Open'", "completed_at=NULL"); }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date || ""))) set("due_date=?::date", b.due_date);
-    if (b.remind_at) { const at = new Date(b.remind_at); if (!isNaN(at.getTime())) { set("remind_at=?", at.toISOString()); sets.push("reminded_at=NULL"); set("due_date=?::date", new Date(at.getTime() + 5.5 * 3600000).toISOString().slice(0, 10)); } }
-    if ("notes" in b) set("notes=?", clean(b.notes));
-    if (clean(b.title)) set("title=?", String(b.title).trim().slice(0, 400));
-    if (["High", "Medium", "Low"].includes(b.priority)) set("priority=?", b.priority);
+    if (b.status === "Done" && t.status !== "Done") {
+      if (!comment || comment.length < 3) return res.status(400).json({ error: "Add a short comment on how it was completed" });
+      sets.push("status='Done'", "completed_at=NOW()"); set("completion_note=?", comment); set("completed_by_name=?", req.user!.name);
+      events.push(["completed", { comment }]);
+    }
+    if (b.status === "Open" && t.status === "Done") {
+      if (!comment) return res.status(400).json({ error: "Say why the task is being reopened" });
+      sets.push("status='Open'", "completed_at=NULL");
+      events.push(["reopened", { comment }]);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date || "")) && b.due_date !== dstr(t.due_date) && !b.remind_at) {
+      set("due_date=?::date", b.due_date); events.push(["rescheduled", { from: dstr(t.due_date), to: b.due_date, comment }]);
+    }
+    if (b.remind_at) {
+      const at = new Date(b.remind_at);
+      if (!isNaN(at.getTime())) { set("remind_at=?", at.toISOString()); sets.push("reminded_at=NULL"); set("due_date=?::date", new Date(at.getTime() + 5.5 * 3600000).toISOString().slice(0, 10));
+        events.push(["rescheduled", { from: t.remind_at ? new Date(t.remind_at).toISOString() : dstr(t.due_date), to: at.toISOString(), comment }]); }
+    }
+    if ("notes" in b && clean(b.notes) !== (t.notes || null)) { set("notes=?", clean(b.notes)); events.push(["edited", { from: `Notes: ${t.notes || "—"}`, to: `Notes: ${clean(b.notes) || "—"}` }]); }
+    if (clean(b.title) && String(b.title).trim() !== t.title) { set("title=?", String(b.title).trim().slice(0, 400)); events.push(["edited", { from: `Title: ${t.title}`, to: `Title: ${String(b.title).trim()}` }]); }
+    if (["High", "Medium", "Low", "Critical"].includes(b.priority) && b.priority !== t.priority) { set("priority=?", b.priority); events.push(["edited", { from: `Priority: ${t.priority}`, to: `Priority: ${b.priority}` }]); }
+    if (UUID.test(String(b.owner_id || "")) && b.owner_id !== t.owner_id) {
+      const o = (await query("SELECT id, name FROM users WHERE id=$1", [b.owner_id])).rows[0];
+      if (o) { set("owner_id=?", o.id); set("owner_name=?", o.name); events.push(["reassigned", { from: t.owner_name, to: o.name, comment }]);
+        await query("INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id) VALUES ($1,'task_assigned','Task assigned to you',$2,'task',$3)",
+          [o.id, `${req.user!.name}: ${t.title}`.slice(0, 250), t.id]).catch(() => {}); }
+    }
+    if (!sets.length && comment && b.status === undefined) { await logTaskEvent(t.id, "comment", by, { comment }); return res.json(t); }
     if (!sets.length) return res.status(400).json({ error: "Nothing to change" });
     const r = await query(`UPDATE tasks SET ${sets.join(", ")} WHERE id=$1 RETURNING *`, p);
+    for (const [action, o] of events) await logTaskEvent(t.id, action, by, o);
     res.json(r.rows[0]);
+  } catch (e) { fail(res, e); }
+});
+
+// ── One task in detail, with its full trail ──
+workspaceRouter.get("/tasks/:id", async (req, res) => {
+  try {
+    if (!UUID.test(req.params.id)) return res.status(400).json({ error: "Invalid id" });
+    const t = (await query(
+      `SELECT t.*, c.name AS client_name, c.client_code, l.name AS lead_name, l.lead_code, l.vertical AS lead_vertical, l.stage AS lead_stage,
+              d.name AS deal_name, d.deal_code, p.name AS person_name
+         FROM tasks t LEFT JOIN clients c ON c.id=t.client_id LEFT JOIN leads l ON l.id=t.lead_id LEFT JOIN deals d ON d.id=t.deal_id
+         LEFT JOIN company_people p ON p.id=t.person_id WHERE t.id=$1`, [req.params.id])).rows[0];
+    if (!t) return res.status(404).json({ error: "Not found" });
+    const names = await visibleNames();
+    const mine = t.owner_id === req.user!.id || t.created_by === req.user!.id;
+    if (!mine && !MANAGER.test(String(req.user!.role || "")) && t.vertical && !names.includes(t.vertical)) return res.status(404).json({ error: "Not found" });
+    const ev = (await query("SELECT * FROM task_events WHERE task_id=$1 ORDER BY at", [t.id])).rows;
+    // tasks created before the trail existed: show their creation / completion from the task itself
+    const trail = [...ev];
+    if (!ev.some((e: any) => e.action === "created")) trail.unshift({ action: "created", at: t.created_at, by_name: t.created_by_name, to_value: t.due_date ? `Due ${dstr(t.due_date)}` : null, synthetic: true });
+    if (t.status === "Done" && !ev.some((e: any) => e.action === "completed")) trail.push({ action: "completed", at: t.completed_at, by_name: t.completed_by_name || t.owner_name, comment: t.completion_note, synthetic: true });
+    const late = t.status === "Done" && t.due_date && t.completed_at && dstr(t.completed_at)! > dstr(t.due_date)!;
+    res.json({ ...t, kind: t.remind_at ? "reminder" : "task", can_edit: await canEditTask(t, req.user), completed_late: !!late, trail });
+  } catch (e) { fail(res, e); }
+});
+
+// ── Task history: all my tasks (open and completed), any period ──
+workspaceRouter.get("/task-history", async (req, res) => {
+  try {
+    const who = await whoFor(req);
+    const q = req.query as Record<string, string>;
+    const p: any[] = [who.id]; const w = ["(t.owner_id=$1 OR t.created_by=$1)"];
+    if (q.status === "open") w.push("t.status='Open'"); else if (q.status === "done") w.push("t.status='Done'");
+    const by = q.date_by === "completed" ? "t.completed_at::date" : q.date_by === "created" ? "t.created_at::date" : "t.due_date";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.from || "")) { p.push(q.from); w.push(`${by} >= $${p.length}::date`); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.to || "")) { p.push(q.to); w.push(`${by} <= $${p.length}::date`); }
+    if (q.kind === "reminder") w.push("t.remind_at IS NOT NULL"); else if (q.kind === "task") w.push("t.remind_at IS NULL");
+    if (q.timing === "late") w.push("t.status='Done' AND t.completed_at::date > t.due_date");
+    if (q.timing === "overdue") w.push("t.status='Open' AND t.due_date < CURRENT_DATE");
+    if (q.search) { p.push(`%${q.search}%`); const n = `$${p.length}`; w.push(`(t.title ILIKE ${n} OR t.notes ILIKE ${n} OR t.completion_note ILIKE ${n} OR c.name ILIKE ${n} OR l.name ILIKE ${n} OR l.lead_code ILIKE ${n} OR d.name ILIKE ${n} OR d.deal_code ILIKE ${n})`); }
+    const page = Math.max(1, Number(q.page) || 1), size = 50;
+    const base = `FROM tasks t LEFT JOIN clients c ON c.id=t.client_id LEFT JOIN leads l ON l.id=t.lead_id LEFT JOIN deals d ON d.id=t.deal_id WHERE ${w.join(" AND ")}`;
+    const total = Number((await query(`SELECT COUNT(*) ${base}`, p)).rows[0].count);
+    const rows = (await query(
+      `SELECT t.id, t.title, t.status, t.priority, t.due_date, t.remind_at, t.completed_at, t.completion_note, t.completed_by_name, t.owner_name, t.created_by_name, t.created_at, t.vertical,
+              t.lead_id, l.name AS lead_name, l.lead_code, t.deal_id, d.name AS deal_name, d.deal_code, t.client_id, c.name AS client_name,
+              (SELECT COUNT(*)::int FROM task_events e WHERE e.task_id=t.id AND e.action='rescheduled') AS times_rescheduled
+         ${base} ORDER BY COALESCE(t.completed_at, t.due_date::timestamptz, t.created_at) DESC LIMIT ${size} OFFSET ${(page - 1) * size}`, p)).rows;
+    res.json({ data: rows, total, page, size });
   } catch (e) { fail(res, e); }
 });
 

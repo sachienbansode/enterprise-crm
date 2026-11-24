@@ -6,6 +6,12 @@ import { APP_VERSION, APP_COMMIT, APP_BUILT, useServerVersion } from "../lib/ver
 const BUILD = (() => { try { return APP_BUILT ? new Date(APP_BUILT) : null; } catch { return null; } })();
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  { date: "24 Nov 2026", title: "Task completion with comments, task history and trail; NIYTRI AI understands shorthand", items: [
+    "Ticking a task or reminder no longer completes it straight away: a \"Mark this task complete?\" box asks how it was completed (comment required, quick chips). Reopening asks for a reason.",
+    "Click any task title (My Workspace, Company 360) for its full detail: due date, owner, created by/at, completed by/at, completion note, linked opportunity / deal / client — and a history trail of every change (created, completed, reopened, rescheduled from → to, edited, reassigned, comments).",
+    "My Workspace → Task history: every task and reminder, open or completed, filtered by completed / due / created date, type, completed late or open and overdue, and search across titles and comments; shows times rescheduled; CSV export.",
+    "NIYTRI AI now reads shorthand properly — \"show me all imp deals\" means important deals (largest by value, closing within 30 days, linked opportunity High / Critical), not deals named \"imp\". It says how it read an ambiguous question and retries another reading before saying nothing was found.",
+  ] },
   { date: "24 Nov 2026", title: "My Workspace", items: [
     "My Workspace (Main menu): every representative's to-do list in one place — tasks, opportunity follow-ups (next action + date), personal reminders with a time, and meetings.",
     "Filters: Overdue, Today, Tomorrow, Next 7 days, This month, All open or a custom range; type, priority, vertical, open / completed; search across to-dos, clients and opportunities; export to CSV.",

@@ -1,3 +1,4 @@
+import { logTaskEvent } from "../lib/taskEvents";
 import { Router } from "express";
 import { query } from "../lib/db";
 import { logAudit } from "../lib/audit";
@@ -146,6 +147,7 @@ export async function saveInteraction(b: any, user: { id: string | null; name: s
        uuidOrNull(b.deal_id), it.id, vertical, user.id, user.name],
     );
     created.push(t.rows[0]);
+    await logTaskEvent(t.rows[0].id, "created", { id: user.id, name: user.name }, { to: t.rows[0].due_date ? `Due ${String(t.rows[0].due_date instanceof Date ? t.rows[0].due_date.toISOString() : t.rows[0].due_date).slice(0, 10)}` : null, comment: `Action item from ${it.type || "an update"}${it.title ? `: ${it.title}` : ""}` });
   }
   // Keep the opportunity's "next action" current
   if (lead && (b.next_action || b.next_follow_up)) {
@@ -208,6 +210,7 @@ tasksRouter.post("/", async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [String(b.title).trim().slice(0, 400), clean(b.due_date), clean(b.priority) || "Medium", ownerId, ownerName,
        uuidOrNull(b.client_id), uuidOrNull(b.lead_id), uuidOrNull(b.deal_id), clean(b.vertical), req.user!.id, req.user!.name, uuidOrNull(b.person_id)]);
+    await logTaskEvent(r.rows[0].id, "created", { id: req.user!.id, name: req.user!.name }, { to: r.rows[0].due_date ? `Due ${clean(b.due_date)}` : null });
     if (ownerId !== req.user!.id) {
       await query("INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id) VALUES ($1,'task_assigned','New task assigned',$2,'task',$3)",
         [ownerId, `${req.user!.name}: ${String(b.title).slice(0, 180)}`, r.rows[0].id]).catch(() => {});
@@ -225,6 +228,9 @@ tasksRouter.patch("/:id", async (req, res) => {
          due_date=COALESCE($2::date,due_date), title=COALESCE($3,title), priority=COALESCE($4,priority) WHERE id=$5 RETURNING *`,
       [status, clean(b.due_date), clean(b.title), clean(b.priority), req.params.id]);
     if (!r.rows[0]) return res.status(404).json({ error: "Not found" });
+    if (status === "Done") await query("UPDATE tasks SET completed_by_name=$2, completion_note=COALESCE($3, completion_note) WHERE id=$1", [req.params.id, req.user!.name, clean(b.comment)]);
+    if (status) await logTaskEvent(req.params.id, status === "Done" ? "completed" : "reopened", { id: req.user!.id, name: req.user!.name }, { comment: clean(b.comment) });
+    else if (clean(b.due_date)) await logTaskEvent(req.params.id, "rescheduled", { id: req.user!.id, name: req.user!.name }, { to: clean(b.due_date) });
     res.json(r.rows[0]);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

@@ -238,6 +238,13 @@ export async function ensureAppSchema() {
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes text",
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_at timestamptz",
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminded_at timestamptz",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completion_note text",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_by_name varchar(160)",
+    `CREATE TABLE IF NOT EXISTS task_events (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+       action varchar(20) NOT NULL, from_value text, to_value text, comment text, by_id uuid, by_name varchar(160), at timestamptz DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS ix_task_events_task ON task_events (task_id, at)",
     "CREATE INDEX IF NOT EXISTS ix_tasks_owner_open ON tasks (owner_id, status, due_date)",
     "CREATE INDEX IF NOT EXISTS ix_tasks_remind ON tasks (remind_at) WHERE remind_at IS NOT NULL AND reminded_at IS NULL",
     "CREATE INDEX IF NOT EXISTS ix_leads_rm_next ON leads (assigned_rm_id, next_action_date)",

@@ -4,6 +4,7 @@ import { ClipboardList, Plus, Bell, PhoneCall, Search, X, RefreshCw, CheckCircle
 import { appToast } from "../lib/dialog";
 import { openRecord } from "../lib/openRecord";
 import { MList, MCard } from "./MobileCard";
+import { TaskCompleteDialog, TaskDetail } from "./TaskDialogs";
 
 // My Workspace — each representative's daily page: everything to do (tasks, opportunity follow-ups, reminders, meetings),
 // their open opportunities with the latest update, and one place to record a new update.
@@ -38,7 +39,7 @@ const openRec = (x: { lead_id?: string; deal_id?: string; vertical?: string; dea
 };
 
 export default function WorkspacePage({ t, loggedUser }: { t: any; isDark?: boolean; loggedUser?: any }) {
-  const [tab, setTab] = useState<"todo" | "opps" | "updates">("todo");
+  const [tab, setTab] = useState<"todo" | "opps" | "updates" | "history">("todo");
   const [user, setUser] = useState("");            // team member being viewed (managers); "" = me
   const [team, setTeam] = useState<any[]>([]);
   const [sum, setSum] = useState<any>(null);
@@ -94,13 +95,14 @@ export default function WorkspacePage({ t, loggedUser }: { t: any; isDark?: bool
           ))}
         </div>
         <div className="px-4 flex gap-1 border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
-          {([["todo", "To-do", ClipboardList], ["opps", `Opportunities${opps ? ` (${opps.length})` : ""}`, Briefcase], ["updates", "Updates", History]] as const).map(([k, l, I]) => (
+          {([["todo", "To-do", ClipboardList], ["opps", `Opportunities${opps ? ` (${opps.length})` : ""}`, Briefcase], ["updates", "Updates", History], ["history", "Task history", CheckCircle2]] as const).map(([k, l, I]) => (
             <button key={k} onClick={() => setTab(k)} className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 whitespace-nowrap ${tab === k ? "border-blue-600 text-blue-600 dark:text-blue-400" : `border-transparent ${t.textMuted}`}`}><I className="w-3.5 h-3.5" />{l}</button>
           ))}
         </div>
         {tab === "todo" && <TodoTab t={t} q={q} rev={rev} onChanged={refresh} onUpdate={(rec, doneTaskId) => setModal({ kind: "update", rec, doneTaskId })} />}
         {tab === "opps" && <OppsTab t={t} q={q} rev={rev} onUpdate={rec => setModal({ kind: "update", rec })} onTask={rec => setModal({ kind: "task", rec })} />}
         {tab === "updates" && <UpdatesTab t={t} q={q} rev={rev} />}
+        {tab === "history" && <TaskHistoryTab t={t} q={q} rev={rev} onChanged={refresh} />}
       </div>
       {modal?.kind === "update" && <UpdateModal opps={opps || []} rec={modal.rec} doneTaskId={(modal as any).doneTaskId} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
       {(modal?.kind === "task" || modal?.kind === "reminder") && <TaskModal kind={modal.kind} opps={opps || []} rec={modal.rec} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
@@ -117,7 +119,9 @@ function TodoTab({ t, q, rev, onChanged, onUpdate }: { t: any; q: string; rev: n
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<any[] | null>(null);
   const [snooze, setSnooze] = useState<string | null>(null);
-  const [showF, setShowF] = useState(false); // phones: priority / vertical / status / type behind a "Filters" button
+  const [showF, setShowF] = useState(false);
+  const [confirmT, setConfirmT] = useState<any>(null);   // task / reminder waiting for "Mark complete?" confirmation
+  const [detailId, setDetailId] = useState<string | null>(null); // phones: priority / vertical / status / type behind a "Filters" button
 
   useEffect(() => { const h = (e: any) => { setPreset(e.detail); setStatus("open"); }; window.addEventListener("ws:preset", h); return () => window.removeEventListener("ws:preset", h); }, []);
   const range = useMemo(() => {
@@ -159,12 +163,8 @@ function TodoTab({ t, q, rev, onChanged, onUpdate }: { t: any; q: string; rev: n
   const toggleDone = async (it: any) => {
     if (it.kind === "follow_up") return onUpdate({ kind: "lead", id: it.lead_id, name: it.lead_name, code: it.lead_code, vertical: it.vertical, client_name: it.client_name, next_action: it.title });
     if (it.kind === "meeting") return;
-    try {
-      await api(`/tasks/${it.id}`, "PATCH", { status: it.done ? "Open" : "Done" });
-      appToast(it.done ? "Reopened" : "Done", "success"); onChanged();
-      // a task about an opportunity: offer to record what happened
-      if (!it.done && it.lead_id) setTimeout(() => appToast("Tip: use Record update to note the outcome and the next step for this opportunity", "info"), 400);
-    } catch (e: any) { appToast(e.message, "error"); }
+    // tasks and reminders: confirm in the app, with a comment (completing) or a reason (reopening) — kept in the task's history
+    setConfirmT({ ...it, status: it.done ? "Done" : "Open", due_date: it.date });
   };
   const moveTo = async (it: any, date: string) => {
     setSnooze(null);
@@ -232,7 +232,9 @@ function TodoTab({ t, q, rev, onChanged, onUpdate }: { t: any; q: string; rev: n
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-1 ${K.tone}`}><K.icon className="w-3 h-3" />{K.label}</span>
-                      <span className={`text-sm ${t.text} ${it.done ? "line-through" : ""}`}>{it.title}</span>
+                      {it.kind === "task" || it.kind === "reminder"
+                        ? <button onClick={() => setDetailId(it.id)} title="Details and history" className={`text-sm text-left ${t.text} hover:text-blue-600 hover:underline ${it.done ? "line-through" : ""}`}>{it.title}</button>
+                        : <span className={`text-sm ${t.text} ${it.done ? "line-through" : ""}`}>{it.title}</span>}
                       {it.priority && it.priority !== "Medium" && <span className={`text-[10px] font-semibold ${PRI_TONE[it.priority]}`}>{it.priority}</span>}
                     </div>
                     <div className={`text-[11px] ${t.textMuted} flex flex-wrap gap-x-2`}>
@@ -270,6 +272,9 @@ function TodoTab({ t, q, rev, onChanged, onUpdate }: { t: any; q: string; rev: n
           </div>
         </div>
       ))}
+      {confirmT && <TaskCompleteDialog task={confirmT} onClose={() => setConfirmT(null)} onDone={() => { const was = confirmT; setConfirmT(null); onChanged();
+        if (!was.done && was.lead_id) setTimeout(() => appToast("Tip: use Record update to note the outcome and the next step for this opportunity", "info"), 400); }} />}
+      {detailId && <TaskDetail id={detailId} onClose={() => setDetailId(null)} onChanged={onChanged} />}
     </div>
   );
 }
@@ -381,6 +386,74 @@ function UpdatesTab({ t, q, rev }: { t: any; q: string; rev: number }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Task history: every task, open and completed, with its trail ─────────────
+function TaskHistoryTab({ t, q, rev, onChanged }: { t: any; q: string; rev: number; onChanged: () => void }) {
+  const [rows, setRows] = useState<any[] | null>(null); const [total, setTotal] = useState(0); const [page, setPage] = useState(1);
+  const [status, setStatus] = useState("done"); const [dateBy, setDateBy] = useState("completed"); const [from, setFrom] = useState(addDays(-90)); const [to, setTo] = useState("");
+  const [kind, setKind] = useState(""); const [timing, setTiming] = useState(""); const [search, setSearch] = useState("");
+  const [detailId, setDetailId] = useState<string | null>(null);
+  useEffect(() => { setPage(1); }, [status, dateBy, from, to, kind, timing, search]);
+  useEffect(() => {
+    const p = new URLSearchParams(q); p.set("status", status); p.set("date_by", dateBy); if (from) p.set("from", from); if (to) p.set("to", to);
+    if (kind) p.set("kind", kind); if (timing) p.set("timing", timing); if (search.trim()) p.set("search", search.trim()); p.set("page", String(page));
+    const h = setTimeout(() => api(`/task-history?${p}`).then(d => { setRows(d.data); setTotal(d.total); }).catch(() => setRows([])), 250);
+    return () => clearTimeout(h);
+  }, [q, status, dateBy, from, to, kind, timing, search, page, rev]);
+  const sel = `text-xs px-2 py-1.5 rounded-lg border ${t.border} ${t.inputBg} outline-none`;
+  const late = (r: any) => r.status === "Done" && r.due_date && r.completed_at && ymd(new Date(r.completed_at)) > String(r.due_date).slice(0, 10);
+  const exportCsv = () => {
+    const cols = ["title", "status", "priority", "due_date", "completed_at", "completed_by_name", "completion_note", "lead_code", "lead_name", "client_name", "owner_name", "created_by_name", "times_rescheduled"];
+    const esc = (v: any) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const csv = [cols.join(","), ...(rows || []).map(x => cols.map(k => esc(x[k])).join(","))].join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" })); a.download = `task-history-${ymd(new Date())}.csv`; a.click();
+  };
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex gap-2 flex-wrap items-center">
+        <select value={status} onChange={e => setStatus(e.target.value)} className={sel}><option value="done">Completed</option><option value="open">Open</option><option value="all">All tasks</option></select>
+        <select value={dateBy} onChange={e => setDateBy(e.target.value)} className={sel}><option value="completed">Completed on</option><option value="due">Due on</option><option value="created">Created on</option></select>
+        <span className={`text-xs ${t.textMuted} flex items-center gap-1`}>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={`text-xs px-2 py-1 rounded-lg border ${t.border} ${t.inputBg}`} /> to
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} className={`text-xs px-2 py-1 rounded-lg border ${t.border} ${t.inputBg}`} /></span>
+        <select value={kind} onChange={e => setKind(e.target.value)} className={sel}><option value="">Tasks + reminders</option><option value="task">Tasks</option><option value="reminder">Reminders</option></select>
+        <select value={timing} onChange={e => setTiming(e.target.value)} className={sel}><option value="">Any timing</option><option value="late">Completed late</option><option value="overdue">Open and overdue</option></select>
+        <div className={`flex items-center gap-2 ${t.bgCard2} rounded-lg px-3 py-1.5 flex-1 min-w-40 max-w-xs`}>
+          <Search className={`w-3.5 h-3.5 ${t.textMuted}`} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Task, comment, client, opportunity…" className={`bg-transparent text-xs ${t.text} outline-none w-full`} />
+        </div>
+        <button onClick={exportCsv} title="Export" className={`text-xs px-2.5 py-1.5 rounded-lg border ${t.border} ${t.textMuted} ml-auto`}><Download className="w-3.5 h-3.5" /></button>
+      </div>
+      {!rows ? <div className={`text-xs ${t.textMuted} py-8 text-center`}>Loading…</div> : !rows.length ? <div className={`text-sm ${t.textMuted} py-12 text-center`}>No tasks match these filters.</div> : (<>
+        <div className={`text-[11px] ${t.textMuted}`}>{total} task{total === 1 ? "" : "s"} · click a task for its full history</div>
+        <MList>
+          {rows.map(r => <MCard key={r.id} onClick={() => setDetailId(r.id)} title={r.title} sub={[r.lead_code || r.deal_code, r.client_name].filter(Boolean).join(" · ")}
+            badge={<span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${r.status === "Done" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-blue-500/15 text-blue-700 dark:text-blue-300"}`}>{r.status === "Done" ? (late(r) ? "Done late" : "Done") : "Open"}</span>}
+            value={r.status === "Done" ? `Done ${fmtDay(ymd(new Date(r.completed_at)))}` : `Due ${fmtDay(r.due_date)}`} left={r.completion_note || ""} right="" />)}
+        </MList>
+        <table className="hidden md:table w-full text-xs">
+          <thead><tr className={`text-left ${t.textMuted} border-b ${t.border}`}>{["Task", "Linked to", "Due", "Completed", "Completion note", "Status"].map(h => <th key={h} className="px-3 py-2 font-medium uppercase text-[10px] tracking-wide">{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} onClick={() => setDetailId(r.id)} className={`border-b ${t.border} ${t.rowHover} cursor-pointer align-top`}>
+                <td className="px-3 py-2 max-w-[260px]"><div className={`${t.text} font-medium`}>{r.title}</div><div className={t.textMuted}>{r.remind_at ? "Reminder" : "Task"} · {r.priority}{r.times_rescheduled ? ` · moved ${r.times_rescheduled}×` : ""}</div></td>
+                <td className={`px-3 py-2 ${t.textMuted} max-w-[200px]`}>{r.lead_code || r.deal_code ? <span className="text-blue-500">{r.lead_code || r.deal_code} {r.lead_name || r.deal_name}</span> : null}{r.client_name ? <div>{r.client_name}</div> : null}{!r.lead_code && !r.deal_code && !r.client_name ? "—" : null}</td>
+                <td className={`px-3 py-2 whitespace-nowrap ${t.textMuted}`}>{fmtDay(r.due_date)}</td>
+                <td className={`px-3 py-2 whitespace-nowrap ${t.textMuted}`}>{r.completed_at ? <>{new Date(r.completed_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}<div>{r.completed_by_name}</div></> : "—"}</td>
+                <td className={`px-3 py-2 max-w-[300px] ${t.text}`}>{r.completion_note || <span className={t.textMuted}>—</span>}</td>
+                <td className="px-3 py-2 whitespace-nowrap"><span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${r.status === "Done" ? (late(r) ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400") : "bg-blue-500/15 text-blue-700 dark:text-blue-300"}`}>{r.status === "Done" ? (late(r) ? "Done late" : "Done on time") : "Open"}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {total > 50 && <div className="flex items-center justify-end gap-2 text-xs">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className={`px-2.5 py-1 rounded-lg border ${t.border} disabled:opacity-40`}>Previous</button>
+          <span className={t.textMuted}>Page {page} of {Math.ceil(total / 50)}</span>
+          <button disabled={page * 50 >= total} onClick={() => setPage(p => p + 1)} className={`px-2.5 py-1 rounded-lg border ${t.border} disabled:opacity-40`}>Next</button></div>}
+      </>)}
+      {detailId && <TaskDetail id={detailId} onClose={() => setDetailId(null)} onChanged={onChanged} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { LeadModal } from "../LeadDealModals";
 import { RecordDocuments } from "../RecordActivity";
+import { TaskCompleteDialog, TaskDetail } from "../TaskDialogs";
 
 // Investment Banking company & promoter master — CIN-keyed, with Source · Date · Updated-by on key data,
 // and a Company 360 view (people, opportunities, relationship timeline, tasks, documents) on one screen.
@@ -331,10 +332,10 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
   const openTasks = (data?.tasks || []).filter((x: any) => x.status === "Open");
   const today = new Date(new Date().toDateString());
 
-  const toggleTask = async (task: any) => {
-    await fetch(`/api/tasks/${task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: task.status === "Done" ? "Open" : "Done" }) });
-    load();
-  };
+  // completing / reopening asks for a comment in the app (kept in the task's history)
+  const [confirmTask, setConfirmTask] = useState<any>(null);
+  const [taskDetail, setTaskDetail] = useState<string | null>(null);
+  const toggleTask = (task: any) => setConfirmTask(task);
   const addTask = async () => {
     if (!newTask.title.trim()) return;
     await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...newTask, owner_id: newTask.owner_id || loggedUser?.id, client_id: id, vertical: "Investment Banking" }) });
@@ -566,7 +567,7 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
                       {x.status === "Done" && <CheckCircle2 className="w-3 h-3 text-white" />}
                     </button>
                     <div className="flex-1 min-w-0 text-xs">
-                      <div className={`${t.text} ${x.status === "Done" ? "line-through opacity-60" : ""}`}>{x.title}</div>
+                      <button onClick={() => setTaskDetail(x.id)} title="Details and history" className={`text-left hover:text-blue-600 hover:underline ${t.text} ${x.status === "Done" ? "line-through opacity-60" : ""}`}>{x.title}</button>
                       <div className={`text-[10px] ${overdue ? "text-red-500 font-semibold" : t.textMuted}`}>{x.owner_name || "—"}{x.due_date ? ` · ${overdue ? "overdue · " : ""}${d(x.due_date)}` : ""}</div>
                     </div>
                   </div>
@@ -604,6 +605,8 @@ function Company360({ id, t, isDark, loggedUser, onClose, onEdit, onChanged }: {
       <LeadModal open={oppOpen || !!editOpp} onClose={() => { setOppOpen(false); setEditOpp(null); }} onSaved={() => { load(); onChanged(); }}
         vertical="Investment Banking" verticalId="ib" editLead={editOpp ? { ...editOpp, client_name: c?.name } : undefined} currentUser={loggedUser}
         defaultClientId={c?.id} defaultClientName={c?.name} />
+      {confirmTask && <TaskCompleteDialog task={confirmTask} onClose={() => setConfirmTask(null)} onDone={() => { setConfirmTask(null); load(); }} />}
+      {taskDetail && <TaskDetail id={taskDetail} onClose={() => setTaskDetail(null)} onChanged={load} />}
     </div>
     </>
   );
